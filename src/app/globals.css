@@ -1,26 +1,45 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* RESET TOTAL */
+:root {
+  /* Removemos as cores fixas daqui. Quem manda agora é o page.tsx */
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
+  /* Fundo transparente e texto padrão neutro */
+  background-color: transparent; 
+  color: inherit;
   font-family: Arial, Helvetica, sans-serif;
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden; /* Evita rolagem lateral indesejada */
+}
+
+/* --- SCROLLBAR MODERNA (Estilo Clean) --- */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(100, 100, 100, 0.3);
+  border-radius: 99px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 100, 100, 0.6);
+}
+
+/* Utilitário para o calendário horizontal */
+.custom-scrollbar::-webkit-scrollbar {
+  height: 4px;
 }

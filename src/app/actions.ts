@@ -5,11 +5,13 @@ import { categories, transactions } from "@/db/schema";
 import { desc, and, sql, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 
+// --- BUSCAR DADOS DA DASHBOARD ---
 export async function getDashboardData(month: number, year: number) {
   try {
     const allCategories = await db.select().from(categories);
     
     // Busca transações do mês selecionado
+    // O Drizzle traz todos os campos do schema automaticamente, incluindo 'entityType'
     const currentTransactions = await db
       .select()
       .from(transactions)
@@ -21,26 +23,34 @@ export async function getDashboardData(month: number, year: number) {
       )
       .orderBy(desc(transactions.date));
 
-    // Separação de Dados para a Dashboard
+    // Separação de Dados (Listas)
     const fixedExpenses = currentTransactions.filter(t => t.isFixed === true && t.type === 'expense');
     const variableTransactions = currentTransactions.filter(t => t.isFixed === false || t.type === 'income');
 
-    // Cálculos de Totais
+    // Totais Gerais
     const income = currentTransactions.filter(t => t.type === 'income').reduce((acc, t) => acc + Number(t.amount), 0);
     const expense = currentTransactions.filter(t => t.type === 'expense').reduce((acc, t) => acc + Number(t.amount), 0);
     const balance = income - expense;
 
-    // Dados para Gráficos
-    const pieData = allCategories.map(cat => ({
-      name: cat.name,
-      value: currentTransactions
+    // --- LÓGICA DE METAS E CATEGORIAS (CUTTING FINANCEIRO) ---
+    const categoryStats = allCategories.map(cat => {
+      const spent = currentTransactions
         .filter(tx => tx.categoryId === cat.id && tx.type === 'expense')
-        .reduce((sum, tx) => sum + Number(tx.amount), 0),
-      color: '#3b82f6' 
-    })).filter(i => i.value > 0).sort((a, b) => b.value - a.value);
+        .reduce((sum, tx) => sum + Number(tx.amount), 0);
+      
+      return {
+        id: cat.id,
+        name: cat.name,
+        value: spent,
+        budget: Number(cat.budget || 0), // Traz a meta do banco
+        color: '#3b82f6'
+      };
+    })
+    .filter(i => i.value > 0 || i.budget > 0)
+    .sort((a, b) => b.value - a.value);
 
-    // Gráfico de fluxo diário
-    const dailyData: any[] = [];
+    // Gráfico Diário
+    const dailyData = [];
     const daysInMonth = new Date(year, month, 0).getDate();
     
     for (let i = 1; i <= daysInMonth; i++) {
@@ -59,34 +69,31 @@ export async function getDashboardData(month: number, year: number) {
       allCategories, 
       fixedExpenses, 
       variableTransactions, 
+      transactions: currentTransactions, // Retornamos a lista bruta também para filtragem PF/PJ no front
       summary: { balance, income, expense }, 
-      pieData, 
+      categoryStats, 
+      pieData: categoryStats, 
       dailyData 
     };
 
   } catch (error) {
     console.error("Erro ao buscar dados:", error);
-    return { allCategories: [], fixedExpenses: [], variableTransactions: [], summary: { balance: 0 }, pieData: [], dailyData: [] };
+    return { allCategories: [], fixedExpenses: [], variableTransactions: [], transactions: [], summary: { balance: 0 }, categoryStats: [], pieData: [], dailyData: [] };
   }
 }
 
-// --- FUNÇÃO ATUALIZADA COM PARCELAMENTO ---
+// --- CRIAR TRANSAÇÃO (COM PARCELAMENTO E PF/PJ) ---
 export async function createTransaction(data: any) {
   try {
-    // Verifica se tem parcelas (padrão 1)
+    // Verifica parcelas (padrão 1)
     const installments = data.installments ? Number(data.installments) : 1;
     
     // Divide o valor total pelo número de parcelas
-    // Ex: Compra de 300 em 3x = 100 por parcela
     const amountPerInstallment = (Number(data.amount) / installments).toFixed(2);
 
-    // Loop para criar cada parcela
     for (let i = 0; i < installments; i++) {
       // 1. Calcular a data correta para cada mês
       const [y, m, d] = data.date.split('-').map(Number);
-      
-      // O mês no objeto Date começa em 0 (Jan=0), por isso subtraímos 1.
-      // Somamos 'i' para avançar os meses. O JS corrige o ano automaticamente (Ex: Dez -> Jan).
       const newDate = new Date(y, (m - 1) + i, d); 
       const isoDate = newDate.toISOString().split('T')[0];
 
@@ -95,9 +102,8 @@ export async function createTransaction(data: any) {
         ? `${data.description} (${i + 1}/${installments})` 
         : data.description;
 
-      // 3. Definir status de pagamento
-      // Se for parcelado, só a primeira parcela (i=0) respeita o que o usuário marcou.
-      // As parcelas futuras (i > 0) nascem sempre como PENDENTE (false).
+      // 3. Status de Pagamento
+      // Parcelas futuras (i > 0) nascem como PENDENTE.
       const isPaidStatus = (installments > 1 && i > 0) 
         ? false 
         : (data.isPaid === undefined ? true : data.isPaid);
@@ -106,12 +112,13 @@ export async function createTransaction(data: any) {
       await db.insert(transactions).values({
         userId: "paulo-admin",
         description: description,
-        amount: installments > 1 ? amountPerInstallment : data.amount, // Usa valor parcelado ou cheio
+        amount: installments > 1 ? amountPerInstallment : data.amount,
         categoryId: data.categoryId || null,
         type: data.type,
         date: isoDate,
         isFixed: data.isFixed || false,
         isPaid: isPaidStatus,
+        entityType: data.entityType || "pf", // <--- SALVA SE É PF OU PJ
         aiTags: [],
       });
     }
@@ -124,6 +131,7 @@ export async function createTransaction(data: any) {
   }
 }
 
+// --- ATUALIZAR STATUS (PAGO/PENDENTE) ---
 export async function toggleTransactionStatus(id: string, currentStatus: boolean) {
   try {
     await db.update(transactions)
@@ -138,6 +146,7 @@ export async function toggleTransactionStatus(id: string, currentStatus: boolean
   }
 }
 
+// --- VIRAR O MÊS (COPIAR FIXAS) ---
 export async function copyFixedExpenses(currentMonth: number, currentYear: number) {
   try {
     const fixedExpenses = await db
@@ -189,6 +198,7 @@ export async function copyFixedExpenses(currentMonth: number, currentYear: numbe
           date: nextDateStr,
           isFixed: true,
           isPaid: false, 
+          entityType: expense.entityType, // <--- COPIA SE É PF OU PJ
           aiTags: expense.aiTags
         });
         count++;
@@ -204,30 +214,53 @@ export async function copyFixedExpenses(currentMonth: number, currentYear: numbe
   }
 }
 
+// --- ATUALIZAR ORÇAMENTO (METAS) ---
+export async function updateCategoryBudget(categoryId: string, budget: string) {
+  try {
+    await db.update(categories)
+      .set({ budget: budget })
+      .where(eq(categories.id, categoryId));
+    
+    revalidatePath("/");
+    return { success: true };
+  } catch (error) {
+    console.error("Erro ao atualizar meta:", error);
+    return { success: false };
+  }
+}
+
+// --- CONSULTOR FINANCEIRO EXECUTIVO (IA) ---
 export async function generateMonthlyReport(month: number, year: number) {
   try {
-    // 1. Busca os dados do mês
     const reportData = await getDashboardData(month, year);
+    const txs = reportData.transactions || [];
     
-    // Se não tiver gastos, nem gasta crédito da IA
-    if (reportData.variableTransactions.length === 0 && reportData.fixedExpenses.length === 0) {
-      return { success: false, message: "Sem dados suficientes para treinar este mês, campeão!" };
+    if (txs.length === 0) {
+      return { success: false, message: "Sem dados suficientes para análise executiva." };
     }
 
-    // 2. Prepara o resumo para a IA ler
+    // Calcula dados separados para o prompt
+    const income = txs.filter((t: any) => t.type === 'income').reduce((acc: number, t: any) => acc + Number(t.amount), 0);
+    const expense = txs.filter((t: any) => t.type === 'expense').reduce((acc: number, t: any) => acc + Number(t.amount), 0);
+    
+    // Top gastos para contexto
+    const topExpenses = txs
+        .filter((t: any) => t.type === 'expense')
+        .sort((a: any, b: any) => Number(b.amount) - Number(a.amount))
+        .slice(0, 5)
+        .map((t: any) => `${t.description} (${t.entityType === 'pj' ? 'PJ' : 'PF'}: R$${t.amount})`)
+        .join(', ');
+
     const summaryText = `
-      Mês: ${month}/${year}
-      Saldo: R$ ${reportData.summary.balance}
-      Entradas: R$ ${reportData.summary.income}
-      Saídas Totais: R$ ${reportData.summary.expense}
+      Período: ${month}/${year}
+      Receita Operacional Total: R$ ${income}
+      Despesas Totais: R$ ${expense}
+      Resultado Líquido (Bottom Line): R$ ${income - expense}
       
-      Top Gastos Variáveis:
-      ${reportData.variableTransactions.slice(0, 5).map((t: any) => `- ${t.description}: R$ ${t.amount}`).join('\n')}
-      
-      Contas Fixas Totais: R$ ${reportData.fixedExpenses.reduce((acc: number, t: any) => acc + Number(t.amount), 0)}
+      Principais saídas de caixa:
+      ${topExpenses}
     `;
 
-    // 3. Chama a OpenAI (Configuração Direta)
     const API_KEY = process.env.OPENAI_API_KEY; 
 
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -241,17 +274,20 @@ export async function generateMonthlyReport(month: number, year: number) {
         messages: [
           {
             role: "system",
-            content: `Você é um 'Personal Trainer Financeiro' linha dura, focado em alta performance.
-            O usuário é um fisiculturista e empresário (Paulo Adriano TEAM).
+            content: `Você é um Consultor Financeiro Executivo Sênior (CFO Virtual).
             
-            Sua missão: Analisar o mês financeiro dele usando analogias de musculação/treino.
-            - Se o saldo for positivo: Elogie o "superávit", diga que está crescendo seco.
-            - Se o saldo for negativo: Dê uma bronca, fale que ele está "catabolizando" patrimônio.
-            - Aponte onde ele "roubou na dieta" (gastos variáveis altos).
+            Seu objetivo: Analisar o fluxo de caixa consolidado (PF e PJ) e fornecer insights estratégicos.
             
-            Seja curto, direto e motivador. Use emojis. Máximo de 3 parágrafos.`
+            Diretrizes:
+            1. Use linguagem corporativa e profissional (ex: "Fluxo de Caixa", "Opex", "Liquidez", "Margem", "Alocação de Recursos").
+            2. Seja direto e analítico. Sem metáforas esportivas ou de academia.
+            3. Se o saldo for negativo, sugira cortes de custos operacionais ou renegociação de passivos.
+            4. Se o saldo for positivo, sugira constituição de reservas ou investimentos estratégicos.
+            5. Identifique se os maiores gastos são PF ou PJ e comente sobre a mistura de patrimônios se necessário.
+            
+            Mantenha a resposta concisa (máximo 3 parágrafos).`
           },
-          { role: "user", content: `Analise meu desempenho financeiro deste mês:\n${summaryText}` }
+          { role: "user", content: `Por favor, analise os seguintes indicadores financeiros:\n${summaryText}` }
         ],
         temperature: 0.7,
       }),
@@ -265,6 +301,6 @@ export async function generateMonthlyReport(month: number, year: number) {
 
   } catch (error: any) {
     console.error("Erro no Personal:", error);
-    return { success: false, message: "O Personal está descansando entre séries. Tente de novo." };
+    return { success: false, message: "O serviço de análise executiva está indisponível momentaneamente." };
   }
 }

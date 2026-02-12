@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { X, Sparkles, Loader2, Mic, MicOff, Calendar, CheckCircle2, Circle, DollarSign, CreditCard } from 'lucide-react'
+import { X, Sparkles, Loader2, Mic, MicOff, Calendar, CheckCircle2, CreditCard, User, Building2 } from 'lucide-react'
 import { createTransaction } from '@/app/actions'
 
 export function TransactionModal({ categories, onClose }: { categories: any[], onClose: () => void }) {
@@ -16,6 +16,9 @@ export function TransactionModal({ categories, onClose }: { categories: any[], o
   const [isFixed, setIsFixed] = useState(false)
   const [isPaid, setIsPaid] = useState(true) // Padrão: Pago
   const [installments, setInstallments] = useState(1) // NOVO: Parcelas
+
+  // NOVO: Tipo de Entidade (PF ou PJ)
+  const [entityType, setEntityType] = useState<'pf' | 'pj'>('pf')
 
   // Estados de UI
   const [loading, setLoading] = useState(false)
@@ -104,7 +107,8 @@ export function TransactionModal({ categories, onClose }: { categories: any[], o
       date,      // Envia a data escolhida
       isFixed,   // Envia se é fixo
       isPaid,    // Envia se está pago
-      installments: Number(installments) // Envia o número de parcelas
+      installments: Number(installments), // Envia o número de parcelas
+      entityType // Envia se é PF ou PJ
     });
     setLoading(false);
     onClose();
@@ -122,6 +126,22 @@ export function TransactionModal({ categories, onClose }: { categories: any[], o
           </h2>
           <button onClick={onClose} className="text-zinc-500 hover:text-white transition-colors">
             <X className="w-6 h-6" />
+          </button>
+        </div>
+
+        {/* SELETOR DE ENTIDADE (PF / PJ) - NOVO */}
+        <div className="flex bg-zinc-950 p-1 rounded-xl border border-zinc-800">
+          <button 
+            onClick={() => setEntityType('pf')}
+            className={`flex-1 py-2 text-xs font-bold rounded-lg flex items-center justify-center gap-2 transition-all ${entityType === 'pf' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+          >
+            <User className="w-4 h-4" /> Pessoa Física
+          </button>
+          <button 
+            onClick={() => setEntityType('pj')}
+            className={`flex-1 py-2 text-xs font-bold rounded-lg flex items-center justify-center gap-2 transition-all ${entityType === 'pj' ? 'bg-blue-900/30 text-blue-400 shadow-sm border border-blue-500/20' : 'text-zinc-500 hover:text-zinc-300'}`}
+          >
+            <Building2 className="w-4 h-4" /> Pessoa Jurídica
           </button>
         </div>
 
@@ -168,7 +188,7 @@ export function TransactionModal({ categories, onClose }: { categories: any[], o
         {/* Grid de Detalhes (Data, Valor, Categoria) */}
         <div className="grid grid-cols-2 gap-4">
           
-          {/* Data (NOVO) */}
+          {/* Data */}
           <div className="col-span-2">
             <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1 block">Data</label>
             <div className="relative">

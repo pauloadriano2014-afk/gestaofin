@@ -1,146 +1,317 @@
 'use client'
 
-import { useState, useEffect } from "react";
-import { getDashboardData, toggleTransactionStatus, copyFixedExpenses, generateMonthlyReport } from "./actions"; // + generateMonthlyReport
+import { useState, useEffect, useMemo } from "react";
+import { getDashboardData, toggleTransactionStatus, copyFixedExpenses, generateMonthlyReport } from "./actions"; 
 import { TransactionModal } from "@/components/TransactionModal";
+import { BudgetModal } from "@/components/BudgetModal";
 import { 
-  TrendingUp, Calendar, Plus, ArrowUpRight, ArrowDownRight, 
-  Wallet, Filter, Clock, CheckCircle2, Circle, Copy, Loader2,
-  Dumbbell, MessageSquareQuote, X 
+  TrendingUp, Calendar as CalendarIcon, Plus, ArrowUpRight, ArrowDownRight, 
+  Wallet, Clock, CheckCircle2, Circle, Copy, Loader2,
+  Briefcase, User, Layers, Target, AlertTriangle, MessageSquare, X, ChevronLeft, ChevronRight, Palette
 } from "lucide-react";
-import { 
-  PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, 
-  AreaChart, Area, XAxis, YAxis, CartesianGrid 
-} from 'recharts';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
 
-const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4'];
+// --- CONFIGURAÇÃO DE TEMAS ---
+const THEMES = {
+  dark: {
+    id: 'dark',
+    name: 'Dark',
+    bg: 'bg-zinc-950',
+    text: 'text-zinc-50',
+    textMuted: 'text-zinc-400',
+    card: 'bg-zinc-900 border-zinc-800',
+    cardHover: 'hover:bg-zinc-800/50',
+    button: 'bg-blue-600 hover:bg-blue-700 text-white',
+    buttonSecondary: 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300',
+    iconBg: 'bg-zinc-800',
+    navActive: 'bg-zinc-800 text-white',
+    navInactive: 'text-zinc-500 hover:text-zinc-300',
+    logoFilter: 'invert brightness-0 invert' // Deixa logo branca
+  },
+  nubank: {
+    id: 'nubank',
+    name: 'Nubank',
+    bg: 'bg-gray-50',
+    text: 'text-gray-900',
+    textMuted: 'text-gray-500',
+    card: 'bg-white border-gray-200 shadow-sm',
+    cardHover: 'hover:bg-gray-50',
+    button: 'bg-purple-600 hover:bg-purple-700 text-white',
+    buttonSecondary: 'bg-white hover:bg-gray-100 text-gray-600 border border-gray-200',
+    iconBg: 'bg-purple-50 text-purple-600',
+    navActive: 'bg-purple-600 text-white shadow-md',
+    navInactive: 'text-gray-500 hover:bg-gray-200',
+    logoFilter: '' // Logo original
+  },
+  green: {
+    id: 'green',
+    name: 'Eco',
+    bg: 'bg-emerald-50',
+    text: 'text-emerald-950',
+    textMuted: 'text-emerald-600/70',
+    card: 'bg-white border-emerald-100 shadow-sm',
+    cardHover: 'hover:bg-emerald-50',
+    button: 'bg-emerald-600 hover:bg-emerald-700 text-white',
+    buttonSecondary: 'bg-white hover:bg-emerald-50 text-emerald-700 border border-emerald-100',
+    iconBg: 'bg-emerald-100 text-emerald-700',
+    navActive: 'bg-emerald-600 text-white shadow-md',
+    navInactive: 'text-emerald-600/60 hover:bg-emerald-100',
+    logoFilter: ''
+  },
+  blue: {
+    id: 'blue',
+    name: 'Executivo',
+    bg: 'bg-slate-50',
+    text: 'text-slate-900',
+    textMuted: 'text-slate-500',
+    card: 'bg-white border-slate-200 shadow-sm',
+    cardHover: 'hover:bg-slate-50',
+    button: 'bg-blue-700 hover:bg-blue-800 text-white',
+    buttonSecondary: 'bg-white hover:bg-slate-100 text-slate-600 border border-slate-200',
+    iconBg: 'bg-blue-50 text-blue-700',
+    navActive: 'bg-slate-900 text-white shadow-md',
+    navInactive: 'text-slate-500 hover:bg-slate-200',
+    logoFilter: ''
+  },
+  red: {
+    id: 'red',
+    name: 'Red',
+    bg: 'bg-rose-50',
+    text: 'text-rose-950',
+    textMuted: 'text-rose-600/70',
+    card: 'bg-white border-rose-100 shadow-sm',
+    cardHover: 'hover:bg-rose-50',
+    button: 'bg-rose-600 hover:bg-rose-700 text-white',
+    buttonSecondary: 'bg-white hover:bg-rose-50 text-rose-700 border border-rose-100',
+    iconBg: 'bg-rose-100 text-rose-700',
+    navActive: 'bg-rose-600 text-white shadow-md',
+    navInactive: 'text-rose-600/60 hover:bg-rose-100',
+    logoFilter: ''
+  }
+};
 
 export default function Dashboard() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [copying, setCopying] = useState(false);
   
-  // Novos estados para o Personal
+  // Estado do Dia Selecionado (null = mês inteiro)
+  const [selectedDay, setSelectedDay] = useState<number | null>(null);
+
+  const [copying, setCopying] = useState(false);
   const [advice, setAdvice] = useState('');
   const [analyzing, setAnalyzing] = useState(false);
+  const [budgetModalOpen, setBudgetModalOpen] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState<any>(null);
 
-  const [data, setData] = useState<any>({ 
-    allCategories: [], 
-    summary: { balance: 0, income: 0, expense: 0, incomeChange: 0, expenseChange: 0 },
-    fixedExpenses: [], 
-    variableTransactions: [], 
-    pieData: [],
-    dailyData: []
-  });
+  // --- ESTADOS DE UI ---
+  const [viewMode, setViewMode] = useState<'all' | 'pf' | 'pj'>('all');
+  const [currentTheme, setCurrentTheme] = useState<'dark' | 'nubank' | 'green' | 'blue' | 'red'>('nubank');
+  const [isThemeMenuOpen, setIsThemeMenuOpen] = useState(false); // Agora controlado por clique
+
+  const theme = THEMES[currentTheme];
+
+  const [rawData, setRawData] = useState<any>({ allCategories: [], transactions: [] });
 
   async function loadData() {
     const month = currentDate.getMonth() + 1;
     const year = currentDate.getFullYear();
     const result = await getDashboardData(month, year);
-    setData(result);
+    setRawData(result);
   }
 
-  async function handleTogglePay(id: string, currentStatus: boolean) {
-    await toggleTransactionStatus(id, currentStatus);
-    loadData(); 
-  }
+  // --- GERAÇÃO DOS DIAS DO MÊS ---
+  const daysInMonthArray = useMemo(() => {
+    const days = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0).getDate();
+    return Array.from({ length: days }, (_, i) => i + 1);
+  }, [currentDate]);
 
-  async function handleCopyMonth() {
-    if (!confirm("Deseja copiar todas as contas fixas deste mês para o próximo?")) return;
-    setCopying(true);
-    const month = currentDate.getMonth() + 1;
-    const year = currentDate.getFullYear();
-    const result = await copyFixedExpenses(month, year);
-    alert(result.message);
-    setCopying(false);
-    if (result.success) changeMonth(1);
-  }
+  const processedData = useMemo(() => {
+    // 1. Filtra por PF/PJ
+    let txs = (rawData.transactions || []).filter((t: any) => 
+      viewMode === 'all' ? true : t.entityType === viewMode
+    );
 
-  // --- FUNÇÃO DO PERSONAL FINANCEIRO ---
-  async function handleAnalyze() {
-    setAnalyzing(true);
-    setAdvice(''); // Limpa análise anterior
-    const month = currentDate.getMonth() + 1;
-    const year = currentDate.getFullYear();
+    // 2. Filtra por Dia (se selecionado)
+    if (selectedDay !== null) {
+      const targetDate = `${currentDate.getFullYear()}-${String(currentDate.getMonth()+1).padStart(2,'0')}-${String(selectedDay).padStart(2,'0')}`;
+      txs = txs.filter((t: any) => t.date === targetDate);
+    }
+
+    const income = txs.filter((t: any) => t.type === 'income').reduce((acc: number, t: any) => acc + Number(t.amount), 0);
+    const expense = txs.filter((t: any) => t.type === 'expense').reduce((acc: number, t: any) => acc + Number(t.amount), 0);
     
-    const result = await generateMonthlyReport(month, year);
-    setAdvice(result.message || "Erro ao analisar.");
-    setAnalyzing(false);
-  }
+    const fixedExpenses = txs.filter((t: any) => t.isFixed && t.type === 'expense');
+    const variableTransactions = txs.filter((t: any) => !t.isFixed || t.type === 'income');
 
-  useEffect(() => { loadData(); }, [currentDate]);
+    const categoryStats = (rawData.allCategories || []).map((cat: any) => {
+        const spent = txs.filter((t: any) => t.categoryId === cat.id && t.type === 'expense').reduce((sum: number, t: any) => sum + Number(t.amount), 0);
+        return { ...cat, value: spent, budget: Number(cat.budget || 0) };
+    }).filter((c: any) => c.value > 0 || c.budget > 0).sort((a: any, b: any) => b.value - a.value);
 
-  const changeMonth = (offset: number) => {
-    setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + offset, 1));
-    setAdvice(''); // Limpa o conselho ao mudar de mês
-  };
+    // Dados para gráfico (sempre mostra o mês todo para contexto)
+    const chartTxs = (rawData.transactions || []).filter((t: any) => viewMode === 'all' ? true : t.entityType === viewMode);
+    
+    const dailyData = [];
+    for (let i = 1; i <= daysInMonthArray.length; i++) {
+        const d = `${currentDate.getFullYear()}-${String(currentDate.getMonth()+1).padStart(2,'0')}-${String(i).padStart(2,'0')}`;
+        const dayTxs = chartTxs.filter((t: any) => t.date === d);
+        if(dayTxs.length > 0) {
+            dailyData.push({
+                day: i,
+                entrada: dayTxs.filter((t: any) => t.type === 'income').reduce((a: number, b: any) => a + Number(b.amount), 0),
+                saida: dayTxs.filter((t: any) => t.type === 'expense').reduce((a: number, b: any) => a + Number(b.amount), 0)
+            });
+        }
+    }
 
+    return { summary: { balance: income - expense, income, expense }, fixedExpenses, variableTransactions, categoryStats, dailyData };
+  }, [rawData, viewMode, currentDate, selectedDay, daysInMonthArray]);
+
+  useEffect(() => { loadData(); setSelectedDay(null); }, [currentDate]);
+
+  async function handleTogglePay(id: string, currentStatus: boolean) { await toggleTransactionStatus(id, currentStatus); loadData(); }
+  async function handleCopyMonth() { if(confirm("Deseja copiar todas as contas fixas deste mês para o próximo?")) { setCopying(true); const res = await copyFixedExpenses(currentDate.getMonth()+1, currentDate.getFullYear()); alert(res.message); setCopying(false); if(res.success) changeMonth(1); } }
+  async function handleAnalyze() { setAnalyzing(true); setAdvice(''); const res = await generateMonthlyReport(currentDate.getMonth()+1, currentDate.getFullYear()); setAdvice(res.message || "Erro ao analisar."); setAnalyzing(false); }
+  
+  const changeMonth = (offset: number) => { setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + offset, 1)); setAdvice(''); };
   const formatCurrency = (val: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
 
   return (
-    <main className="min-h-screen bg-zinc-950 text-zinc-50 p-4 md:p-8 font-sans selection:bg-blue-500/30">
-      <div className="max-w-7xl mx-auto space-y-8">
+    <main 
+      className={`min-h-screen w-full ${theme.bg} ${theme.text} p-4 md:p-8 font-sans transition-colors duration-500`}
+      // FORÇAR REMOÇÃO DE IMAGEM DE FUNDO E GARANTIR COR SÓLIDA
+      style={{ backgroundImage: 'none', backgroundColor: currentTheme === 'dark' ? '#09090b' : undefined }} 
+    >
+      <div className="max-w-7xl mx-auto space-y-6">
         
-        {/* HEADER */}
-        <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-white to-zinc-400 bg-clip-text text-transparent">
-              Visão Geral
-            </h1>
-            <p className="text-zinc-400 text-sm mt-1">Paulo Adriano TEAM • Gestão Financeira</p>
+        {/* HEADER TOP */}
+        <header className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-6 relative">
+          
+          <div className="flex flex-col gap-2">
+            {/* LOGO GIGANTE COM FILTRO INTELIGENTE */}
+            <img 
+              src="/logo.png" 
+              alt="KORE" 
+              className={`h-48 w-auto object-contain -ml-4 transition-all duration-500 ${theme.logoFilter}`} 
+            />
           </div>
 
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="flex items-center gap-2 bg-zinc-900 border border-zinc-800 p-1 rounded-xl shadow-sm">
-              <button onClick={() => changeMonth(-1)} className="p-2 hover:bg-zinc-800 rounded-lg text-zinc-400 hover:text-white transition"><ArrowDownRight className="rotate-45" /></button>
-              <div className="flex items-center gap-2 px-4 min-w-[140px] justify-center text-sm font-bold capitalize text-zinc-200">
-                <Calendar className="w-4 h-4 text-blue-500" />
-                {currentDate.toLocaleString('pt-BR', { month: 'long', year: 'numeric' })}
-              </div>
-              <button onClick={() => changeMonth(1)} className="p-2 hover:bg-zinc-800 rounded-lg text-zinc-400 hover:text-white transition"><ArrowUpRight className="rotate-45" /></button>
+          <div className="flex flex-col md:flex-row items-center gap-4 w-full md:w-auto">
+            
+            {/* SELETOR DE TEMAS (CLIQUE) */}
+            <div className="relative">
+              <button 
+                onClick={() => setIsThemeMenuOpen(!isThemeMenuOpen)} // MUDADO PARA CLIQUE
+                className={`p-2 rounded-full border transition-all ${isThemeMenuOpen ? theme.navActive : theme.card}`}
+              >
+                <Palette className="w-5 h-5" />
+              </button>
+              
+              {/* Menu de Temas Flutuante */}
+              {isThemeMenuOpen && (
+                <div className={`absolute top-full right-0 mt-2 p-2 rounded-xl border shadow-xl flex flex-col gap-2 z-50 animate-in fade-in slide-in-from-top-2 ${theme.card}`}>
+                   <span className={`text-[10px] font-bold uppercase px-2 ${theme.textMuted}`}>Temas</span>
+                   <div className="flex gap-2">
+                      <button onClick={() => { setCurrentTheme('dark'); setIsThemeMenuOpen(false); }} className="w-8 h-8 rounded-full bg-zinc-950 border border-zinc-700 hover:scale-110" title="Dark" />
+                      <button onClick={() => { setCurrentTheme('nubank'); setIsThemeMenuOpen(false); }} className="w-8 h-8 rounded-full bg-purple-600 hover:scale-110" title="Nubank" />
+                      <button onClick={() => { setCurrentTheme('green'); setIsThemeMenuOpen(false); }} className="w-8 h-8 rounded-full bg-emerald-500 hover:scale-110" title="Eco" />
+                      <button onClick={() => { setCurrentTheme('blue'); setIsThemeMenuOpen(false); }} className="w-8 h-8 rounded-full bg-blue-600 hover:scale-110" title="Executivo" />
+                      <button onClick={() => { setCurrentTheme('red'); setIsThemeMenuOpen(false); }} className="w-8 h-8 rounded-full bg-rose-600 hover:scale-110" title="Red" />
+                   </div>
+                </div>
+              )}
+            </div>
+
+            {/* SELETOR DE PF/PJ */}
+            <div className={`flex p-1 rounded-full border ${theme.card}`}>
+                <button onClick={() => setViewMode('all')} className={`px-4 py-1.5 text-xs font-bold rounded-full flex items-center gap-2 transition-all ${viewMode === 'all' ? theme.navActive : theme.navInactive}`}><Layers className="w-3 h-3"/> Tudo</button>
+                <button onClick={() => setViewMode('pf')} className={`px-4 py-1.5 text-xs font-bold rounded-full flex items-center gap-2 transition-all ${viewMode === 'pf' ? theme.navActive : theme.navInactive}`}><User className="w-3 h-3"/> PF</button>
+                <button onClick={() => setViewMode('pj')} className={`px-4 py-1.5 text-xs font-bold rounded-full flex items-center gap-2 transition-all ${viewMode === 'pj' ? theme.navActive : theme.navInactive}`}><Briefcase className="w-3 h-3"/> PJ</button>
+            </div>
+
+            {/* CONTROLE DE MÊS */}
+            <div className="flex items-center gap-4">
+                <button onClick={() => changeMonth(-1)} className={`p-2 rounded-full transition-colors ${theme.navInactive}`}><ChevronLeft className="w-6 h-6" /></button>
+                <div className="flex flex-col items-center min-w-[120px]">
+                    <span className={`text-2xl font-bold capitalize leading-none tracking-tight ${theme.text}`}>
+                        {currentDate.toLocaleString('pt-BR', { month: 'long' })}
+                    </span>
+                    <span className={`text-xs font-bold tracking-widest uppercase opacity-50 ${theme.text}`}>
+                        {currentDate.getFullYear()}
+                    </span>
+                </div>
+                <button onClick={() => changeMonth(1)} className={`p-2 rounded-full transition-colors ${theme.navInactive}`}><ChevronRight className="w-6 h-6" /></button>
             </div>
 
             <button 
               onClick={() => setIsModalOpen(true)}
-              className="bg-blue-600 hover:bg-blue-700 active:scale-95 text-white px-5 py-3 rounded-xl font-bold text-sm shadow-lg shadow-blue-900/20 flex items-center gap-2 transition-all"
+              className={`${theme.button} active:scale-95 px-6 py-3 rounded-full font-bold text-sm shadow-lg flex items-center gap-2 transition-all`}
             >
-              <Plus className="w-5 h-5" /> Novo Lançamento
+              <Plus className="w-5 h-5" /> Lançar
             </button>
           </div>
         </header>
 
-        {/* --- ÁREA DO PERSONAL FINANCEIRO --- */}
+        {/* CALENDÁRIO DE DIAS (BARRA HORIZONTAL) */}
+        <div className={`w-full overflow-x-auto pb-4 custom-scrollbar`}>
+           <div className="flex gap-2 min-w-max px-1">
+              <button 
+                onClick={() => setSelectedDay(null)}
+                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all border ${selectedDay === null ? theme.navActive : theme.card + ' ' + theme.navInactive}`}
+              >
+                Mês Todo
+              </button>
+              {daysInMonthArray.map(day => {
+                 // Verifica se o dia é hoje
+                 const isToday = day === new Date().getDate() && currentDate.getMonth() === new Date().getMonth() && currentDate.getFullYear() === new Date().getFullYear();
+                 const isSelected = selectedDay === day;
+
+                 return (
+                   <button
+                     key={day}
+                     onClick={() => setSelectedDay(isSelected ? null : day)}
+                     className={`w-10 h-10 flex flex-col items-center justify-center rounded-xl border transition-all text-xs font-bold ${
+                        isSelected 
+                          ? theme.navActive 
+                          : isToday 
+                            ? `border-blue-400 border-2 ${theme.text}` 
+                            : `${theme.card} ${theme.navInactive}`
+                     }`}
+                   >
+                     {day}
+                     {isToday && <span className="w-1 h-1 rounded-full bg-blue-500 mt-0.5"></span>}
+                   </button>
+                 )
+              })}
+           </div>
+        </div>
+
+        {/* FEEDBACK CONSULTOR */}
         <div className="flex flex-col gap-4">
           <div className="flex justify-end">
              {!advice && (
                <button 
                  onClick={handleAnalyze}
                  disabled={analyzing}
-                 className="flex items-center gap-2 text-sm font-bold bg-zinc-800 hover:bg-zinc-700 text-blue-400 px-4 py-2 rounded-xl border border-zinc-700 transition-all hover:border-blue-500/50"
+                 className={`flex items-center gap-2 text-sm font-bold px-5 py-2.5 rounded-full border shadow-sm transition-all ${theme.buttonSecondary}`}
                >
-                 {analyzing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Dumbbell className="w-4 h-4" />}
-                 {analyzing ? "Analisando treino..." : "Pedir Análise do Personal"}
+                 {analyzing ? <Loader2 className="w-4 h-4 animate-spin" /> : <MessageSquare className="w-4 h-4" />}
+                 {analyzing ? "Analisando..." : "Análise Executiva"}
                </button>
              )}
           </div>
-
-          {/* O Feedback da IA */}
           {advice && (
-            <div className="bg-gradient-to-r from-blue-900/10 to-zinc-900 border border-blue-500/30 p-6 rounded-2xl relative animate-in slide-in-from-top-4 fade-in duration-500">
-              <button onClick={() => setAdvice('')} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors">
-                <X className="w-5 h-5" />
-              </button>
-              
+            <div className={`${theme.card} p-6 rounded-2xl relative animate-in slide-in-from-top-4 fade-in duration-500`}>
+              <button onClick={() => setAdvice('')} className="absolute top-4 right-4 opacity-50 hover:opacity-100 transition-colors"><X className="w-5 h-5" /></button>
               <div className="flex flex-col md:flex-row gap-4">
-                <div className="bg-blue-600/20 p-3 rounded-full h-fit w-fit">
-                  <MessageSquareQuote className="w-8 h-8 text-blue-400" />
+                <div className={`p-3 rounded-xl h-fit w-fit ${theme.iconBg}`}>
+                  <Briefcase className="w-8 h-8" />
                 </div>
                 <div className="space-y-2">
-                  <h3 className="font-bold text-lg text-white flex items-center gap-2">
-                    Feedback do Treinador
-                    <span className="text-[10px] bg-blue-600 px-2 py-0.5 rounded text-white uppercase tracking-wider font-bold">IA</span>
+                  <h3 className="font-bold text-lg flex items-center gap-2">
+                    Parecer Técnico <span className={`text-[10px] px-2 py-0.5 rounded uppercase tracking-wider font-bold ${currentTheme === 'dark' ? 'bg-blue-600 text-white' : 'bg-black text-white'}`}>CFO Virtual</span>
                   </h3>
-                  <div className="text-zinc-300 text-sm leading-relaxed whitespace-pre-line">
+                  <div className={`text-sm leading-relaxed whitespace-pre-line ${theme.textMuted}`}>
                     {advice}
                   </div>
                 </div>
@@ -151,91 +322,119 @@ export default function Dashboard() {
 
         {/* KPI CARDS */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="bg-zinc-900/50 p-6 rounded-2xl border border-zinc-800/50 backdrop-blur-sm relative overflow-hidden group">
-            <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity"><Wallet className="w-16 h-16" /></div>
-            <p className="text-zinc-500 text-xs font-bold uppercase tracking-wider mb-1">Saldo Total</p>
-            <h2 className={`text-4xl font-mono font-bold ${data.summary.balance >= 0 ? 'text-white' : 'text-red-400'}`}>
-              {formatCurrency(data.summary.balance)}
+          <div className={`${theme.card} p-6 rounded-2xl border relative overflow-hidden group transition-all`}>
+            <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity"><Wallet className="w-16 h-16" /></div>
+            <p className={`text-xs font-bold uppercase tracking-wider mb-1 ${theme.textMuted}`}>Saldo Líquido {selectedDay && `(Dia ${selectedDay})`}</p>
+            <h2 className={`text-4xl font-mono font-bold ${processedData.summary.balance >= 0 ? theme.text : 'text-red-500'}`}>
+              {formatCurrency(processedData.summary.balance)}
             </h2>
           </div>
-          <div className="bg-zinc-900/50 p-6 rounded-2xl border border-zinc-800/50 backdrop-blur-sm">
-            <p className="text-zinc-500 text-xs font-bold uppercase tracking-wider mb-1">Entradas</p>
-            <h2 className="text-2xl font-mono font-bold text-green-400">{formatCurrency(data.summary.income)}</h2>
+          <div className={`${theme.card} p-6 rounded-2xl border transition-all`}>
+            <p className={`text-xs font-bold uppercase tracking-wider mb-1 ${theme.textMuted}`}>Receita Operacional</p>
+            <h2 className="text-2xl font-mono font-bold text-emerald-500">{formatCurrency(processedData.summary.income)}</h2>
           </div>
-          <div className="bg-zinc-900/50 p-6 rounded-2xl border border-zinc-800/50 backdrop-blur-sm">
-            <p className="text-zinc-500 text-xs font-bold uppercase tracking-wider mb-1">Saídas</p>
-            <h2 className="text-2xl font-mono font-bold text-red-400">{formatCurrency(data.summary.expense)}</h2>
+          <div className={`${theme.card} p-6 rounded-2xl border transition-all`}>
+            <p className={`text-xs font-bold uppercase tracking-wider mb-1 ${theme.textMuted}`}>Despesas</p>
+            <h2 className="text-2xl font-mono font-bold text-red-500">{formatCurrency(processedData.summary.expense)}</h2>
           </div>
         </div>
 
         {/* GRÁFICOS */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 bg-zinc-900 p-6 rounded-2xl border border-zinc-800 flex flex-col h-[350px]">
-            <h3 className="text-sm font-bold text-zinc-300 mb-6 flex items-center gap-2">
-              <TrendingUp className="w-4 h-4 text-blue-500" /> Fluxo de Caixa (Dia a Dia)
+          <div className={`lg:col-span-2 ${theme.card} p-6 rounded-2xl border flex flex-col h-[350px]`}>
+            <h3 className={`text-sm font-bold mb-6 flex items-center gap-2 ${theme.textMuted}`}>
+              <TrendingUp className="w-4 h-4" /> Fluxo de Caixa (Visão Mensal)
             </h3>
             <div className="flex-1 w-full">
-              {data.dailyData.length > 0 ? (
+              {processedData.dailyData.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={data.dailyData}>
+                  <AreaChart data={processedData.dailyData}>
                     <defs>
                       <linearGradient id="colorEntrada" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
+                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.2}/>
                         <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
                       </linearGradient>
                       <linearGradient id="colorSaida" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3}/>
+                        <stop offset="5%" stopColor="#ef4444" stopOpacity={0.2}/>
                         <stop offset="95%" stopColor="#ef4444" stopOpacity={0}/>
                       </linearGradient>
                     </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
-                    <XAxis dataKey="day" stroke="#52525b" fontSize={12} tickLine={false} axisLine={false} />
-                    <YAxis stroke="#52525b" fontSize={10} tickFormatter={(val) => `R$${val}`} tickLine={false} axisLine={false} width={60} />
-                    <RechartsTooltip contentStyle={{ backgroundColor: '#18181b', border: '1px solid #27272a', borderRadius: '8px' }} itemStyle={{ fontSize: '12px' }} />
+                    <CartesianGrid strokeDasharray="3 3" stroke={currentTheme === 'dark' ? '#27272a' : '#f1f5f9'} vertical={false} />
+                    <XAxis dataKey="day" stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} />
+                    <YAxis stroke="#94a3b8" fontSize={10} tickFormatter={(val) => `R$${val}`} tickLine={false} axisLine={false} width={60} />
+                    <RechartsTooltip contentStyle={{ backgroundColor: currentTheme === 'dark' ? '#18181b' : '#fff', border: 'none', borderRadius: '8px', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }} />
                     <Area type="monotone" dataKey="entrada" name="Entrada" stroke="#10b981" fillOpacity={1} fill="url(#colorEntrada)" strokeWidth={2} />
                     <Area type="monotone" dataKey="saida" name="Saída" stroke="#ef4444" fillOpacity={1} fill="url(#colorSaida)" strokeWidth={2} />
                   </AreaChart>
                 </ResponsiveContainer>
-              ) : ( <div className="h-full flex items-center justify-center text-zinc-600 text-sm">Sem dados suficientes.</div> )}
+              ) : ( <div className={`h-full flex items-center justify-center text-sm ${theme.textMuted}`}>Sem dados suficientes.</div> )}
             </div>
           </div>
-          <div className="bg-zinc-900 p-6 rounded-2xl border border-zinc-800 flex flex-col h-[350px]">
-            <h3 className="text-sm font-bold text-zinc-300 mb-4 flex items-center gap-2">
-              <Filter className="w-4 h-4 text-purple-500" /> Top Despesas
+
+          <div className={`${theme.card} p-6 rounded-2xl border flex flex-col h-[350px]`}>
+            <h3 className={`text-sm font-bold mb-4 flex items-center justify-between ${theme.textMuted}`}>
+              <span className="flex items-center gap-2"><Target className="w-4 h-4" /> Metas Orçamentárias</span>
+              <span className={`text-[10px] uppercase px-2 py-1 rounded ${currentTheme === 'dark' ? 'bg-zinc-800' : 'bg-gray-100'}`}>Clique para editar</span>
             </h3>
-            <div className="flex-1 overflow-y-auto pr-2 space-y-4 custom-scrollbar">
-              {data.pieData.map((item: any, idx: number) => (
-                <div key={idx} className="group">
-                  <div className="flex justify-between text-xs mb-1">
-                    <span className="text-zinc-300 font-medium">{item.name}</span>
-                    <span className="text-zinc-400">{formatCurrency(item.value)}</span>
+            
+            <div className="flex-1 overflow-y-auto pr-2 space-y-5 custom-scrollbar">
+              {processedData.categoryStats?.map((item: any, idx: number) => {
+                const percentage = item.budget > 0 ? (item.value / item.budget) * 100 : 0;
+                let barColor = "bg-emerald-500"; 
+                let textColor = "text-emerald-500";
+                
+                if (percentage >= 75) { barColor = "bg-amber-500"; textColor = "text-amber-500"; }
+                if (percentage >= 100) { barColor = "bg-red-500"; textColor = "text-red-500"; }
+
+                return (
+                  <div 
+                    key={idx} 
+                    className={`group cursor-pointer p-2 -mx-2 rounded-lg transition-all ${theme.cardHover}`}
+                    onClick={() => { setSelectedCategory(item); setBudgetModalOpen(true); }}
+                  >
+                    <div className="flex justify-between text-xs mb-2">
+                      <span className={`font-bold flex items-center gap-2 ${theme.text}`}>
+                        {item.name}
+                        {percentage >= 100 && <AlertTriangle className="w-3 h-3 text-red-500 animate-pulse" />}
+                      </span>
+                      <span className={`font-mono ${theme.textMuted}`}>
+                        <span className={percentage >= 100 ? "text-red-500 font-bold" : theme.text}>{formatCurrency(item.value)}</span>
+                        <span className="opacity-50"> / {item.budget > 0 ? Number(item.budget).toLocaleString('pt-BR', { minimumFractionDigits: 0 }) : '∞'}</span>
+                      </span>
+                    </div>
+                    <div className={`w-full rounded-full h-3 overflow-hidden relative ${currentTheme === 'dark' ? 'bg-zinc-950' : 'bg-gray-100'}`}>
+                      <div className={`h-full rounded-full transition-all duration-1000 ease-out ${barColor}`} style={{ width: `${Math.min(percentage, 100)}%` }} />
+                    </div>
+                    <div className="flex justify-end mt-1">
+                      <span className={`text-[9px] font-bold ${textColor}`}>
+                        {item.budget > 0 ? `${percentage.toFixed(0)}%` : 'Sem meta'}
+                      </span>
+                    </div>
                   </div>
-                  <div className="w-full bg-zinc-800 rounded-full h-2 overflow-hidden">
-                    <div className="h-full rounded-full transition-all duration-500" style={{ width: `${data.summary.expense > 0 ? (item.value / data.summary.expense) * 100 : 0}%`, backgroundColor: COLORS[idx % COLORS.length] }} />
-                  </div>
-                </div>
-              ))}
-              {data.pieData.length === 0 && ( <div className="text-center text-zinc-600 text-xs mt-10">Nenhuma despesa registrada.</div> )}
+                )
+              })}
+              {(!processedData.categoryStats || processedData.categoryStats.length === 0) && (
+                <div className={`text-center text-xs mt-10 ${theme.textMuted}`}>Nenhuma despesa ou meta registrada.</div>
+              )}
             </div>
           </div>
         </div>
 
         {/* LISTAS */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pb-8">
           
-          {/* LISTA 1: Contas Fixas + BOTÃO DE COPIAR */}
-          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden flex flex-col">
-            <div className="p-4 border-b border-zinc-800 bg-zinc-950/30 flex justify-between items-center">
-              <h3 className="font-bold text-zinc-200 flex items-center gap-2">
-                <Clock className="w-4 h-4 text-orange-500" /> Contas Fixas
+          {/* Contas Fixas */}
+          <div className={`${theme.card} border rounded-2xl overflow-hidden flex flex-col`}>
+            <div className={`p-4 border-b flex justify-between items-center ${currentTheme === 'dark' ? 'bg-zinc-950/30 border-zinc-800' : 'bg-gray-50/50 border-gray-100'}`}>
+              <h3 className={`font-bold flex items-center gap-2 ${theme.text}`}>
+                <Clock className="w-4 h-4 text-orange-500" /> Custos Fixos
               </h3>
               
-              {data.fixedExpenses.length > 0 && (
+              {processedData.fixedExpenses.length > 0 && (
                 <button 
                   onClick={handleCopyMonth}
                   disabled={copying}
-                  className="text-xs flex items-center gap-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 px-3 py-1.5 rounded-lg transition-all border border-zinc-700"
-                  title="Copiar todas as contas fixas para o próximo mês"
+                  className={`text-xs flex items-center gap-1 px-3 py-1.5 rounded-lg transition-all border ${theme.buttonSecondary}`}
                 >
                   {copying ? <Loader2 className="w-3 h-3 animate-spin" /> : <Copy className="w-3 h-3" />}
                   Virar Mês
@@ -244,55 +443,67 @@ export default function Dashboard() {
             </div>
             
             <div className="p-4 space-y-3">
-              {data.fixedExpenses.map((tx: any) => (
-                <div key={tx.id} className="flex justify-between items-center bg-zinc-950 p-3 rounded-xl border border-zinc-800/50 hover:border-zinc-700 transition-colors">
+              {processedData.fixedExpenses.map((tx: any) => (
+                <div key={tx.id} className={`flex justify-between items-center p-3 rounded-xl border transition-colors ${currentTheme === 'dark' ? 'bg-zinc-950 border-zinc-800 hover:border-zinc-700' : 'bg-white border-gray-100 hover:border-blue-200 shadow-sm'}`}>
                   <div className="flex items-center gap-3">
-                    <button onClick={() => handleTogglePay(tx.id, tx.isPaid)} className={`p-2 rounded-full transition-all ${tx.isPaid ? 'text-green-500 bg-green-500/10' : 'text-zinc-600 bg-zinc-800 hover:text-orange-500'}`}>
+                    <button onClick={() => handleTogglePay(tx.id, tx.isPaid)} className={`p-2 rounded-full transition-all ${tx.isPaid ? 'text-emerald-600 bg-emerald-500/10' : 'text-slate-400 bg-slate-100/50 hover:text-orange-500'}`}>
                       {tx.isPaid ? <CheckCircle2 className="w-5 h-5" /> : <Circle className="w-5 h-5" />}
                     </button>
                     <div>
-                      <p className={`font-semibold text-sm ${tx.isPaid ? 'text-zinc-500 line-through' : 'text-zinc-200'}`}>{tx.description}</p>
-                      <p className="text-[10px] text-zinc-500 font-bold uppercase">Dia {tx.date.split('-')[2]}</p>
+                      <p className={`font-semibold text-sm ${tx.isPaid ? 'text-zinc-500 line-through' : theme.text}`}>{tx.description}</p>
+                      <p className={`text-[10px] font-bold uppercase flex items-center gap-1 ${theme.textMuted}`}>
+                        {tx.entityType === 'pj' ? <Briefcase className="w-3 h-3 text-blue-500"/> : <User className="w-3 h-3 opacity-50"/>}
+                        Dia {tx.date.split('-')[2]}
+                      </p>
                     </div>
                   </div>
                   <div className="text-right">
-                    <p className="font-bold font-mono text-zinc-200 text-sm">{formatCurrency(Number(tx.amount))}</p>
-                    <span className={`text-[9px] font-bold uppercase tracking-wider ${tx.isPaid ? 'text-green-600' : 'text-orange-500'}`}>{tx.isPaid ? 'PAGO' : 'PENDENTE'}</span>
+                    <p className={`font-bold font-mono text-sm ${theme.text}`}>{formatCurrency(Number(tx.amount))}</p>
+                    <span className={`text-[9px] font-bold uppercase tracking-wider ${tx.isPaid ? 'text-emerald-600' : 'text-orange-500'}`}>{tx.isPaid ? 'PAGO' : 'PENDENTE'}</span>
                   </div>
                 </div>
               ))}
-              {data.fixedExpenses.length === 0 && ( <p className="text-zinc-600 text-sm text-center py-8">Nenhuma conta fixa.</p> )}
+              {processedData.fixedExpenses.length === 0 && ( <p className={`text-sm text-center py-8 ${theme.textMuted}`}>Nenhuma conta fixa.</p> )}
             </div>
           </div>
 
-          {/* LISTA 2: Gastos Variáveis */}
-          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden flex flex-col">
-            <div className="p-4 border-b border-zinc-800 bg-zinc-950/30">
-              <h3 className="font-bold text-zinc-200 flex items-center gap-2">
-                <ArrowDownRight className="w-4 h-4 text-blue-500" /> Gastos Variáveis
+          {/* Gastos Variáveis */}
+          <div className={`${theme.card} border rounded-2xl overflow-hidden flex flex-col`}>
+            <div className={`p-4 border-b ${currentTheme === 'dark' ? 'bg-zinc-950/30 border-zinc-800' : 'bg-gray-50/50 border-gray-100'}`}>
+              <h3 className={`font-bold flex items-center gap-2 ${theme.text}`}>
+                <ArrowDownRight className="w-4 h-4 text-blue-500" /> Fluxo Variável
               </h3>
             </div>
-            <div className="divide-y divide-zinc-800">
-              {data.variableTransactions.slice(0, 10).map((tx: any) => (
-                <div key={tx.id} className="p-3 flex justify-between items-center hover:bg-zinc-800/30 transition-colors">
+            <div className={`divide-y ${currentTheme === 'dark' ? 'divide-zinc-800' : 'divide-gray-100'}`}>
+              {processedData.variableTransactions.slice(0, 10).map((tx: any) => (
+                <div key={tx.id} className={`p-3 flex justify-between items-center transition-colors ${theme.cardHover}`}>
                   <div className="flex items-center gap-3">
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${tx.type === 'income' ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'}`}>
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${tx.type === 'income' ? 'bg-emerald-500/10 text-emerald-600' : 'bg-red-500/10 text-red-500'}`}>
                       {tx.type === 'income' ? <ArrowDownRight className="w-4 h-4" /> : <ArrowUpRight className="w-4 h-4" />}
                     </div>
                     <div>
-                      <p className="text-sm font-medium text-zinc-200 line-clamp-1">{tx.description}</p>
-                      <p className="text-[10px] text-zinc-500 font-bold uppercase">{new Date(tx.date).toLocaleDateString('pt-BR')} • {data.allCategories.find((c: any) => c.id === tx.categoryId)?.name || 'Geral'}</p>
+                      <p className={`text-sm font-medium line-clamp-1 ${theme.text}`}>{tx.description}</p>
+                      <p className={`text-[10px] font-bold uppercase flex items-center gap-1 ${theme.textMuted}`}>
+                        {tx.entityType === 'pj' ? <Briefcase className="w-3 h-3 text-blue-500"/> : <User className="w-3 h-3 opacity-50"/>}
+                        {new Date(tx.date).toLocaleDateString('pt-BR')} • {rawData.allCategories.find((c: any) => c.id === tx.categoryId)?.name || 'Geral'}
+                      </p>
                     </div>
                   </div>
-                  <span className={`font-mono text-sm font-bold whitespace-nowrap ${tx.type === 'income' ? 'text-green-400' : 'text-zinc-300'}`}>{tx.type === 'expense' && '- '}{formatCurrency(Number(tx.amount))}</span>
+                  <span className={`font-mono text-sm font-bold whitespace-nowrap ${tx.type === 'income' ? 'text-emerald-500' : theme.text}`}>{tx.type === 'expense' && '- '}{formatCurrency(Number(tx.amount))}</span>
                 </div>
               ))}
-               {data.variableTransactions.length === 0 && ( <p className="text-zinc-600 text-sm text-center py-8">Sem lançamentos.</p> )}
+               {processedData.variableTransactions.length === 0 && ( <p className={`text-sm text-center py-8 ${theme.textMuted}`}>Sem lançamentos.</p> )}
             </div>
           </div>
         </div>
       </div>
-      {isModalOpen && <TransactionModal categories={data.allCategories} onClose={() => { setIsModalOpen(false); loadData(); }} />}
+
+      {/* MODAIS */}
+      {isModalOpen && <TransactionModal categories={rawData.allCategories} onClose={() => { setIsModalOpen(false); loadData(); }} />}
+      
+      {budgetModalOpen && selectedCategory && (
+        <BudgetModal category={selectedCategory} onClose={() => { setBudgetModalOpen(false); loadData(); }} />
+      )}
     </main>
   );
 }

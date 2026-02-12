@@ -6,9 +6,7 @@ export const categories = pgTable("categories", {
   name: text("name").notNull(),
   icon: text("icon"),
   type: text("type", { enum: ["income", "expense"] }).notNull(),
-  // --- NOVO CAMPO: Orçamento (Meta) ---
   budget: numeric("budget", { precision: 10, scale: 2 }).default("0"), 
-  // ------------------------------------
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -22,9 +20,12 @@ export const transactions = pgTable("transactions", {
   type: text("type", { enum: ["income", "expense"] }).notNull(),
   aiTags: text("ai_tags").array(), 
   
-  // Seus campos já existentes
   isFixed: boolean("is_fixed").default(false), 
   isPaid: boolean("is_paid").default(true),    
   
+  // --- NOVO CAMPO: Tipo de Entidade (PF ou PJ) ---
+  entityType: text("entity_type").default("pf"), // 'pf' | 'pj'
+  // ----------------------------------------------
+
   createdAt: timestamp("created_at").defaultNow(),
 });

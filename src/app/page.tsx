@@ -215,7 +215,8 @@ export default function Dashboard() {
               />
             </div>
 
-            <div className="flex items-center gap-3 w-full md:w-auto justify-between md:justify-end">
+            {/* AJUSTE: Margem inferior (mb-6) adicionada para separar do nome do mês no mobile */}
+            <div className="flex items-center gap-3 w-full md:w-auto justify-between md:justify-end mb-6 md:mb-0">
                 {/* SELETOR DE TEMAS (CLIQUE) */}
                 <div className="relative">
                 <button 

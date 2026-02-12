@@ -512,7 +512,7 @@ export default function Dashboard() {
                       <p className={`text-sm font-medium line-clamp-1 ${theme.text}`}>{tx.description}</p>
                       <p className={`text-[10px] font-bold uppercase flex items-center gap-1 ${theme.textMuted}`}>
                         {tx.entityType === 'pj' ? <Briefcase className="w-3 h-3 text-blue-500"/> : <User className="w-3 h-3 opacity-50"/>}
-                        {new Date(tx.date).toLocaleDateString('pt-BR')} • {rawData.allCategories.find((c: any) => c.id === tx.categoryId)?.name || 'Geral'}
+                        {tx.date.split('-').reverse().join('/')} • {rawData.allCategories.find((c: any) => c.id === tx.categoryId)?.name || 'Geral'}
                       </p>
                     </div>
                   </div>

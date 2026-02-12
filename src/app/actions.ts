@@ -79,24 +79,50 @@ export async function getDashboardData(month: number, year: number) {
   }
 }
 
-// --- CRIAR TRANSAÇÃO (COM PARCELAMENTO E PF/PJ) ---
+// --- CRIAR TRANSAÇÃO (COM CORREÇÃO DEFINITIVA DE DATA) ---
+// --- CRIAR TRANSAÇÃO (VERSÃO BLINDADA CONTRA FUSO HORÁRIO) ---
 export async function createTransaction(data: any) {
   try {
     const installments = data.installments ? Number(data.installments) : 1;
     const amountPerInstallment = (Number(data.amount) / installments).toFixed(2);
 
+    // 1. Pega a data base (ou de Brasília se for Voz/IA)
+    let baseDate: string = data.date;
+    if (!baseDate) {
+      const now = new Date();
+      // Forçamos a captura da data correta em Brasília como string
+      const brDateParts = new Intl.DateTimeFormat('pt-BR', {
+        timeZone: 'America/Sao_Paulo',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).formatToParts(now);
+      
+      const day = brDateParts.find(p => p.type === 'day')?.value;
+      const month = brDateParts.find(p => p.type === 'month')?.value;
+      const year = brDateParts.find(p => p.type === 'year')?.value;
+      baseDate = `${year}-${month}-${day}`;
+    }
+
     for (let i = 0; i < installments; i++) {
-      const [y, m, d] = data.date.split('-').map(Number);
-      const newDate = new Date(y, (m - 1) + i, d); 
-      const isoDate = newDate.toISOString().split('T')[0];
+      const [y, m, d] = baseDate.split('-').map(Number);
+      
+      // 2. Calculamos o mês da parcela manualmente
+      let nextMonth = m + i;
+      let nextYear = y;
+      
+      while (nextMonth > 12) {
+        nextMonth -= 12;
+        nextYear += 1;
+      }
+
+      // 3. Montamos a string final YYYY-MM-DD na mão
+      // Isso impede que o banco "arredonde" para o dia anterior por causa do fuso
+      const finalDateStr = `${nextYear}-${String(nextMonth).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
 
       const description = installments > 1 
         ? `${data.description} (${i + 1}/${installments})` 
         : data.description;
-
-      const isPaidStatus = (installments > 1 && i > 0) 
-        ? false 
-        : (data.isPaid === undefined ? true : data.isPaid);
 
       await db.insert(transactions).values({
         userId: "paulo-admin",
@@ -104,9 +130,9 @@ export async function createTransaction(data: any) {
         amount: installments > 1 ? amountPerInstallment : data.amount,
         categoryId: data.categoryId || null,
         type: data.type,
-        date: isoDate,
+        date: finalDateStr, // Enviamos apenas o texto da data
         isFixed: data.isFixed || false,
-        isPaid: isPaidStatus,
+        isPaid: (installments > 1 && i > 0) ? false : (data.isPaid ?? true),
         entityType: data.entityType || "pf",
         aiTags: [],
       });
@@ -271,11 +297,12 @@ export async function deleteTransaction(id: string) {
 
 export async function updateTransaction(id: string, data: any) {
   try {
+    // Ajuste aqui também para garantir que a data de edição salve como string YYYY-MM-DD
     await db.update(transactions)
       .set({
         description: data.description,
         amount: data.amount,
-        date: data.date,
+        date: data.date, // Já vem formatado do input type="date"
         categoryId: data.categoryId,
         type: data.type,
         isFixed: data.isFixed,
@@ -296,7 +323,7 @@ async function syncEssentialCategories() {
     { name: "Mercado", type: "expense" },
     { name: "Refeição Livre / Lazer", type: "expense" },
     { name: "Suplementos", type: "expense" },
-    { name: "Vestuário / Academia", type: "expense" }, // Nova categoria para as compras da Adri
+    { name: "Vestuário / Academia", type: "expense" },
     { name: "Financiamentos", type: "expense" },
     { name: "Reembolsos / Empréstimos", type: "expense" },
     { name: "Transporte", type: "expense" },

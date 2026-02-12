@@ -19,8 +19,16 @@ export function TransactionModal({
   const [categoryId, setCategoryId] = useState(transaction?.categoryId || '')
   const [type, setType] = useState<"income" | "expense">(transaction?.type || 'expense')
   
-  // Novos Campos (Data, Fixos e Parcelas)
-  const [date, setDate] = useState(transaction?.date || new Date().toISOString().split('T')[0]) 
+  // CORREÇÃO DE DATA: Evita ISOString para não fugir o dia no fuso horário
+  const [date, setDate] = useState(() => {
+    if (transaction?.date) return transaction.date;
+    const now = new Date();
+    // Pega a data local de Brasília formatada como YYYY-MM-DD
+    const offset = now.getTimezoneOffset();
+    const localDate = new Date(now.getTime() - (offset * 60 * 1000));
+    return localDate.toISOString().split('T')[0];
+  }) 
+
   const [isFixed, setIsFixed] = useState(transaction?.isFixed || false)
   const [isPaid, setIsPaid] = useState(transaction?.isPaid ?? true) 
   const [installments, setInstallments] = useState(1) 
@@ -34,7 +42,7 @@ export function TransactionModal({
 
   // --- LÓGICA DE IA ---
   const handleAIProcess = async (text: string) => {
-    if (!text || text.trim().length < 3 || transaction) return; // Não roda IA se for edição
+    if (!text || text.trim().length < 3 || transaction) return; 
 
     setLoading(true);
     try {
@@ -49,12 +57,10 @@ export function TransactionModal({
       if (data.error) {
         alert("Erro na IA: " + data.error);
       } else {
-        // Preenche os campos
         setDescription(data.description || text);
         setAmount(data.amount ? data.amount.toString() : '');
         setType(data.type || 'expense');
 
-        // Tenta achar a categoria
         if (data.categoryName) {
           const foundCategory = categories.find(c => 
             c.name.toLowerCase() === data.categoryName.toLowerCase()
@@ -123,7 +129,7 @@ export function TransactionModal({
       amount, 
       categoryId, 
       type,
-      date,
+      date, // Agora envia a string YYYY-MM-DD pura
       isFixed,
       isPaid,
       installments: Number(installments),
@@ -149,7 +155,6 @@ export function TransactionModal({
     <div className="fixed inset-0 bg-black/90 backdrop-blur-sm flex items-center justify-center p-4 z-50 transition-all">
       <div className="bg-zinc-900 border border-zinc-800 w-full max-w-md rounded-2xl p-6 space-y-6 shadow-2xl relative">
         
-        {/* Cabeçalho */}
         <div className="flex justify-between items-center">
           <h2 className="text-xl font-bold flex items-center gap-2 text-white">
             <Sparkles className="w-5 h-5 text-blue-500" />
@@ -167,7 +172,6 @@ export function TransactionModal({
           </div>
         </div>
 
-        {/* SELETOR DE ENTIDADE (PF / PJ) */}
         <div className="flex bg-zinc-950 p-1 rounded-xl border border-zinc-800">
           <button 
             onClick={() => setEntityType('pf')}
@@ -183,7 +187,6 @@ export function TransactionModal({
           </button>
         </div>
 
-        {/* Botões de Tipo (Receita/Despesa) */}
         <div className="flex bg-zinc-950 p-1 rounded-xl border border-zinc-800">
           <button 
             onClick={() => setType('expense')}
@@ -199,7 +202,6 @@ export function TransactionModal({
           </button>
         </div>
 
-        {/* Input Descrição + Microfone */}
         <div className="space-y-2">
           <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">O que você fez?</label>
           <div className="flex gap-3">
@@ -223,7 +225,6 @@ export function TransactionModal({
           </div>
         </div>
 
-        {/* Grid de Detalhes (Data, Valor, Categoria) */}
         <div className="grid grid-cols-2 gap-4">
           <div className="col-span-2">
             <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1 block">Data</label>
@@ -267,7 +268,6 @@ export function TransactionModal({
           </div>
         </div>
 
-        {/* Opções Extras (Só para Gasto) */}
         {type === 'expense' && (
           <div className="bg-zinc-950/50 rounded-xl p-4 border border-zinc-800 space-y-4">
             <div 
@@ -299,22 +299,22 @@ export function TransactionModal({
             </div>
 
             {!isFixed && !transaction && (
-               <div className="pt-2 border-t border-zinc-800 animate-in slide-in-from-top-2">
-                 <label className="text-[10px] font-bold text-zinc-500 uppercase mb-2 block flex items-center gap-1">
-                   <CreditCard className="w-3 h-3" /> Parcelamento
-                 </label>
-                 <div className="flex items-center gap-3">
-                   <input 
-                     type="range" min="1" max="12" step="1"
-                     className="flex-1 accent-blue-600 h-2 bg-zinc-800 rounded-lg appearance-none cursor-pointer"
-                     value={installments}
-                     onChange={(e) => setInstallments(Number(e.target.value))}
-                   />
-                   <span className="bg-zinc-800 px-3 py-1 rounded-lg text-white font-mono font-bold text-sm min-w-[3rem] text-center">
-                     {installments}x
-                   </span>
-                 </div>
-               </div>
+                <div className="pt-2 border-t border-zinc-800 animate-in slide-in-from-top-2">
+                  <label className="text-[10px] font-bold text-zinc-500 uppercase mb-2 block flex items-center gap-1">
+                    <CreditCard className="w-3 h-3" /> Parcelamento
+                  </label>
+                  <div className="flex items-center gap-3">
+                    <input 
+                      type="range" min="1" max="12" step="1"
+                      className="flex-1 accent-blue-600 h-2 bg-zinc-800 rounded-lg appearance-none cursor-pointer"
+                      value={installments}
+                      onChange={(e) => setInstallments(Number(e.target.value))}
+                    />
+                    <span className="bg-zinc-800 px-3 py-1 rounded-lg text-white font-mono font-bold text-sm min-w-[3rem] text-center">
+                      {installments}x
+                    </span>
+                  </div>
+                </div>
             )}
           </div>
         )}

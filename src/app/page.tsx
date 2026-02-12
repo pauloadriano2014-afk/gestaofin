@@ -195,23 +195,23 @@ export default function Dashboard() {
 
   return (
     <main 
-      className={`min-h-screen w-full ${theme.bg} ${theme.text} p-4 md:p-8 font-sans transition-colors duration-500`}
+      className={`min-h-screen w-full ${theme.bg} ${theme.text} pt-0 md:pt-8 font-sans transition-colors duration-500 overflow-x-hidden`}
       // FORÇAR REMOÇÃO DE IMAGEM DE FUNDO E GARANTIR COR SÓLIDA
       style={{ backgroundImage: 'none', backgroundColor: currentTheme === 'dark' ? '#09090b' : undefined }} 
     >
-      <div className="max-w-7xl mx-auto space-y-6">
+      <div className="max-w-7xl mx-auto space-y-6 px-4 md:px-0">
         
         {/* HEADER RESPONSIVO E OTIMIZADO */}
-        <header className="flex flex-col gap-4 md:gap-6">
+        <header className="flex flex-col gap-0 md:gap-6">
           
           {/* LINHA 1: LOGO CENTRALIZADA NO MOBILE E ESQUERDA NO PC */}
           <div className="flex flex-col md:flex-row justify-between items-center w-full gap-4">
-            {/* LOGO - Ocupa todo o topo no mobile e fica à esquerda no PC */}
+            {/* LOGO - Centralizada e Esticada no mobile (90% da largura da tela) */}
             <div className="w-full md:w-auto flex justify-center md:justify-start">
               <img 
                 src="/logo.png" 
                 alt="KORE" 
-                className={`h-24 md:h-40 w-full md:w-auto object-contain transition-all duration-500 ${theme.logoFilter}`} 
+                className={`h-32 w-[90vw] md:w-auto md:h-40 object-contain -mt-4 md:mt-0 transition-all duration-500 ${theme.logoFilter}`} 
               />
             </div>
 
@@ -240,11 +240,11 @@ export default function Dashboard() {
                 )}
                 </div>
 
-                {/* SELETOR DE PF/PJ */}
-                <div className={`flex p-1 rounded-full border ${theme.card}`}>
-                    <button onClick={() => setViewMode('all')} className={`px-4 py-1.5 text-xs font-bold rounded-full flex items-center gap-2 transition-all ${viewMode === 'all' ? theme.navActive : theme.navInactive}`}><Layers className="w-3 h-3"/> Tudo</button>
-                    <button onClick={() => setViewMode('pf')} className={`px-4 py-1.5 text-xs font-bold rounded-full flex items-center gap-2 transition-all ${viewMode === 'pf' ? theme.navActive : theme.navInactive}`}><User className="w-3 h-3"/> PF</button>
-                    <button onClick={() => setViewMode('pj')} className={`px-4 py-1.5 text-xs font-bold rounded-full flex items-center gap-2 transition-all ${viewMode === 'pj' ? theme.navActive : theme.navInactive}`}><Briefcase className="w-3 h-3"/> PJ</button>
+                {/* SELETOR DE PF/PJ - Mais largo no mobile */}
+                <div className={`flex p-1 rounded-full border w-full md:w-auto justify-between ${theme.card}`}>
+                    <button onClick={() => setViewMode('all')} className={`flex-1 md:flex-none px-6 md:px-8 py-3 text-xs md:text-sm font-bold rounded-full flex items-center justify-center gap-2 transition-all ${viewMode === 'all' ? theme.navActive : theme.navInactive}`}><Layers className="w-3 h-3"/> Tudo</button>
+                    <button onClick={() => setViewMode('pf')} className={`flex-1 md:flex-none px-6 md:px-8 py-3 text-xs md:text-sm font-bold rounded-full flex items-center justify-center gap-2 transition-all ${viewMode === 'pf' ? theme.navActive : theme.navInactive}`}><User className="w-3 h-3"/> PF</button>
+                    <button onClick={() => setViewMode('pj')} className={`flex-1 md:flex-none px-6 md:px-8 py-3 text-xs md:text-sm font-bold rounded-full flex items-center justify-center gap-2 transition-all ${viewMode === 'pj' ? theme.navActive : theme.navInactive}`}><Briefcase className="w-3 h-3"/> PJ</button>
                 </div>
             </div>
           </div>
@@ -266,7 +266,7 @@ export default function Dashboard() {
 
             <button 
               onClick={() => { setEditingTransaction(null); setIsModalOpen(true); }}
-              className={`${theme.button} active:scale-95 px-6 py-3 rounded-full font-bold text-sm shadow-lg flex items-center justify-center gap-2 transition-all w-full md:w-auto`}
+              className={`${theme.button} active:scale-95 px-6 py-4 md:py-3 rounded-full font-bold text-sm shadow-lg flex items-center justify-center gap-2 transition-all w-full md:w-auto`}
             >
               <Plus className="w-5 h-5" /> Lançar
             </button>

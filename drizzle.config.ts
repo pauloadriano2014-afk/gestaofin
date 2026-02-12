@@ -1,14 +1,10 @@
-import { config } from 'dotenv';
 import { defineConfig } from "drizzle-kit";
-
-// Força o carregamento do arquivo .env
-config({ path: '.env' });
 
 export default defineConfig({
   schema: "./src/db/schema.ts",
-  out: "./drizzle",
-  dialect: 'postgresql',
+  dialect: "postgresql",
   dbCredentials: {
-    url: process.env.DATABASE_URL!,
+    // URL Hardcoded para ignorar o erro de leitura do .env
+    url: "postgresql://neondb_owner:npg_D2vnSPaj6XlT@ep-broad-tree-ai9p8clo-pooler.c-4.us-east-1.aws.neon.tech/neondb?sslmode=require",
   },
 });

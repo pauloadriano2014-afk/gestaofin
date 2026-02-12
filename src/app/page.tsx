@@ -1,13 +1,13 @@
 'use client'
 
 import { useState, useEffect, useMemo } from "react";
-import { getDashboardData, toggleTransactionStatus, copyFixedExpenses, generateMonthlyReport } from "./actions"; 
+import { getDashboardData, toggleTransactionStatus, copyFixedExpenses, generateMonthlyReport, deleteTransaction } from "./actions"; 
 import { TransactionModal } from "@/components/TransactionModal";
 import { BudgetModal } from "@/components/BudgetModal";
 import { 
   TrendingUp, Calendar as CalendarIcon, Plus, ArrowUpRight, ArrowDownRight, 
   Wallet, Clock, CheckCircle2, Circle, Copy, Loader2,
-  Briefcase, User, Layers, Target, AlertTriangle, MessageSquare, X, ChevronLeft, ChevronRight, Palette
+  Briefcase, User, Layers, Target, AlertTriangle, MessageSquare, X, ChevronLeft, ChevronRight, Palette, Pencil, Trash2
 } from "lucide-react";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
 
@@ -26,7 +26,7 @@ const THEMES = {
     iconBg: 'bg-zinc-800',
     navActive: 'bg-zinc-800 text-white',
     navInactive: 'text-zinc-500 hover:text-zinc-300',
-    logoFilter: 'invert brightness-0 invert' // Deixa logo branca
+    logoFilter: 'invert brightness-0 invert' // Deixa logo branca (Inverte, Zera brilho, Inverte de novo)
   },
   nubank: {
     id: 'nubank',
@@ -103,6 +103,9 @@ export default function Dashboard() {
   const [budgetModalOpen, setBudgetModalOpen] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<any>(null);
 
+  // NOVO: Estado para edição
+  const [editingTransaction, setEditingTransaction] = useState<any>(null);
+
   // --- ESTADOS DE UI ---
   const [viewMode, setViewMode] = useState<'all' | 'pf' | 'pj'>('all');
   const [currentTheme, setCurrentTheme] = useState<'dark' | 'nubank' | 'green' | 'blue' | 'red'>('nubank');
@@ -145,7 +148,7 @@ export default function Dashboard() {
 
     const categoryStats = (rawData.allCategories || []).map((cat: any) => {
         const spent = txs.filter((t: any) => t.categoryId === cat.id && t.type === 'expense').reduce((sum: number, t: any) => sum + Number(t.amount), 0);
-        return { ...cat, value: spent, budget: Number(cat.budget || 0) };
+        return { ...cat, id: cat.id, name: cat.name, value: spent, budget: Number(cat.budget || 0) };
     }).filter((c: any) => c.value > 0 || c.budget > 0).sort((a: any, b: any) => b.value - a.value);
 
     // Dados para gráfico (sempre mostra o mês todo para contexto)
@@ -173,6 +176,20 @@ export default function Dashboard() {
   async function handleCopyMonth() { if(confirm("Deseja copiar todas as contas fixas deste mês para o próximo?")) { setCopying(true); const res = await copyFixedExpenses(currentDate.getMonth()+1, currentDate.getFullYear()); alert(res.message); setCopying(false); if(res.success) changeMonth(1); } }
   async function handleAnalyze() { setAnalyzing(true); setAdvice(''); const res = await generateMonthlyReport(currentDate.getMonth()+1, currentDate.getFullYear()); setAdvice(res.message || "Erro ao analisar."); setAnalyzing(false); }
   
+  // FUNÇÃO DE EXCLUIR DIRETA
+  async function handleDelete(id: string) {
+    if(confirm("Deseja realmente excluir este lançamento?")) {
+      await deleteTransaction(id);
+      loadData();
+    }
+  }
+
+  // FUNÇÃO PARA ABRIR EDIÇÃO
+  function handleEdit(tx: any) {
+    setEditingTransaction(tx);
+    setIsModalOpen(true);
+  }
+
   const changeMonth = (offset: number) => { setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + offset, 1)); setAdvice(''); };
   const formatCurrency = (val: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
 
@@ -184,53 +201,57 @@ export default function Dashboard() {
     >
       <div className="max-w-7xl mx-auto space-y-6">
         
-        {/* HEADER TOP */}
-        <header className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-6 relative">
+        {/* HEADER RESPONSIVO E OTIMIZADO */}
+        <header className="flex flex-col gap-4 md:gap-6">
           
-          <div className="flex flex-col gap-2">
-            {/* LOGO GIGANTE COM FILTRO INTELIGENTE */}
-            <img 
-              src="/logo.png" 
-              alt="KORE" 
-              className={`h-48 w-auto object-contain -ml-4 transition-all duration-500 ${theme.logoFilter}`} 
-            />
+          {/* LINHA 1: LOGO CENTRALIZADA NO MOBILE E ESQUERDA NO PC */}
+          <div className="flex flex-col md:flex-row justify-between items-center w-full gap-4">
+            {/* LOGO - Ocupa todo o topo no mobile e fica à esquerda no PC */}
+            <div className="w-full md:w-auto flex justify-center md:justify-start">
+              <img 
+                src="/logo.png" 
+                alt="KORE" 
+                className={`h-24 md:h-40 w-full md:w-auto object-contain transition-all duration-500 ${theme.logoFilter}`} 
+              />
+            </div>
+
+            <div className="flex items-center gap-3 w-full md:w-auto justify-between md:justify-end">
+                {/* SELETOR DE TEMAS (CLIQUE) */}
+                <div className="relative">
+                <button 
+                    onClick={() => setIsThemeMenuOpen(!isThemeMenuOpen)} // MUDADO PARA CLIQUE
+                    className={`p-2 rounded-full border transition-all ${isThemeMenuOpen ? theme.navActive : theme.card}`}
+                >
+                    <Palette className="w-5 h-5" />
+                </button>
+                
+                {/* Menu de Temas Flutuante */}
+                {isThemeMenuOpen && (
+                    <div className={`absolute top-full right-0 mt-2 p-2 rounded-xl border shadow-xl flex flex-col gap-2 z-50 animate-in fade-in slide-in-from-top-2 ${theme.card}`}>
+                    <span className={`text-[10px] font-bold uppercase px-2 ${theme.textMuted}`}>Temas</span>
+                    <div className="flex gap-2">
+                        <button onClick={() => { setCurrentTheme('dark'); setIsThemeMenuOpen(false); }} className="w-8 h-8 rounded-full bg-zinc-950 border border-zinc-700 hover:scale-110" title="Dark" />
+                        <button onClick={() => { setCurrentTheme('nubank'); setIsThemeMenuOpen(false); }} className="w-8 h-8 rounded-full bg-purple-600 hover:scale-110" title="Nubank" />
+                        <button onClick={() => { setCurrentTheme('green'); setIsThemeMenuOpen(false); }} className="w-8 h-8 rounded-full bg-emerald-500 hover:scale-110" title="Eco" />
+                        <button onClick={() => { setCurrentTheme('blue'); setIsThemeMenuOpen(false); }} className="w-8 h-8 rounded-full bg-blue-600 hover:scale-110" title="Executivo" />
+                        <button onClick={() => { setCurrentTheme('red'); setIsThemeMenuOpen(false); }} className="w-8 h-8 rounded-full bg-rose-600 hover:scale-110" title="Red" />
+                    </div>
+                    </div>
+                )}
+                </div>
+
+                {/* SELETOR DE PF/PJ */}
+                <div className={`flex p-1 rounded-full border ${theme.card}`}>
+                    <button onClick={() => setViewMode('all')} className={`px-4 py-1.5 text-xs font-bold rounded-full flex items-center gap-2 transition-all ${viewMode === 'all' ? theme.navActive : theme.navInactive}`}><Layers className="w-3 h-3"/> Tudo</button>
+                    <button onClick={() => setViewMode('pf')} className={`px-4 py-1.5 text-xs font-bold rounded-full flex items-center gap-2 transition-all ${viewMode === 'pf' ? theme.navActive : theme.navInactive}`}><User className="w-3 h-3"/> PF</button>
+                    <button onClick={() => setViewMode('pj')} className={`px-4 py-1.5 text-xs font-bold rounded-full flex items-center gap-2 transition-all ${viewMode === 'pj' ? theme.navActive : theme.navInactive}`}><Briefcase className="w-3 h-3"/> PJ</button>
+                </div>
+            </div>
           </div>
 
-          <div className="flex flex-col md:flex-row items-center gap-4 w-full md:w-auto">
-            
-            {/* SELETOR DE TEMAS (CLIQUE) */}
-            <div className="relative">
-              <button 
-                onClick={() => setIsThemeMenuOpen(!isThemeMenuOpen)} // MUDADO PARA CLIQUE
-                className={`p-2 rounded-full border transition-all ${isThemeMenuOpen ? theme.navActive : theme.card}`}
-              >
-                <Palette className="w-5 h-5" />
-              </button>
-              
-              {/* Menu de Temas Flutuante */}
-              {isThemeMenuOpen && (
-                <div className={`absolute top-full right-0 mt-2 p-2 rounded-xl border shadow-xl flex flex-col gap-2 z-50 animate-in fade-in slide-in-from-top-2 ${theme.card}`}>
-                   <span className={`text-[10px] font-bold uppercase px-2 ${theme.textMuted}`}>Temas</span>
-                   <div className="flex gap-2">
-                      <button onClick={() => { setCurrentTheme('dark'); setIsThemeMenuOpen(false); }} className="w-8 h-8 rounded-full bg-zinc-950 border border-zinc-700 hover:scale-110" title="Dark" />
-                      <button onClick={() => { setCurrentTheme('nubank'); setIsThemeMenuOpen(false); }} className="w-8 h-8 rounded-full bg-purple-600 hover:scale-110" title="Nubank" />
-                      <button onClick={() => { setCurrentTheme('green'); setIsThemeMenuOpen(false); }} className="w-8 h-8 rounded-full bg-emerald-500 hover:scale-110" title="Eco" />
-                      <button onClick={() => { setCurrentTheme('blue'); setIsThemeMenuOpen(false); }} className="w-8 h-8 rounded-full bg-blue-600 hover:scale-110" title="Executivo" />
-                      <button onClick={() => { setCurrentTheme('red'); setIsThemeMenuOpen(false); }} className="w-8 h-8 rounded-full bg-rose-600 hover:scale-110" title="Red" />
-                   </div>
-                </div>
-              )}
-            </div>
-
-            {/* SELETOR DE PF/PJ */}
-            <div className={`flex p-1 rounded-full border ${theme.card}`}>
-                <button onClick={() => setViewMode('all')} className={`px-4 py-1.5 text-xs font-bold rounded-full flex items-center gap-2 transition-all ${viewMode === 'all' ? theme.navActive : theme.navInactive}`}><Layers className="w-3 h-3"/> Tudo</button>
-                <button onClick={() => setViewMode('pf')} className={`px-4 py-1.5 text-xs font-bold rounded-full flex items-center gap-2 transition-all ${viewMode === 'pf' ? theme.navActive : theme.navInactive}`}><User className="w-3 h-3"/> PF</button>
-                <button onClick={() => setViewMode('pj')} className={`px-4 py-1.5 text-xs font-bold rounded-full flex items-center gap-2 transition-all ${viewMode === 'pj' ? theme.navActive : theme.navInactive}`}><Briefcase className="w-3 h-3"/> PJ</button>
-            </div>
-
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 w-full">
             {/* CONTROLE DE MÊS */}
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-4 w-full md:w-auto justify-center">
                 <button onClick={() => changeMonth(-1)} className={`p-2 rounded-full transition-colors ${theme.navInactive}`}><ChevronLeft className="w-6 h-6" /></button>
                 <div className="flex flex-col items-center min-w-[120px]">
                     <span className={`text-2xl font-bold capitalize leading-none tracking-tight ${theme.text}`}>
@@ -244,8 +265,8 @@ export default function Dashboard() {
             </div>
 
             <button 
-              onClick={() => setIsModalOpen(true)}
-              className={`${theme.button} active:scale-95 px-6 py-3 rounded-full font-bold text-sm shadow-lg flex items-center gap-2 transition-all`}
+              onClick={() => { setEditingTransaction(null); setIsModalOpen(true); }}
+              className={`${theme.button} active:scale-95 px-6 py-3 rounded-full font-bold text-sm shadow-lg flex items-center justify-center gap-2 transition-all w-full md:w-auto`}
             >
               <Plus className="w-5 h-5" /> Lançar
             </button>
@@ -262,10 +283,8 @@ export default function Dashboard() {
                 Mês Todo
               </button>
               {daysInMonthArray.map(day => {
-                 // Verifica se o dia é hoje
                  const isToday = day === new Date().getDate() && currentDate.getMonth() === new Date().getMonth() && currentDate.getFullYear() === new Date().getFullYear();
                  const isSelected = selectedDay === day;
-
                  return (
                    <button
                      key={day}
@@ -420,7 +439,7 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* LISTAS */}
+        {/* LISTAS COM EDIÇÃO E EXCLUSÃO */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pb-8">
           
           {/* Contas Fixas */}
@@ -457,9 +476,16 @@ export default function Dashboard() {
                       </p>
                     </div>
                   </div>
-                  <div className="text-right">
-                    <p className={`font-bold font-mono text-sm ${theme.text}`}>{formatCurrency(Number(tx.amount))}</p>
-                    <span className={`text-[9px] font-bold uppercase tracking-wider ${tx.isPaid ? 'text-emerald-600' : 'text-orange-500'}`}>{tx.isPaid ? 'PAGO' : 'PENDENTE'}</span>
+                  <div className="flex items-center gap-4">
+                    <div className="text-right">
+                      <p className={`font-bold font-mono text-sm ${theme.text}`}>{formatCurrency(Number(tx.amount))}</p>
+                      <span className={`text-[9px] font-bold uppercase tracking-wider ${tx.isPaid ? 'text-emerald-600' : 'text-orange-500'}`}>{tx.isPaid ? 'PAGO' : 'PENDENTE'}</span>
+                    </div>
+                    {/* BOTÕES DE AÇÃO */}
+                    <div className="flex flex-col gap-1">
+                        <button onClick={() => handleEdit(tx)} className="p-1.5 hover:bg-blue-500/10 text-blue-500 rounded transition-colors"><Pencil className="w-3.5 h-3.5"/></button>
+                        <button onClick={() => handleDelete(tx.id)} className="p-1.5 hover:bg-red-500/10 text-red-500 rounded transition-colors"><Trash2 className="w-3.5 h-3.5"/></button>
+                    </div>
                   </div>
                 </div>
               ))}
@@ -475,7 +501,7 @@ export default function Dashboard() {
               </h3>
             </div>
             <div className={`divide-y ${currentTheme === 'dark' ? 'divide-zinc-800' : 'divide-gray-100'}`}>
-              {processedData.variableTransactions.slice(0, 10).map((tx: any) => (
+              {processedData.variableTransactions.slice(0, 15).map((tx: any) => (
                 <div key={tx.id} className={`p-3 flex justify-between items-center transition-colors ${theme.cardHover}`}>
                   <div className="flex items-center gap-3">
                     <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${tx.type === 'income' ? 'bg-emerald-500/10 text-emerald-600' : 'bg-red-500/10 text-red-500'}`}>
@@ -489,7 +515,14 @@ export default function Dashboard() {
                       </p>
                     </div>
                   </div>
-                  <span className={`font-mono text-sm font-bold whitespace-nowrap ${tx.type === 'income' ? 'text-emerald-500' : theme.text}`}>{tx.type === 'expense' && '- '}{formatCurrency(Number(tx.amount))}</span>
+                  <div className="flex items-center gap-4">
+                    <span className={`font-mono text-sm font-bold whitespace-nowrap ${tx.type === 'income' ? 'text-emerald-500' : theme.text}`}>{tx.type === 'expense' && '- '}{formatCurrency(Number(tx.amount))}</span>
+                    {/* BOTÕES DE AÇÃO */}
+                    <div className="flex flex-col gap-1">
+                        <button onClick={() => handleEdit(tx)} className="p-1.5 hover:bg-blue-500/10 text-blue-500 rounded transition-colors"><Pencil className="w-3.5 h-3.5"/></button>
+                        <button onClick={() => handleDelete(tx.id)} className="p-1.5 hover:bg-red-500/10 text-red-500 rounded transition-colors"><Trash2 className="w-3.5 h-3.5"/></button>
+                    </div>
+                  </div>
                 </div>
               ))}
                {processedData.variableTransactions.length === 0 && ( <p className={`text-sm text-center py-8 ${theme.textMuted}`}>Sem lançamentos.</p> )}
@@ -499,7 +532,17 @@ export default function Dashboard() {
       </div>
 
       {/* MODAIS */}
-      {isModalOpen && <TransactionModal categories={rawData.allCategories} onClose={() => { setIsModalOpen(false); loadData(); }} />}
+      {isModalOpen && (
+        <TransactionModal 
+            categories={rawData.allCategories} 
+            transaction={editingTransaction}
+            onClose={() => { 
+                setIsModalOpen(false); 
+                setEditingTransaction(null);
+                loadData(); 
+            }} 
+        />
+      )}
       
       {budgetModalOpen && selectedCategory && (
         <BudgetModal category={selectedCategory} onClose={() => { setBudgetModalOpen(false); loadData(); }} />

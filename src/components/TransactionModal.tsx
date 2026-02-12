@@ -1,24 +1,32 @@
 'use client'
 
-import { useState } from 'react'
-import { X, Sparkles, Loader2, Mic, MicOff, Calendar, CheckCircle2, CreditCard, User, Building2 } from 'lucide-react'
-import { createTransaction } from '@/app/actions'
+import { useState, useEffect } from 'react'
+import { X, Sparkles, Loader2, Mic, MicOff, Calendar, CheckCircle2, CreditCard, User, Building2, Trash2 } from 'lucide-react'
+import { createTransaction, updateTransaction, deleteTransaction } from '@/app/actions'
 
-export function TransactionModal({ categories, onClose }: { categories: any[], onClose: () => void }) {
-  // Estados de Dados
-  const [description, setDescription] = useState('')
-  const [amount, setAmount] = useState('')
-  const [categoryId, setCategoryId] = useState('')
-  const [type, setType] = useState<"income" | "expense">('expense')
+export function TransactionModal({ 
+  categories, 
+  onClose, 
+  transaction // NOVO: Se vier preenchido, entra em modo edição
+}: { 
+  categories: any[], 
+  onClose: () => void,
+  transaction?: any 
+}) {
+  // Estados de Dados (Preenche se for edição)
+  const [description, setDescription] = useState(transaction?.description || '')
+  const [amount, setAmount] = useState(transaction?.amount ? Math.abs(Number(transaction.amount)).toString() : '')
+  const [categoryId, setCategoryId] = useState(transaction?.categoryId || '')
+  const [type, setType] = useState<"income" | "expense">(transaction?.type || 'expense')
   
   // Novos Campos (Data, Fixos e Parcelas)
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]) // Começa com hoje
-  const [isFixed, setIsFixed] = useState(false)
-  const [isPaid, setIsPaid] = useState(true) // Padrão: Pago
-  const [installments, setInstallments] = useState(1) // NOVO: Parcelas
+  const [date, setDate] = useState(transaction?.date || new Date().toISOString().split('T')[0]) 
+  const [isFixed, setIsFixed] = useState(transaction?.isFixed || false)
+  const [isPaid, setIsPaid] = useState(transaction?.isPaid ?? true) 
+  const [installments, setInstallments] = useState(1) 
 
   // NOVO: Tipo de Entidade (PF ou PJ)
-  const [entityType, setEntityType] = useState<'pf' | 'pj'>('pf')
+  const [entityType, setEntityType] = useState<'pf' | 'pj'>(transaction?.entityType || 'pf')
 
   // Estados de UI
   const [loading, setLoading] = useState(false)
@@ -26,7 +34,7 @@ export function TransactionModal({ categories, onClose }: { categories: any[], o
 
   // --- LÓGICA DE IA ---
   const handleAIProcess = async (text: string) => {
-    if (!text || text.trim().length < 3) return;
+    if (!text || text.trim().length < 3 || transaction) return; // Não roda IA se for edição
 
     setLoading(true);
     try {
@@ -91,7 +99,18 @@ export function TransactionModal({ categories, onClose }: { categories: any[], o
     recognition.start();
   };
 
-  // --- SALVAR ---
+  // --- EXCLUIR ---
+  const handleDelete = async () => {
+    if (!transaction?.id) return;
+    if (confirm("Deseja realmente excluir este lançamento?")) {
+      setLoading(true);
+      await deleteTransaction(transaction.id);
+      setLoading(false);
+      onClose();
+    }
+  };
+
+  // --- SALVAR (CRIAR OU ATUALIZAR) ---
   const handleSave = async () => {
     if (!description || !amount) {
       alert("Preencha descrição e valor!");
@@ -99,20 +118,32 @@ export function TransactionModal({ categories, onClose }: { categories: any[], o
     }
 
     setLoading(true);
-    await createTransaction({ 
+    const payload = { 
       description, 
       amount, 
       categoryId, 
       type,
-      date,      // Envia a data escolhida
-      isFixed,   // Envia se é fixo
-      isPaid,    // Envia se está pago
-      installments: Number(installments), // Envia o número de parcelas
-      entityType // Envia se é PF ou PJ
-    });
+      date,
+      isFixed,
+      isPaid,
+      installments: Number(installments),
+      entityType 
+    };
+
+    if (transaction?.id) {
+      await updateTransaction(transaction.id, payload);
+    } else {
+      await createTransaction(payload);
+    }
+
     setLoading(false);
     onClose();
   };
+
+  // --- REMOVER DUPLICADOS DA LISTA DE CATEGORIAS ---
+  const uniqueCategories = Array.from(
+    new Map(categories.map((cat) => [cat.name.trim().toLowerCase(), cat])).values()
+  );
 
   return (
     <div className="fixed inset-0 bg-black/90 backdrop-blur-sm flex items-center justify-center p-4 z-50 transition-all">
@@ -122,14 +153,21 @@ export function TransactionModal({ categories, onClose }: { categories: any[], o
         <div className="flex justify-between items-center">
           <h2 className="text-xl font-bold flex items-center gap-2 text-white">
             <Sparkles className="w-5 h-5 text-blue-500" />
-            Lançamento Inteligente
+            {transaction ? 'Editar Lançamento' : 'Lançamento Inteligente'}
           </h2>
-          <button onClick={onClose} className="text-zinc-500 hover:text-white transition-colors">
-            <X className="w-6 h-6" />
-          </button>
+          <div className="flex items-center gap-2">
+            {transaction && (
+              <button onClick={handleDelete} className="p-2 text-red-500 hover:bg-red-500/10 rounded-lg transition-colors" title="Excluir">
+                <Trash2 className="w-5 h-5" />
+              </button>
+            )}
+            <button onClick={onClose} className="text-zinc-500 hover:text-white transition-colors">
+              <X className="w-6 h-6" />
+            </button>
+          </div>
         </div>
 
-        {/* SELETOR DE ENTIDADE (PF / PJ) - NOVO */}
+        {/* SELETOR DE ENTIDADE (PF / PJ) */}
         <div className="flex bg-zinc-950 p-1 rounded-xl border border-zinc-800">
           <button 
             onClick={() => setEntityType('pf')}
@@ -187,8 +225,6 @@ export function TransactionModal({ categories, onClose }: { categories: any[], o
 
         {/* Grid de Detalhes (Data, Valor, Categoria) */}
         <div className="grid grid-cols-2 gap-4">
-          
-          {/* Data */}
           <div className="col-span-2">
             <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1 block">Data</label>
             <div className="relative">
@@ -202,7 +238,6 @@ export function TransactionModal({ categories, onClose }: { categories: any[], o
             </div>
           </div>
 
-          {/* Valor */}
           <div>
             <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1 block">Valor Total</label>
             <div className="relative">
@@ -217,7 +252,6 @@ export function TransactionModal({ categories, onClose }: { categories: any[], o
             </div>
           </div>
 
-          {/* Categoria */}
           <div>
             <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1 block">Categoria</label>
             <select 
@@ -226,7 +260,7 @@ export function TransactionModal({ categories, onClose }: { categories: any[], o
               onChange={(e) => setCategoryId(e.target.value)}
             >
               <option value="">Selecione...</option>
-              {categories.map(cat => (
+              {uniqueCategories.map((cat: any) => (
                 <option key={cat.id} value={cat.id}>{cat.name}</option>
               ))}
             </select>
@@ -236,12 +270,10 @@ export function TransactionModal({ categories, onClose }: { categories: any[], o
         {/* Opções Extras (Só para Gasto) */}
         {type === 'expense' && (
           <div className="bg-zinc-950/50 rounded-xl p-4 border border-zinc-800 space-y-4">
-            
-            {/* Toggle Fixa */}
             <div 
               onClick={() => { 
                 setIsFixed(!isFixed); 
-                if (!isFixed) setInstallments(1); // Se marcar como fixo, reseta parcelas
+                if (!isFixed) setInstallments(1);
               }} 
               className="flex items-center justify-between cursor-pointer group"
             >
@@ -254,7 +286,6 @@ export function TransactionModal({ categories, onClose }: { categories: any[], o
               <span className="text-[10px] text-zinc-500 uppercase tracking-wider">(Aluguel, Luz...)</span>
             </div>
 
-            {/* Toggle Pago */}
             <div 
               onClick={() => setIsPaid(!isPaid)}
               className="flex items-center gap-2 cursor-pointer group"
@@ -267,8 +298,7 @@ export function TransactionModal({ categories, onClose }: { categories: any[], o
               </span>
             </div>
 
-            {/* Parcelamento (Só aparece se NÃO for fixo) */}
-            {!isFixed && (
+            {!isFixed && !transaction && (
                <div className="pt-2 border-t border-zinc-800 animate-in slide-in-from-top-2">
                  <label className="text-[10px] font-bold text-zinc-500 uppercase mb-2 block flex items-center gap-1">
                    <CreditCard className="w-3 h-3" /> Parcelamento
@@ -284,23 +314,17 @@ export function TransactionModal({ categories, onClose }: { categories: any[], o
                      {installments}x
                    </span>
                  </div>
-                 {installments > 1 && (
-                   <p className="text-[10px] text-zinc-500 mt-2 text-right">
-                     Serão criados {installments} lançamentos mensais de {amount ? (Number(amount)/installments).toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'}) : '...'}
-                   </p>
-                 )}
                </div>
             )}
           </div>
         )}
 
-        {/* Botão Salvar */}
         <button 
           onClick={handleSave}
           disabled={loading}
           className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-4 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-900/20 active:scale-[0.98]"
         >
-          {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : "Confirmar Lançamento"}
+          {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : (transaction ? "Salvar Alterações" : "Confirmar Lançamento")}
         </button>
 
       </div>

@@ -8,10 +8,11 @@ import { revalidatePath } from "next/cache";
 // --- BUSCAR DADOS DA DASHBOARD ---
 export async function getDashboardData(month: number, year: number) {
   try {
+    // Sincroniza categorias essenciais antes de buscar
+    await syncEssentialCategories();
+
     const allCategories = await db.select().from(categories);
     
-    // Busca transações do mês selecionado
-    // O Drizzle traz todos os campos do schema automaticamente, incluindo 'entityType'
     const currentTransactions = await db
       .select()
       .from(transactions)
@@ -23,16 +24,13 @@ export async function getDashboardData(month: number, year: number) {
       )
       .orderBy(desc(transactions.date));
 
-    // Separação de Dados (Listas)
     const fixedExpenses = currentTransactions.filter(t => t.isFixed === true && t.type === 'expense');
     const variableTransactions = currentTransactions.filter(t => t.isFixed === false || t.type === 'income');
 
-    // Totais Gerais
     const income = currentTransactions.filter(t => t.type === 'income').reduce((acc, t) => acc + Number(t.amount), 0);
     const expense = currentTransactions.filter(t => t.type === 'expense').reduce((acc, t) => acc + Number(t.amount), 0);
     const balance = income - expense;
 
-    // --- LÓGICA DE METAS E CATEGORIAS (CUTTING FINANCEIRO) ---
     const categoryStats = allCategories.map(cat => {
       const spent = currentTransactions
         .filter(tx => tx.categoryId === cat.id && tx.type === 'expense')
@@ -42,14 +40,13 @@ export async function getDashboardData(month: number, year: number) {
         id: cat.id,
         name: cat.name,
         value: spent,
-        budget: Number(cat.budget || 0), // Traz a meta do banco
+        budget: Number(cat.budget || 0),
         color: '#3b82f6'
       };
     })
     .filter(i => i.value > 0 || i.budget > 0)
     .sort((a, b) => b.value - a.value);
 
-    // Gráfico Diário
     const dailyData = [];
     const daysInMonth = new Date(year, month, 0).getDate();
     
@@ -69,7 +66,7 @@ export async function getDashboardData(month: number, year: number) {
       allCategories, 
       fixedExpenses, 
       variableTransactions, 
-      transactions: currentTransactions, // Retornamos a lista bruta também para filtragem PF/PJ no front
+      transactions: currentTransactions, 
       summary: { balance, income, expense }, 
       categoryStats, 
       pieData: categoryStats, 
@@ -85,30 +82,22 @@ export async function getDashboardData(month: number, year: number) {
 // --- CRIAR TRANSAÇÃO (COM PARCELAMENTO E PF/PJ) ---
 export async function createTransaction(data: any) {
   try {
-    // Verifica parcelas (padrão 1)
     const installments = data.installments ? Number(data.installments) : 1;
-    
-    // Divide o valor total pelo número de parcelas
     const amountPerInstallment = (Number(data.amount) / installments).toFixed(2);
 
     for (let i = 0; i < installments; i++) {
-      // 1. Calcular a data correta para cada mês
       const [y, m, d] = data.date.split('-').map(Number);
       const newDate = new Date(y, (m - 1) + i, d); 
       const isoDate = newDate.toISOString().split('T')[0];
 
-      // 2. Ajustar descrição se for parcelado
       const description = installments > 1 
         ? `${data.description} (${i + 1}/${installments})` 
         : data.description;
 
-      // 3. Status de Pagamento
-      // Parcelas futuras (i > 0) nascem como PENDENTE.
       const isPaidStatus = (installments > 1 && i > 0) 
         ? false 
         : (data.isPaid === undefined ? true : data.isPaid);
 
-      // 4. Inserir no banco
       await db.insert(transactions).values({
         userId: "paulo-admin",
         description: description,
@@ -118,7 +107,7 @@ export async function createTransaction(data: any) {
         date: isoDate,
         isFixed: data.isFixed || false,
         isPaid: isPaidStatus,
-        entityType: data.entityType || "pf", // <--- SALVA SE É PF OU PJ
+        entityType: data.entityType || "pf",
         aiTags: [],
       });
     }
@@ -169,14 +158,9 @@ export async function copyFixedExpenses(currentMonth: number, currentYear: numbe
 
     for (const expense of fixedExpenses) {
       const [y, m, d] = expense.date.split('-').map(Number);
-      
       let nextMonth = m + 1;
       let nextYear = y;
-      
-      if (nextMonth > 12) {
-        nextMonth = 1;
-        nextYear = y + 1;
-      }
+      if (nextMonth > 12) { nextMonth = 1; nextYear = y + 1; }
 
       const nextDateStr = `${nextYear}-${String(nextMonth).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
 
@@ -198,7 +182,7 @@ export async function copyFixedExpenses(currentMonth: number, currentYear: numbe
           date: nextDateStr,
           isFixed: true,
           isPaid: false, 
-          entityType: expense.entityType, // <--- COPIA SE É PF OU PJ
+          entityType: expense.entityType,
           aiTags: expense.aiTags
         });
         count++;
@@ -206,8 +190,7 @@ export async function copyFixedExpenses(currentMonth: number, currentYear: numbe
     }
 
     revalidatePath("/");
-    return { success: true, message: `${count} contas copiadas para o próximo mês com sucesso!` };
-
+    return { success: true, message: `${count} contas copiadas com sucesso!` };
   } catch (error) {
     console.error("Erro ao copiar despesas:", error);
     return { success: false, message: "Erro ao processar cópia." };
@@ -239,11 +222,9 @@ export async function generateMonthlyReport(month: number, year: number) {
       return { success: false, message: "Sem dados suficientes para análise executiva." };
     }
 
-    // Calcula dados separados para o prompt
     const income = txs.filter((t: any) => t.type === 'income').reduce((acc: number, t: any) => acc + Number(t.amount), 0);
     const expense = txs.filter((t: any) => t.type === 'expense').reduce((acc: number, t: any) => acc + Number(t.amount), 0);
     
-    // Top gastos para contexto
     const topExpenses = txs
         .filter((t: any) => t.type === 'expense')
         .sort((a: any, b: any) => Number(b.amount) - Number(a.amount))
@@ -251,56 +232,92 @@ export async function generateMonthlyReport(month: number, year: number) {
         .map((t: any) => `${t.description} (${t.entityType === 'pj' ? 'PJ' : 'PF'}: R$${t.amount})`)
         .join(', ');
 
-    const summaryText = `
-      Período: ${month}/${year}
-      Receita Operacional Total: R$ ${income}
-      Despesas Totais: R$ ${expense}
-      Resultado Líquido (Bottom Line): R$ ${income - expense}
-      
-      Principais saídas de caixa:
-      ${topExpenses}
-    `;
+    const summaryText = `Período: ${month}/${year}\nReceita: R$ ${income}\nDespesas: R$ ${expense}\nResultado: R$ ${income - expense}\nTop Gastos: ${topExpenses}`;
 
     const API_KEY = process.env.OPENAI_API_KEY; 
 
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${API_KEY}`,
-      },
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${API_KEY}` },
       body: JSON.stringify({
         model: "gpt-4o-mini",
         messages: [
-          {
-            role: "system",
-            content: `Você é um Consultor Financeiro Executivo Sênior (CFO Virtual).
-            
-            Seu objetivo: Analisar o fluxo de caixa consolidado (PF e PJ) e fornecer insights estratégicos.
-            
-            Diretrizes:
-            1. Use linguagem corporativa e profissional (ex: "Fluxo de Caixa", "Opex", "Liquidez", "Margem", "Alocação de Recursos").
-            2. Seja direto e analítico. Sem metáforas esportivas ou de academia.
-            3. Se o saldo for negativo, sugira cortes de custos operacionais ou renegociação de passivos.
-            4. Se o saldo for positivo, sugira constituição de reservas ou investimentos estratégicos.
-            5. Identifique se os maiores gastos são PF ou PJ e comente sobre a mistura de patrimônios se necessário.
-            
-            Mantenha a resposta concisa (máximo 3 parágrafos).`
-          },
-          { role: "user", content: `Por favor, analise os seguintes indicadores financeiros:\n${summaryText}` }
+          { role: "system", content: "Você é um CFO Virtual. Analise os dados e forneça insights corporativos concisos (max 3 parágrafos)." },
+          { role: "user", content: summaryText }
         ],
         temperature: 0.7,
       }),
     });
 
     const data = await response.json();
-    
-    if (data.error) throw new Error(data.error.message);
-    
     return { success: true, message: data.choices[0].message.content };
-
   } catch (error: any) {
     console.error("Erro no Personal:", error);
     return { success: false, message: "O serviço de análise executiva está indisponível momentaneamente." };
+  }
+}
+
+// --- NOVAS FUNÇÕES: EDITAR, EXCLUIR E SYNC CATEGORIAS ---
+
+export async function deleteTransaction(id: string) {
+  try {
+    await db.delete(transactions).where(eq(transactions.id, id));
+    revalidatePath("/");
+    return { success: true };
+  } catch (error) {
+    return { success: false };
+  }
+}
+
+export async function updateTransaction(id: string, data: any) {
+  try {
+    await db.update(transactions)
+      .set({
+        description: data.description,
+        amount: data.amount,
+        date: data.date,
+        categoryId: data.categoryId,
+        type: data.type,
+        isFixed: data.isFixed,
+        entityType: data.entityType,
+      })
+      .where(eq(transactions.id, id));
+    revalidatePath("/");
+    return { success: true };
+  } catch (error) {
+    return { success: false };
+  }
+}
+
+async function syncEssentialCategories() {
+  const essential = [
+    { name: "Viagens", type: "expense" },
+    { name: "Assinaturas & Apps", type: "expense" },
+    { name: "Mercado", type: "expense" },
+    { name: "Refeição Livre / Lazer", type: "expense" },
+    { name: "Suplementos", type: "expense" },
+    { name: "Vestuário / Academia", type: "expense" }, // Nova categoria para as compras da Adri
+    { name: "Financiamentos", type: "expense" },
+    { name: "Reembolsos / Empréstimos", type: "expense" },
+    { name: "Transporte", type: "expense" },
+    { name: "Saúde", type: "expense" },
+    { name: "Salário", type: "income" },
+    { name: "Investimentos", type: "income" }
+  ];
+
+  const existingCategories = await db.select().from(categories);
+
+  for (const cat of essential) {
+    const exists = existingCategories.find(
+      (c) => c.name.trim().toLowerCase() === cat.name.trim().toLowerCase()
+    );
+
+    if (!exists) {
+      await db.insert(categories).values({
+        userId: "paulo-admin",
+        name: cat.name,
+        type: cat.type as "income" | "expense",
+      });
+    }
   }
 }

@@ -4,10 +4,11 @@ import { useState, useEffect, useMemo } from "react";
 import { getDashboardData, toggleTransactionStatus, copyFixedExpenses, generateMonthlyReport, deleteTransaction } from "./actions"; 
 import { TransactionModal } from "@/components/TransactionModal";
 import { BudgetModal } from "@/components/BudgetModal";
+import { UserButton } from "@clerk/nextjs"; 
 import { 
   TrendingUp, Calendar as CalendarIcon, Plus, ArrowUpRight, ArrowDownRight, 
   Wallet, Clock, CheckCircle2, Circle, Copy, Loader2,
-  Briefcase, User, Layers, Target, AlertTriangle, MessageSquare, X, ChevronLeft, ChevronRight, Palette, Pencil, Trash2
+  Briefcase, User, Layers, Target, AlertTriangle, MessageSquare, X, ChevronLeft, ChevronRight, Palette, Pencil, Trash2, AlertCircle
 } from "lucide-react";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
 
@@ -26,7 +27,7 @@ const THEMES = {
     iconBg: 'bg-zinc-800',
     navActive: 'bg-zinc-800 text-white',
     navInactive: 'text-zinc-500 hover:text-zinc-300',
-    logoFilter: 'invert brightness-0 invert' // Deixa logo branca (Inverte, Zera brilho, Inverte de novo)
+    logoFilter: 'invert brightness-0 invert' // Deixa logo branca
   },
   nubank: {
     id: 'nubank',
@@ -109,16 +110,24 @@ export default function Dashboard() {
   // --- ESTADOS DE UI ---
   const [viewMode, setViewMode] = useState<'all' | 'pf' | 'pj'>('all');
   const [currentTheme, setCurrentTheme] = useState<'dark' | 'nubank' | 'green' | 'blue' | 'red'>('nubank');
-  const [isThemeMenuOpen, setIsThemeMenuOpen] = useState(false); // Agora controlado por clique
+  const [isThemeMenuOpen, setIsThemeMenuOpen] = useState(false); 
 
   const theme = THEMES[currentTheme];
 
   const [rawData, setRawData] = useState<any>({ allCategories: [], transactions: [] });
 
   async function loadData() {
+    console.log("🔄 Carregando dados...");
     const month = currentDate.getMonth() + 1;
     const year = currentDate.getFullYear();
     const result = await getDashboardData(month, year);
+    
+    if (result.allCategories.length === 0) {
+        console.log("⚠️ Nenhuma categoria encontrada. Tentando criar...");
+    } else {
+        console.log(`✅ ${result.allCategories.length} categorias carregadas.`);
+    }
+    
     setRawData(result);
   }
 
@@ -217,6 +226,12 @@ export default function Dashboard() {
 
             {/* AJUSTE: Margem inferior (mb-6) adicionada para separar do nome do mês no mobile */}
             <div className="flex items-center gap-3 w-full md:w-auto justify-between md:justify-end mb-6 md:mb-0">
+                
+                {/* BOTÃO DE PERFIL (CLERK) - NOVO */}
+                <div className="flex items-center justify-center bg-white/10 rounded-full p-1" title="Minha Conta">
+                   <UserButton afterSignOutUrl="/sign-in" />
+                </div>
+
                 {/* SELETOR DE TEMAS (CLIQUE) */}
                 <div className="relative">
                 <button 
@@ -291,11 +306,11 @@ export default function Dashboard() {
                      key={day}
                      onClick={() => setSelectedDay(isSelected ? null : day)}
                      className={`w-10 h-10 flex flex-col items-center justify-center rounded-xl border transition-all text-xs font-bold ${
-                        isSelected 
-                          ? theme.navActive 
-                          : isToday 
-                            ? `border-blue-400 border-2 ${theme.text}` 
-                            : `${theme.card} ${theme.navInactive}`
+                       isSelected 
+                         ? theme.navActive 
+                         : isToday 
+                           ? `border-blue-400 border-2 ${theme.text}` 
+                           : `${theme.card} ${theme.navInactive}`
                      }`}
                    >
                      {day}
@@ -443,7 +458,7 @@ export default function Dashboard() {
         {/* LISTAS COM EDIÇÃO E EXCLUSÃO */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pb-8">
           
-          {/* Contas Fixas */}
+          {/* Contas Fixas (COM ALARMES) */}
           <div className={`${theme.card} border rounded-2xl overflow-hidden flex flex-col`}>
             <div className={`p-4 border-b flex justify-between items-center ${currentTheme === 'dark' ? 'bg-zinc-950/30 border-zinc-800' : 'bg-gray-50/50 border-gray-100'}`}>
               <h3 className={`font-bold flex items-center gap-2 ${theme.text}`}>
@@ -463,33 +478,50 @@ export default function Dashboard() {
             </div>
             
             <div className="p-4 space-y-3">
-              {processedData.fixedExpenses.map((tx: any) => (
-                <div key={tx.id} className={`flex justify-between items-center p-3 rounded-xl border transition-colors ${currentTheme === 'dark' ? 'bg-zinc-950 border-zinc-800 hover:border-zinc-700' : 'bg-white border-gray-100 hover:border-blue-200 shadow-sm'}`}>
-                  <div className="flex items-center gap-3">
-                    <button onClick={() => handleTogglePay(tx.id, tx.isPaid)} className={`p-2 rounded-full transition-all ${tx.isPaid ? 'text-emerald-600 bg-emerald-500/10' : 'text-slate-400 bg-slate-100/50 hover:text-orange-500'}`}>
-                      {tx.isPaid ? <CheckCircle2 className="w-5 h-5" /> : <Circle className="w-5 h-5" />}
-                    </button>
-                    <div>
-                      <p className={`font-semibold text-sm ${tx.isPaid ? 'text-zinc-500 line-through' : theme.text}`}>{tx.description}</p>
-                      <p className={`text-[10px] font-bold uppercase flex items-center gap-1 ${theme.textMuted}`}>
-                        {tx.entityType === 'pj' ? <Briefcase className="w-3 h-3 text-blue-500"/> : <User className="w-3 h-3 opacity-50"/>}
-                        Dia {tx.date.split('-')[2]}
-                      </p>
+              {processedData.fixedExpenses.map((tx: any) => {
+                // LÓGICA DE VENCIMENTO INTELIGENTE
+                const today = new Date();
+                const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+                
+                const isLate = !tx.isPaid && tx.date < todayStr;
+                const isToday = !tx.isPaid && tx.date === todayStr;
+
+                return (
+                  <div key={tx.id} className={`flex justify-between items-center p-3 rounded-xl border transition-colors ${currentTheme === 'dark' ? 'bg-zinc-950 border-zinc-800 hover:border-zinc-700' : 'bg-white border-gray-100 hover:border-blue-200 shadow-sm'}`}>
+                    <div className="flex items-center gap-3">
+                      <button onClick={() => handleTogglePay(tx.id, tx.isPaid)} className={`p-2 rounded-full transition-all ${tx.isPaid ? 'text-emerald-600 bg-emerald-500/10' : 'text-slate-400 bg-slate-100/50 hover:text-orange-500'}`}>
+                        {tx.isPaid ? <CheckCircle2 className="w-5 h-5" /> : <Circle className="w-5 h-5" />}
+                      </button>
+                      <div>
+                        <p className={`font-semibold text-sm ${tx.isPaid ? 'text-zinc-500 line-through' : theme.text}`}>{tx.description}</p>
+                        <p className={`text-[10px] font-bold uppercase flex items-center gap-1 ${theme.textMuted}`}>
+                          {tx.entityType === 'pj' ? <Briefcase className="w-3 h-3 text-blue-500"/> : <User className="w-3 h-3 opacity-50"/>}
+                          
+                          {/* AVISO VISUAL DE VENCIMENTO */}
+                          {isLate ? (
+                            <span className="flex items-center gap-1 text-red-500 animate-pulse"><AlertCircle className="w-3 h-3"/> VENCIDO (Dia {tx.date.split('-')[2]})</span>
+                          ) : isToday ? (
+                            <span className="flex items-center gap-1 text-amber-500 font-bold"><Clock className="w-3 h-3"/> VENCE HOJE</span>
+                          ) : (
+                            <span>Dia {tx.date.split('-')[2]}</span>
+                          )}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <div className="text-right">
+                        <p className={`font-bold font-mono text-sm ${theme.text}`}>{formatCurrency(Number(tx.amount))}</p>
+                        <span className={`text-[9px] font-bold uppercase tracking-wider ${tx.isPaid ? 'text-emerald-600' : isLate ? 'text-red-500' : 'text-orange-500'}`}>{tx.isPaid ? 'PAGO' : 'PENDENTE'}</span>
+                      </div>
+                      {/* BOTÕES DE AÇÃO */}
+                      <div className="flex flex-col gap-1">
+                          <button onClick={() => handleEdit(tx)} className="p-1.5 hover:bg-blue-500/10 text-blue-500 rounded transition-colors"><Pencil className="w-3.5 h-3.5"/></button>
+                          <button onClick={() => handleDelete(tx.id)} className="p-1.5 hover:bg-red-500/10 text-red-500 rounded transition-colors"><Trash2 className="w-3.5 h-3.5"/></button>
+                      </div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-4">
-                    <div className="text-right">
-                      <p className={`font-bold font-mono text-sm ${theme.text}`}>{formatCurrency(Number(tx.amount))}</p>
-                      <span className={`text-[9px] font-bold uppercase tracking-wider ${tx.isPaid ? 'text-emerald-600' : 'text-orange-500'}`}>{tx.isPaid ? 'PAGO' : 'PENDENTE'}</span>
-                    </div>
-                    {/* BOTÕES DE AÇÃO */}
-                    <div className="flex flex-col gap-1">
-                        <button onClick={() => handleEdit(tx)} className="p-1.5 hover:bg-blue-500/10 text-blue-500 rounded transition-colors"><Pencil className="w-3.5 h-3.5"/></button>
-                        <button onClick={() => handleDelete(tx.id)} className="p-1.5 hover:bg-red-500/10 text-red-500 rounded transition-colors"><Trash2 className="w-3.5 h-3.5"/></button>
-                    </div>
-                  </div>
-                </div>
-              ))}
+                )
+              })}
               {processedData.fixedExpenses.length === 0 && ( <p className={`text-sm text-center py-8 ${theme.textMuted}`}>Nenhuma conta fixa.</p> )}
             </div>
           </div>
@@ -526,12 +558,12 @@ export default function Dashboard() {
                   </div>
                 </div>
               ))}
-               {processedData.variableTransactions.length === 0 && ( <p className={`text-sm text-center py-8 ${theme.textMuted}`}>Sem lançamentos.</p> )}
+                {processedData.variableTransactions.length === 0 && ( <p className={`text-sm text-center py-8 ${theme.textMuted}`}>Sem lançamentos.</p> )}
             </div>
           </div>
         </div>
       </div>
-
+      
       {/* MODAIS */}
       {isModalOpen && (
         <TransactionModal 

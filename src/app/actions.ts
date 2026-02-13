@@ -4,20 +4,40 @@ import { db } from "@/db";
 import { categories, transactions } from "@/db/schema";
 import { desc, and, sql, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
+import { auth } from "@clerk/nextjs/server";
+
+// --- FUNÇÃO AUXILIAR ASSÍNCRONA (CORRIGIDA PARA NEXT.JS 15+) ---
+async function getUser() {
+  const session = await auth(); // <--- O SEGREDO ESTÁ AQUI (AWAIT)
+  
+  if (!session || !session.userId) {
+    return null;
+  }
+  return session.userId;
+}
 
 // --- BUSCAR DADOS DA DASHBOARD ---
 export async function getDashboardData(month: number, year: number) {
   try {
-    // Sincroniza categorias essenciais antes de buscar
-    await syncEssentialCategories();
+    const userId = await getUser(); // <--- AGORA USAMOS AWAIT
+    
+    // Se não tiver usuário, retorna tudo vazio sem quebrar a tela
+    if (!userId) {
+      console.log("⚠️ Dashboard: Sem usuário logado (Aguardando auth...)");
+      return { allCategories: [], fixedExpenses: [], variableTransactions: [], transactions: [], summary: { balance: 0 }, categoryStats: [], pieData: [], dailyData: [] };
+    }
 
-    const allCategories = await db.select().from(categories);
+    // Sincroniza categorias essenciais para ESTE usuário
+    await syncEssentialCategories(userId);
+
+    const allCategories = await db.select().from(categories).where(eq(categories.userId, userId));
     
     const currentTransactions = await db
       .select()
       .from(transactions)
       .where(
         and(
+          eq(transactions.userId, userId),
           sql`EXTRACT(MONTH FROM ${transactions.date}) = ${month}`,
           sql`EXTRACT(YEAR FROM ${transactions.date}) = ${year}`
         )
@@ -62,6 +82,7 @@ export async function getDashboardData(month: number, year: number) {
       }
     }
 
+    console.log(`✅ Dados carregados com sucesso para: ${userId}`);
     return { 
       allCategories, 
       fixedExpenses, 
@@ -74,30 +95,27 @@ export async function getDashboardData(month: number, year: number) {
     };
 
   } catch (error) {
-    console.error("Erro ao buscar dados:", error);
+    console.error("Erro crítico no dashboard:", error);
     return { allCategories: [], fixedExpenses: [], variableTransactions: [], transactions: [], summary: { balance: 0 }, categoryStats: [], pieData: [], dailyData: [] };
   }
 }
 
-// --- CRIAR TRANSAÇÃO (COM CORREÇÃO DEFINITIVA DE DATA) ---
-// --- CRIAR TRANSAÇÃO (VERSÃO BLINDADA CONTRA FUSO HORÁRIO) ---
+// --- CRIAR TRANSAÇÃO ---
 export async function createTransaction(data: any) {
   try {
+    const userId = await getUser(); // <--- AWAIT AQUI
+    if (!userId) return { success: false, error: "Faça login para salvar." };
+
     const installments = data.installments ? Number(data.installments) : 1;
     const amountPerInstallment = (Number(data.amount) / installments).toFixed(2);
 
-    // 1. Pega a data base (ou de Brasília se for Voz/IA)
     let baseDate: string = data.date;
     if (!baseDate) {
       const now = new Date();
-      // Forçamos a captura da data correta em Brasília como string
       const brDateParts = new Intl.DateTimeFormat('pt-BR', {
         timeZone: 'America/Sao_Paulo',
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
+        year: 'numeric', month: '2-digit', day: '2-digit',
       }).formatToParts(now);
-      
       const day = brDateParts.find(p => p.type === 'day')?.value;
       const month = brDateParts.find(p => p.type === 'month')?.value;
       const year = brDateParts.find(p => p.type === 'year')?.value;
@@ -106,8 +124,6 @@ export async function createTransaction(data: any) {
 
     for (let i = 0; i < installments; i++) {
       const [y, m, d] = baseDate.split('-').map(Number);
-      
-      // 2. Calculamos o mês da parcela manualmente
       let nextMonth = m + i;
       let nextYear = y;
       
@@ -116,21 +132,18 @@ export async function createTransaction(data: any) {
         nextYear += 1;
       }
 
-      // 3. Montamos a string final YYYY-MM-DD na mão
-      // Isso impede que o banco "arredonde" para o dia anterior por causa do fuso
       const finalDateStr = `${nextYear}-${String(nextMonth).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-
       const description = installments > 1 
         ? `${data.description} (${i + 1}/${installments})` 
         : data.description;
 
       await db.insert(transactions).values({
-        userId: "paulo-admin",
+        userId: userId,
         description: description,
         amount: installments > 1 ? amountPerInstallment : data.amount,
         categoryId: data.categoryId || null,
         type: data.type,
-        date: finalDateStr, // Enviamos apenas o texto da data
+        date: finalDateStr, 
         isFixed: data.isFixed || false,
         isPaid: (installments > 1 && i > 0) ? false : (data.isPaid ?? true),
         entityType: data.entityType || "pf",
@@ -146,29 +159,33 @@ export async function createTransaction(data: any) {
   }
 }
 
-// --- ATUALIZAR STATUS (PAGO/PENDENTE) ---
+// --- ATUALIZAR STATUS ---
 export async function toggleTransactionStatus(id: string, currentStatus: boolean) {
   try {
+    const userId = await getUser(); // <--- AWAIT AQUI
+    if (!userId) return { success: false };
+    
     await db.update(transactions)
       .set({ isPaid: !currentStatus })
-      .where(eq(transactions.id, id));
+      .where(and(eq(transactions.id, id), eq(transactions.userId, userId)));
       
     revalidatePath("/");
     return { success: true };
-  } catch (error) {
-    console.error("Erro ao atualizar status:", error);
-    return { success: false };
-  }
+  } catch (error) { return { success: false }; }
 }
 
-// --- VIRAR O MÊS (COPIAR FIXAS) ---
+// --- VIRAR O MÊS ---
 export async function copyFixedExpenses(currentMonth: number, currentYear: number) {
   try {
+    const userId = await getUser(); // <--- AWAIT AQUI
+    if (!userId) return { success: false, message: "Login necessário." };
+
     const fixedExpenses = await db
       .select()
       .from(transactions)
       .where(
         and(
+          eq(transactions.userId, userId),
           eq(transactions.isFixed, true),
           eq(transactions.type, 'expense'),
           sql`EXTRACT(MONTH FROM ${transactions.date}) = ${currentMonth}`,
@@ -176,12 +193,9 @@ export async function copyFixedExpenses(currentMonth: number, currentYear: numbe
         )
       );
 
-    if (fixedExpenses.length === 0) {
-      return { success: false, message: "Nenhuma conta fixa encontrada neste mês." };
-    }
+    if (fixedExpenses.length === 0) return { success: false, message: "Nenhuma conta fixa." };
 
     let count = 0;
-
     for (const expense of fixedExpenses) {
       const [y, m, d] = expense.date.split('-').map(Number);
       let nextMonth = m + 1;
@@ -192,6 +206,7 @@ export async function copyFixedExpenses(currentMonth: number, currentYear: numbe
 
       const existing = await db.select().from(transactions).where(
         and(
+          eq(transactions.userId, userId),
           eq(transactions.description, expense.description),
           eq(transactions.date, nextDateStr),
           eq(transactions.amount, expense.amount)
@@ -200,7 +215,7 @@ export async function copyFixedExpenses(currentMonth: number, currentYear: numbe
 
       if (existing.length === 0) {
         await db.insert(transactions).values({
-          userId: expense.userId,
+          userId: userId,
           description: expense.description,
           amount: expense.amount,
           categoryId: expense.categoryId,
@@ -216,37 +231,31 @@ export async function copyFixedExpenses(currentMonth: number, currentYear: numbe
     }
 
     revalidatePath("/");
-    return { success: true, message: `${count} contas copiadas com sucesso!` };
-  } catch (error) {
-    console.error("Erro ao copiar despesas:", error);
-    return { success: false, message: "Erro ao processar cópia." };
-  }
+    return { success: true, message: `${count} contas copiadas!` };
+  } catch (error) { return { success: false, message: "Erro ao processar." }; }
 }
 
-// --- ATUALIZAR ORÇAMENTO (METAS) ---
+// --- ATUALIZAR ORÇAMENTO ---
 export async function updateCategoryBudget(categoryId: string, budget: string) {
   try {
+    const userId = await getUser(); // <--- AWAIT AQUI
+    if (!userId) return { success: false };
+
     await db.update(categories)
       .set({ budget: budget })
-      .where(eq(categories.id, categoryId));
-    
+      .where(and(eq(categories.id, categoryId), eq(categories.userId, userId)));
     revalidatePath("/");
     return { success: true };
-  } catch (error) {
-    console.error("Erro ao atualizar meta:", error);
-    return { success: false };
-  }
+  } catch (error) { return { success: false }; }
 }
 
-// --- CONSULTOR FINANCEIRO EXECUTIVO (IA) ---
+// --- CFO VIRTUAL ---
 export async function generateMonthlyReport(month: number, year: number) {
   try {
     const reportData = await getDashboardData(month, year);
     const txs = reportData.transactions || [];
     
-    if (txs.length === 0) {
-      return { success: false, message: "Sem dados suficientes para análise executiva." };
-    }
+    if (txs.length === 0) return { success: false, message: "Sem dados suficientes." };
 
     const income = txs.filter((t: any) => t.type === 'income').reduce((acc: number, t: any) => acc + Number(t.amount), 0);
     const expense = txs.filter((t: any) => t.type === 'expense').reduce((acc: number, t: any) => acc + Number(t.amount), 0);
@@ -255,13 +264,12 @@ export async function generateMonthlyReport(month: number, year: number) {
         .filter((t: any) => t.type === 'expense')
         .sort((a: any, b: any) => Number(b.amount) - Number(a.amount))
         .slice(0, 5)
-        .map((t: any) => `${t.description} (${t.entityType === 'pj' ? 'PJ' : 'PF'}: R$${t.amount})`)
+        .map((t: any) => `${t.description} (R$${t.amount})`)
         .join(', ');
 
     const summaryText = `Período: ${month}/${year}\nReceita: R$ ${income}\nDespesas: R$ ${expense}\nResultado: R$ ${income - expense}\nTop Gastos: ${topExpenses}`;
 
     const API_KEY = process.env.OPENAI_API_KEY; 
-
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${API_KEY}` },
@@ -278,73 +286,79 @@ export async function generateMonthlyReport(month: number, year: number) {
     const data = await response.json();
     return { success: true, message: data.choices[0].message.content };
   } catch (error: any) {
-    console.error("Erro no Personal:", error);
     return { success: false, message: "O serviço de análise executiva está indisponível momentaneamente." };
   }
 }
 
-// --- NOVAS FUNÇÕES: EDITAR, EXCLUIR E SYNC CATEGORIAS ---
-
+// --- EXCLUIR ---
 export async function deleteTransaction(id: string) {
   try {
-    await db.delete(transactions).where(eq(transactions.id, id));
+    const userId = await getUser(); // <--- AWAIT AQUI
+    if (!userId) return { success: false };
+
+    await db.delete(transactions).where(and(eq(transactions.id, id), eq(transactions.userId, userId)));
     revalidatePath("/");
     return { success: true };
-  } catch (error) {
-    return { success: false };
-  }
+  } catch (error) { return { success: false }; }
 }
 
+// --- EDITAR ---
 export async function updateTransaction(id: string, data: any) {
   try {
-    // Ajuste aqui também para garantir que a data de edição salve como string YYYY-MM-DD
+    const userId = await getUser(); // <--- AWAIT AQUI
+    if (!userId) return { success: false };
+
     await db.update(transactions)
       .set({
         description: data.description,
         amount: data.amount,
-        date: data.date, // Já vem formatado do input type="date"
+        date: data.date, 
         categoryId: data.categoryId,
         type: data.type,
         isFixed: data.isFixed,
         entityType: data.entityType,
       })
-      .where(eq(transactions.id, id));
+      .where(and(eq(transactions.id, id), eq(transactions.userId, userId)));
     revalidatePath("/");
     return { success: true };
-  } catch (error) {
-    return { success: false };
-  }
+  } catch (error) { return { success: false }; }
 }
 
-async function syncEssentialCategories() {
-  const essential = [
-    { name: "Viagens", type: "expense" },
-    { name: "Assinaturas & Apps", type: "expense" },
-    { name: "Mercado", type: "expense" },
-    { name: "Refeição Livre / Lazer", type: "expense" },
-    { name: "Suplementos", type: "expense" },
-    { name: "Vestuário / Academia", type: "expense" },
-    { name: "Financiamentos", type: "expense" },
-    { name: "Reembolsos / Empréstimos", type: "expense" },
-    { name: "Transporte", type: "expense" },
-    { name: "Saúde", type: "expense" },
-    { name: "Salário", type: "income" },
-    { name: "Investimentos", type: "income" }
-  ];
+// --- SINCRONIZAR CATEGORIAS (ROBUSTO) ---
+async function syncEssentialCategories(userId: string) {
+  try {
+    const essential = [
+      { name: "Viagens", type: "expense" },
+      { name: "Assinaturas & Apps", type: "expense" },
+      { name: "Mercado", type: "expense" },
+      { name: "Refeição Livre / Lazer", type: "expense" },
+      { name: "Suplementos", type: "expense" },
+      { name: "Vestuário / Academia", type: "expense" },
+      { name: "Financiamentos", type: "expense" },
+      { name: "Reembolsos / Empréstimos", type: "expense" },
+      { name: "Transporte", type: "expense" },
+      { name: "Saúde", type: "expense" },
+      { name: "Salário", type: "income" },
+      { name: "Investimentos", type: "income" }
+    ];
 
-  const existingCategories = await db.select().from(categories);
+    const existingCategories = await db.select().from(categories).where(eq(categories.userId, userId));
 
-  for (const cat of essential) {
-    const exists = existingCategories.find(
-      (c) => c.name.trim().toLowerCase() === cat.name.trim().toLowerCase()
-    );
+    for (const cat of essential) {
+      const exists = existingCategories.find(
+        (c) => c.name.trim().toLowerCase() === cat.name.trim().toLowerCase()
+      );
 
-    if (!exists) {
-      await db.insert(categories).values({
-        userId: "paulo-admin",
-        name: cat.name,
-        type: cat.type as "income" | "expense",
-      });
+      if (!exists) {
+        await db.insert(categories).values({
+          userId: userId,
+          name: cat.name,
+          type: cat.type as "income" | "expense",
+        });
+        console.log(`✅ Categoria ${cat.name} criada para ${userId}`);
+      }
     }
+  } catch (error) {
+    console.error("Erro ao sincronizar categorias:", error);
   }
 }

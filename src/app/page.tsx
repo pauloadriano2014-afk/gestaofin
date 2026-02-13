@@ -8,9 +8,10 @@ import { UserButton } from "@clerk/nextjs";
 import { 
   TrendingUp, Calendar as CalendarIcon, Plus, ArrowUpRight, ArrowDownRight, 
   Wallet, Clock, CheckCircle2, Circle, Copy, Loader2,
-  Briefcase, User, Layers, Target, AlertTriangle, MessageSquare, X, ChevronLeft, ChevronRight, Palette, Pencil, Trash2, AlertCircle
+  Briefcase, User, Layers, Target, AlertTriangle, MessageSquare, X, ChevronLeft, ChevronRight, Palette, Pencil, Trash2, AlertCircle, Crown
 } from "lucide-react";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
+import { PremiumModal } from "@/components/PremiumModal";
 
 // --- CONFIGURAÇÃO DE TEMAS ---
 const THEMES = {
@@ -27,7 +28,7 @@ const THEMES = {
     iconBg: 'bg-zinc-800',
     navActive: 'bg-zinc-800 text-white',
     navInactive: 'text-zinc-500 hover:text-zinc-300',
-    logoFilter: 'invert brightness-0 invert' // Deixa logo branca
+    logoFilter: 'invert brightness-0 invert'
   },
   nubank: {
     id: 'nubank',
@@ -42,7 +43,7 @@ const THEMES = {
     iconBg: 'bg-purple-50 text-purple-600',
     navActive: 'bg-purple-600 text-white shadow-md',
     navInactive: 'text-gray-500 hover:bg-gray-200',
-    logoFilter: '' // Logo original
+    logoFilter: ''
   },
   green: {
     id: 'green',
@@ -106,6 +107,9 @@ export default function Dashboard() {
 
   // NOVO: Estado para edição
   const [editingTransaction, setEditingTransaction] = useState<any>(null);
+
+  // NOVO: Estado do Modal Premium (Para teste de pagamento)
+  const [showPremium, setShowPremium] = useState(false);
 
   // --- ESTADOS DE UI ---
   const [viewMode, setViewMode] = useState<'all' | 'pf' | 'pj'>('all');
@@ -227,6 +231,14 @@ export default function Dashboard() {
             {/* AJUSTE: Margem inferior (mb-6) adicionada para separar do nome do mês no mobile */}
             <div className="flex items-center gap-3 w-full md:w-auto justify-between md:justify-end mb-6 md:mb-0">
                 
+                {/* BOTÃO DE UPGRADE (TESTE STRIPE) */}
+                <button 
+                  onClick={() => setShowPremium(true)}
+                  className="bg-gradient-to-r from-yellow-400 to-orange-500 text-black font-bold px-4 py-2 rounded-full text-xs hover:scale-105 transition-all shadow-lg flex items-center gap-2 animate-pulse"
+                >
+                  <Crown className="w-4 h-4"/> Seja PRO
+                </button>
+
                 {/* BOTÃO DE PERFIL (CLERK) - NOVO */}
                 <div className="flex items-center justify-center bg-white/10 rounded-full p-1" title="Minha Conta">
                    <UserButton afterSignOutUrl="/sign-in" />
@@ -580,6 +592,9 @@ export default function Dashboard() {
       {budgetModalOpen && selectedCategory && (
         <BudgetModal category={selectedCategory} onClose={() => { setBudgetModalOpen(false); loadData(); }} />
       )}
+
+      {/* MODAL PREMIUM (NOVO) */}
+      <PremiumModal isOpen={showPremium} onClose={() => setShowPremium(false)} />
     </main>
   );
 }

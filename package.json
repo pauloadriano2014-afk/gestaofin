@@ -12,6 +12,7 @@
     "@clerk/localizations": "^3.35.3",
     "@clerk/nextjs": "^6.37.3",
     "@neondatabase/serverless": "^1.0.2",
+    "@stripe/stripe-js": "^8.7.0",
     "dotenv": "^17.2.4",
     "drizzle-orm": "^0.45.1",
     "lucide-react": "^0.563.0",
@@ -19,7 +20,8 @@
     "openai": "^6.21.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",
-    "recharts": "^3.7.0"
+    "recharts": "^3.7.0",
+    "stripe": "^20.3.1"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

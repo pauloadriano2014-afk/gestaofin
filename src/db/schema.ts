@@ -29,3 +29,14 @@ export const transactions = pgTable("transactions", {
 
   createdAt: timestamp("created_at").defaultNow(),
 });
+
+// --- NOVA TABELA: ASSINATURAS (SaaS) ---
+// Essa tabela armazena o estado do plano do usuário (Free ou Pro)
+export const userSettings = pgTable("user_settings", {
+  userId: text("user_id").primaryKey(), // ID do Clerk
+  planType: text("plan_type").default("free"), // 'free', 'monthly', 'quarterly', 'annual'
+  stripeCustomerId: text("stripe_customer_id"), // ID do cliente na Stripe
+  stripeSubscriptionId: text("stripe_subscription_id"), // ID da assinatura
+  status: text("status").default("active"), // 'active', 'past_due', 'canceled'
+  nextBillingDate: timestamp("next_billing_date"), // Data da próxima cobrança
+});

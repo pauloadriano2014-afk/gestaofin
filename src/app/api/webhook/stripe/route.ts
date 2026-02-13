@@ -1,10 +1,11 @@
+export const dynamic = 'force-dynamic'; // Adicione esta linha aqui!
 import { headers } from "next/headers";
 import Stripe from "stripe";
 import { db } from "@/db";
 import { userSettings } from "@/db/schema";
 import { eq } from "drizzle-orm";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string, {
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
   apiVersion: '2026-01-28.clover',
 });
 

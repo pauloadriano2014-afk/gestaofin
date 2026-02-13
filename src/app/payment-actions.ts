@@ -9,7 +9,7 @@ import { eq } from "drizzle-orm";
 
 // Inicializa o Stripe com a chave secreta do .env
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string, {
-  apiVersion: '2024-12-18.acacia', // Usa a versão mais recente
+  apiVersion: '2026-01-28.clover', // Versão atualizada exigida pelo Stripe
 });
 
 export async function createCheckoutSession(planType: 'monthly' | 'quarterly' | 'semiannual' | 'annual') {

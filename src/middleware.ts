@@ -1,6 +1,16 @@
-import { clerkMiddleware } from "@clerk/nextjs/server";
+import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 
-export default clerkMiddleware();
+// Define o que é público (Webhook do Stripe tem que ser público!)
+const isPublicRoute = createRouteMatcher([
+  '/api/webhooks/stripe'
+]);
+
+export default clerkMiddleware(async (auth, req) => {
+  // Se não for público, protege e garante que o userId chegue no código
+  if (!isPublicRoute(req)) {
+    await auth.protect();
+  }
+});
 
 export const config = {
   matcher: [

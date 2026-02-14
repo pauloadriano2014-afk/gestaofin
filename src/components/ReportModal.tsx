@@ -36,7 +36,8 @@ export function ReportModal({ onClose, userPlan, onRequestPremium }: { onClose: 
     if (res.success) {
         setAiAdvice(res.message);
         setReportResult(res.stats);
-        setIsResultPro(res.isPro); // Salva se o resultado veio com IA ou travado
+        // CORREÇÃO PARA O DEPLOY: Garante que o valor seja booleano (true/false) e nunca undefined
+        setIsResultPro(res.isPro || false); 
     } else {
         alert("Erro: " + res.message);
     }

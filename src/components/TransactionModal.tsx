@@ -7,11 +7,15 @@ import { createTransaction, updateTransaction, deleteTransaction } from '@/app/a
 export function TransactionModal({ 
   categories, 
   onClose, 
-  transaction // NOVO: Se vier preenchido, entra em modo edição
+  transaction, // Se vier preenchido, entra em modo edição
+  userPlan = 'free', // NOVO: Recebe o plano do usuário
+  onRequestPremium // NOVO: Função para abrir o modal de venda
 }: { 
   categories: any[], 
   onClose: () => void,
-  transaction?: any 
+  transaction?: any,
+  userPlan?: string,
+  onRequestPremium?: () => void
 }) {
   // Estados de Dados (Preenche se for edição)
   const [description, setDescription] = useState(transaction?.description || '')
@@ -75,8 +79,15 @@ export function TransactionModal({
     }
   };
 
-  // --- LÓGICA DE MICROFONE ---
+  // --- LÓGICA DE MICROFONE (AGORA COM BLOQUEIO PREMIUM) ---
   const startListening = () => {
+    // 1. VERIFICA SE É FREE
+    if (userPlan === 'free') {
+        if (onRequestPremium) onRequestPremium(); // Abre o modal de venda
+        return; // Para tudo por aqui
+    }
+
+    // 2. SE FOR PRO, SEGUE O BAILE
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
     if (!SpeechRecognition) {
@@ -212,15 +223,21 @@ export function TransactionModal({
               onChange={(e) => setDescription(e.target.value)}
               onBlur={() => description.length > 3 && handleAIProcess(description)}
             />
+            {/* BOTÃO DO MICROFONE COM TRAVA */}
             <button 
               onClick={startListening}
-              className={`p-4 rounded-xl border transition-all duration-300 flex items-center justify-center ${
+              className={`p-4 rounded-xl border transition-all duration-300 flex items-center justify-center relative group ${
                 isListening 
                   ? 'bg-red-600 border-red-500 animate-pulse text-white shadow-[0_0_15px_rgba(220,38,38,0.5)]' 
                   : 'bg-zinc-800 border-zinc-700 text-blue-400 hover:bg-zinc-700 hover:text-white'
               }`}
             >
               {isListening ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+              
+              {/* O CADEADO DE OURO (PONTO AMARELO) SE FOR FREE */}
+              {userPlan === 'free' && (
+                  <div className="absolute top-2 right-2 w-2 h-2 bg-yellow-400 rounded-full animate-pulse shadow-lg" title="Recurso PRO" />
+              )}
             </button>
           </div>
         </div>

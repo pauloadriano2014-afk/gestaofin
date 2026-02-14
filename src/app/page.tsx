@@ -8,7 +8,7 @@ import { UserButton } from "@clerk/nextjs";
 import { 
   TrendingUp, Calendar as CalendarIcon, Plus, ArrowUpRight, ArrowDownRight, 
   Wallet, Clock, CheckCircle2, Circle, Copy, Loader2,
-  Briefcase, User, Layers, Target, AlertTriangle, MessageSquare, X, ChevronLeft, ChevronRight, Palette, Pencil, Trash2, AlertCircle, Crown
+  Briefcase, User, Layers, Target, AlertTriangle, MessageSquare, X, ChevronLeft, ChevronRight, Palette, Pencil, Trash2, AlertCircle, Crown, Mic, FileText, Download
 } from "lucide-react";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
 import { PremiumModal } from "@/components/PremiumModal";
@@ -108,7 +108,7 @@ export default function Dashboard() {
   // NOVO: Estado para edição
   const [editingTransaction, setEditingTransaction] = useState<any>(null);
 
-  // NOVO: Estado do Modal Premium (Para teste de pagamento)
+  // NOVO: Estado do Modal Premium
   const [showPremium, setShowPremium] = useState(false);
 
   // --- ESTADOS DE UI ---
@@ -118,19 +118,13 @@ export default function Dashboard() {
 
   const theme = THEMES[currentTheme];
 
-  const [rawData, setRawData] = useState<any>({ allCategories: [], transactions: [] });
+  const [rawData, setRawData] = useState<any>({ allCategories: [], transactions: [], planType: 'free' });
 
   async function loadData() {
     console.log("🔄 Carregando dados...");
     const month = currentDate.getMonth() + 1;
     const year = currentDate.getFullYear();
     const result = await getDashboardData(month, year);
-    
-    if (result.allCategories.length === 0) {
-        console.log("⚠️ Nenhuma categoria encontrada. Tentando criar...");
-    } else {
-        console.log(`✅ ${result.allCategories.length} categorias carregadas.`);
-    }
     
     setRawData(result);
   }
@@ -164,7 +158,7 @@ export default function Dashboard() {
         return { ...cat, id: cat.id, name: cat.name, value: spent, budget: Number(cat.budget || 0) };
     }).filter((c: any) => c.value > 0 || c.budget > 0).sort((a: any, b: any) => b.value - a.value);
 
-    // Dados para gráfico (sempre mostra o mês todo para contexto)
+    // Dados para gráfico
     const chartTxs = (rawData.transactions || []).filter((t: any) => viewMode === 'all' ? true : t.entityType === viewMode);
     
     const dailyData = [];
@@ -187,9 +181,34 @@ export default function Dashboard() {
 
   async function handleTogglePay(id: string, currentStatus: boolean) { await toggleTransactionStatus(id, currentStatus); loadData(); }
   async function handleCopyMonth() { if(confirm("Deseja copiar todas as contas fixas deste mês para o próximo?")) { setCopying(true); const res = await copyFixedExpenses(currentDate.getMonth()+1, currentDate.getFullYear()); alert(res.message); setCopying(false); if(res.success) changeMonth(1); } }
-  async function handleAnalyze() { setAnalyzing(true); setAdvice(''); const res = await generateMonthlyReport(currentDate.getMonth()+1, currentDate.getFullYear()); setAdvice(res.message || "Erro ao analisar."); setAnalyzing(false); }
   
-  // FUNÇÃO DE EXCLUIR DIRETA
+  // --- IA ANALYTICS COM BLOQUEIO ---
+  async function handleAnalyze() { 
+    setAnalyzing(true); 
+    setAdvice(''); 
+    
+    const res = await generateMonthlyReport(currentDate.getMonth()+1, currentDate.getFullYear()); 
+    
+    if (res.message && res.message.includes("RECURSO PREMIUM")) {
+        setAnalyzing(false);
+        setShowPremium(true);
+        return;
+    }
+
+    setAdvice(res.message || "Erro ao analisar."); 
+    setAnalyzing(false); 
+  }
+
+  // --- BLOQUEIO DE PDF (NOVO) ---
+  function handleExportPDF() {
+    if (rawData.planType === 'free') {
+        setShowPremium(true);
+        return;
+    }
+    alert("📄 Em breve: Seu relatório PDF será baixado aqui!");
+  }
+
+  // FUNÇÕES DE EDIÇÃO
   async function handleDelete(id: string) {
     if(confirm("Deseja realmente excluir este lançamento?")) {
       await deleteTransaction(id);
@@ -197,7 +216,6 @@ export default function Dashboard() {
     }
   }
 
-  // FUNÇÃO PARA ABRIR EDIÇÃO
   function handleEdit(tx: any) {
     setEditingTransaction(tx);
     setIsModalOpen(true);
@@ -206,20 +224,19 @@ export default function Dashboard() {
   const changeMonth = (offset: number) => { setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + offset, 1)); setAdvice(''); };
   const formatCurrency = (val: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
 
+  // Verifica se o usuário é PRO para mudar visual dos botões
+  const isPro = rawData.planType !== 'free';
+
   return (
     <main 
       className={`min-h-screen w-full ${theme.bg} ${theme.text} pt-0 md:pt-8 font-sans transition-colors duration-500 overflow-x-hidden`}
-      // FORÇAR REMOÇÃO DE IMAGEM DE FUNDO E GARANTIR COR SÓLIDA
       style={{ backgroundImage: 'none', backgroundColor: currentTheme === 'dark' ? '#09090b' : undefined }} 
     >
       <div className="max-w-7xl mx-auto space-y-6 px-4 md:px-0">
         
-        {/* HEADER RESPONSIVO E OTIMIZADO */}
+        {/* HEADER */}
         <header className="flex flex-col gap-0 md:gap-6">
-          
-          {/* LINHA 1: LOGO CENTRALIZADA NO MOBILE E ESQUERDA NO PC */}
           <div className="flex flex-col md:flex-row justify-between items-center w-full gap-4">
-            {/* LOGO - Centralizada e Esticada no mobile (90% da largura da tela) */}
             <div className="w-full md:w-auto flex justify-center md:justify-start">
               <img 
                 src="/logo.png" 
@@ -228,47 +245,47 @@ export default function Dashboard() {
               />
             </div>
 
-            {/* AJUSTE: Margem inferior (mb-6) adicionada para separar do nome do mês no mobile */}
             <div className="flex items-center gap-3 w-full md:w-auto justify-between md:justify-end mb-6 md:mb-0">
-                
-                {/* BOTÃO DE UPGRADE (TESTE STRIPE) */}
-                <button 
-                  onClick={() => setShowPremium(true)}
-                  className="bg-gradient-to-r from-yellow-400 to-orange-500 text-black font-bold px-4 py-2 rounded-full text-xs hover:scale-105 transition-all shadow-lg flex items-center gap-2 animate-pulse"
-                >
-                  <Crown className="w-4 h-4"/> Seja PRO
-                </button>
+                {/* BOTÃO PRO (Só mostra se for Free para incentivar) */}
+                {!isPro && (
+                    <button 
+                      onClick={() => setShowPremium(true)}
+                      className="bg-gradient-to-r from-yellow-400 to-orange-500 text-black font-bold px-4 py-2 rounded-full text-xs hover:scale-105 transition-all shadow-lg flex items-center gap-2 animate-pulse"
+                    >
+                      <Crown className="w-4 h-4"/> Seja PRO
+                    </button>
+                )}
 
-                {/* BOTÃO DE PERFIL (CLERK) - NOVO */}
+                {isPro && (
+                    <span className="bg-gradient-to-r from-blue-500 to-purple-600 text-white font-bold px-3 py-1 rounded-full text-[10px] uppercase tracking-wider shadow-lg flex items-center gap-1">
+                        <Crown className="w-3 h-3"/> Membro PRO
+                    </span>
+                )}
+
                 <div className="flex items-center justify-center bg-white/10 rounded-full p-1" title="Minha Conta">
                    <UserButton afterSignOutUrl="/sign-in" />
                 </div>
 
-                {/* SELETOR DE TEMAS (CLIQUE) */}
                 <div className="relative">
-                <button 
-                    onClick={() => setIsThemeMenuOpen(!isThemeMenuOpen)} // MUDADO PARA CLIQUE
-                    className={`p-2 rounded-full border transition-all ${isThemeMenuOpen ? theme.navActive : theme.card}`}
-                >
-                    <Palette className="w-5 h-5" />
-                </button>
-                
-                {/* Menu de Temas Flutuante */}
-                {isThemeMenuOpen && (
-                    <div className={`absolute top-full right-0 mt-2 p-2 rounded-xl border shadow-xl flex flex-col gap-2 z-50 animate-in fade-in slide-in-from-top-2 ${theme.card}`}>
-                    <span className={`text-[10px] font-bold uppercase px-2 ${theme.textMuted}`}>Temas</span>
-                    <div className="flex gap-2">
-                        <button onClick={() => { setCurrentTheme('dark'); setIsThemeMenuOpen(false); }} className="w-8 h-8 rounded-full bg-zinc-950 border border-zinc-700 hover:scale-110" title="Dark" />
-                        <button onClick={() => { setCurrentTheme('nubank'); setIsThemeMenuOpen(false); }} className="w-8 h-8 rounded-full bg-purple-600 hover:scale-110" title="Nubank" />
-                        <button onClick={() => { setCurrentTheme('green'); setIsThemeMenuOpen(false); }} className="w-8 h-8 rounded-full bg-emerald-500 hover:scale-110" title="Eco" />
-                        <button onClick={() => { setCurrentTheme('blue'); setIsThemeMenuOpen(false); }} className="w-8 h-8 rounded-full bg-blue-600 hover:scale-110" title="Executivo" />
-                        <button onClick={() => { setCurrentTheme('red'); setIsThemeMenuOpen(false); }} className="w-8 h-8 rounded-full bg-rose-600 hover:scale-110" title="Red" />
-                    </div>
-                    </div>
-                )}
+                    <button 
+                        onClick={() => setIsThemeMenuOpen(!isThemeMenuOpen)}
+                        className={`p-2 rounded-full border transition-all ${isThemeMenuOpen ? theme.navActive : theme.card}`}
+                    >
+                        <Palette className="w-5 h-5" />
+                    </button>
+                    {isThemeMenuOpen && (
+                        <div className={`absolute top-full right-0 mt-2 p-2 rounded-xl border shadow-xl flex flex-col gap-2 z-50 animate-in fade-in slide-in-from-top-2 ${theme.card}`}>
+                        <div className="flex gap-2">
+                            <button onClick={() => { setCurrentTheme('dark'); setIsThemeMenuOpen(false); }} className="w-8 h-8 rounded-full bg-zinc-950 border border-zinc-700 hover:scale-110" title="Dark" />
+                            <button onClick={() => { setCurrentTheme('nubank'); setIsThemeMenuOpen(false); }} className="w-8 h-8 rounded-full bg-purple-600 hover:scale-110" title="Nubank" />
+                            <button onClick={() => { setCurrentTheme('green'); setIsThemeMenuOpen(false); }} className="w-8 h-8 rounded-full bg-emerald-500 hover:scale-110" title="Eco" />
+                            <button onClick={() => { setCurrentTheme('blue'); setIsThemeMenuOpen(false); }} className="w-8 h-8 rounded-full bg-blue-600 hover:scale-110" title="Executivo" />
+                            <button onClick={() => { setCurrentTheme('red'); setIsThemeMenuOpen(false); }} className="w-8 h-8 rounded-full bg-rose-600 hover:scale-110" title="Red" />
+                        </div>
+                        </div>
+                    )}
                 </div>
 
-                {/* SELETOR DE PF/PJ - Mais largo no mobile */}
                 <div className={`flex p-1 rounded-full border w-full md:w-auto justify-between ${theme.card}`}>
                     <button onClick={() => setViewMode('all')} className={`flex-1 md:flex-none px-6 md:px-8 py-3 text-xs md:text-sm font-bold rounded-full flex items-center justify-center gap-2 transition-all ${viewMode === 'all' ? theme.navActive : theme.navInactive}`}><Layers className="w-3 h-3"/> Tudo</button>
                     <button onClick={() => setViewMode('pf')} className={`flex-1 md:flex-none px-6 md:px-8 py-3 text-xs md:text-sm font-bold rounded-full flex items-center justify-center gap-2 transition-all ${viewMode === 'pf' ? theme.navActive : theme.navInactive}`}><User className="w-3 h-3"/> PF</button>
@@ -278,7 +295,6 @@ export default function Dashboard() {
           </div>
 
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 w-full">
-            {/* CONTROLE DE MÊS */}
             <div className="flex items-center gap-4 w-full md:w-auto justify-center">
                 <button onClick={() => changeMonth(-1)} className={`p-2 rounded-full transition-colors ${theme.navInactive}`}><ChevronLeft className="w-6 h-6" /></button>
                 <div className="flex flex-col items-center min-w-[120px]">
@@ -292,16 +308,19 @@ export default function Dashboard() {
                 <button onClick={() => changeMonth(1)} className={`p-2 rounded-full transition-colors ${theme.navInactive}`}><ChevronRight className="w-6 h-6" /></button>
             </div>
 
-            <button 
-              onClick={() => { setEditingTransaction(null); setIsModalOpen(true); }}
-              className={`${theme.button} active:scale-95 px-6 py-4 md:py-3 rounded-full font-bold text-sm shadow-lg flex items-center justify-center gap-2 transition-all w-full md:w-auto`}
-            >
-              <Plus className="w-5 h-5" /> Lançar
-            </button>
+            {/* BOTÕES DE AÇÃO PRINCIPAL */}
+            <div className="flex gap-2 w-full md:w-auto">
+                <button 
+                  onClick={() => { setEditingTransaction(null); setIsModalOpen(true); }}
+                  className={`flex-1 md:flex-none ${theme.button} active:scale-95 px-6 py-4 md:py-3 rounded-full font-bold text-sm shadow-lg flex items-center justify-center gap-2 transition-all`}
+                >
+                  <Plus className="w-5 h-5" /> Lançar
+                </button>
+            </div>
           </div>
         </header>
 
-        {/* CALENDÁRIO DE DIAS (BARRA HORIZONTAL) */}
+        {/* CALENDÁRIO */}
         <div className={`w-full overflow-x-auto pb-4 custom-scrollbar`}>
            <div className="flex gap-2 min-w-max px-1">
               <button 
@@ -318,11 +337,7 @@ export default function Dashboard() {
                      key={day}
                      onClick={() => setSelectedDay(isSelected ? null : day)}
                      className={`w-10 h-10 flex flex-col items-center justify-center rounded-xl border transition-all text-xs font-bold ${
-                       isSelected 
-                         ? theme.navActive 
-                         : isToday 
-                           ? `border-blue-400 border-2 ${theme.text}` 
-                           : `${theme.card} ${theme.navInactive}`
+                       isSelected ? theme.navActive : isToday ? `border-blue-400 border-2 ${theme.text}` : `${theme.card} ${theme.navInactive}`
                      }`}
                    >
                      {day}
@@ -333,14 +348,27 @@ export default function Dashboard() {
            </div>
         </div>
 
-        {/* FEEDBACK CONSULTOR */}
+        {/* ÁREA DE IA E RELATÓRIOS */}
         <div className="flex flex-col gap-4">
-          <div className="flex justify-end">
+          <div className="flex justify-end gap-2">
+             {/* BOTÃO PDF (CADEADO DE OURO) */}
+             {!advice && (
+                 <button 
+                   onClick={handleExportPDF}
+                   className={`flex items-center gap-2 text-sm font-bold px-4 py-2.5 rounded-full border shadow-sm transition-all hover:scale-105 ${theme.buttonSecondary}`}
+                   title="Exportar Relatório PDF (PRO)"
+                 >
+                   <Download className={`w-4 h-4 ${!isPro && 'text-zinc-400'}`} />
+                   <span className="hidden md:inline">PDF</span>
+                   {!isPro && <span className="text-[10px] bg-yellow-400 text-black px-1 rounded font-bold">PRO</span>}
+                 </button>
+             )}
+
              {!advice && (
                <button 
                  onClick={handleAnalyze}
                  disabled={analyzing}
-                 className={`flex items-center gap-2 text-sm font-bold px-5 py-2.5 rounded-full border shadow-sm transition-all ${theme.buttonSecondary}`}
+                 className={`flex items-center gap-2 text-sm font-bold px-5 py-2.5 rounded-full border shadow-sm transition-all hover:bg-blue-500 hover:text-white ${theme.buttonSecondary}`}
                >
                  {analyzing ? <Loader2 className="w-4 h-4 animate-spin" /> : <MessageSquare className="w-4 h-4" />}
                  {analyzing ? "Analisando..." : "Análise Executiva"}
@@ -367,6 +395,7 @@ export default function Dashboard() {
           )}
         </div>
 
+        {/* RESTANTE DA DASHBOARD (KPI CARDS, GRÁFICOS, LISTAS) */}
         {/* KPI CARDS */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className={`${theme.card} p-6 rounded-2xl border relative overflow-hidden group transition-all`}>
@@ -561,7 +590,7 @@ export default function Dashboard() {
                     </div>
                   </div>
                   <div className="flex items-center gap-4">
-                    <span className={`font-mono text-sm font-bold whitespace-nowrap ${tx.type === 'income' ? 'text-emerald-500' : theme.text}`}>{tx.type === 'expense' && '- '}{formatCurrency(Number(tx.amount))}</span>
+                    <span className={`font-mono text-sm font-bold whitespace-nowrap ${tx.type === 'income' ? 'text-emerald-500' : theme.text}`}>{tx.type === 'expense' && '- '}{formatCurrency(Number(tx.amount))}</span >
                     {/* BOTÕES DE AÇÃO */}
                     <div className="flex flex-col gap-1">
                         <button onClick={() => handleEdit(tx)} className="p-1.5 hover:bg-blue-500/10 text-blue-500 rounded transition-colors"><Pencil className="w-3.5 h-3.5"/></button>
@@ -585,7 +614,10 @@ export default function Dashboard() {
                 setIsModalOpen(false); 
                 setEditingTransaction(null);
                 loadData(); 
-            }} 
+            }}
+            // PASSO IMPORTANTE: Passando o status do plano para o modal
+            userPlan={rawData.planType}
+            onRequestPremium={() => setShowPremium(true)}
         />
       )}
       

@@ -1,14 +1,14 @@
 'use server'
 
 import { db } from "@/db";
-import { categories, transactions } from "@/db/schema";
+import { categories, transactions, userSettings } from "@/db/schema";
 import { desc, and, sql, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { auth } from "@clerk/nextjs/server";
 
-// --- FUNÇÃO AUXILIAR ASSÍNCRONA (CORRIGIDA PARA NEXT.JS 15+) ---
+// --- FUNÇÃO AUXILIAR ASSÍNCRONA ---
 async function getUser() {
-  const session = await auth(); // <--- O SEGREDO ESTÁ AQUI (AWAIT)
+  const session = await auth();
   
   if (!session || !session.userId) {
     return null;
@@ -19,16 +19,24 @@ async function getUser() {
 // --- BUSCAR DADOS DA DASHBOARD ---
 export async function getDashboardData(month: number, year: number) {
   try {
-    const userId = await getUser(); // <--- AGORA USAMOS AWAIT
+    const userId = await getUser();
     
-    // Se não tiver usuário, retorna tudo vazio sem quebrar a tela
+    // Se não tiver usuário, retorna tudo vazio
     if (!userId) {
-      console.log("⚠️ Dashboard: Sem usuário logado (Aguardando auth...)");
-      return { allCategories: [], fixedExpenses: [], variableTransactions: [], transactions: [], summary: { balance: 0 }, categoryStats: [], pieData: [], dailyData: [] };
+      console.log("⚠️ Dashboard: Sem usuário logado.");
+      return { 
+        allCategories: [], fixedExpenses: [], variableTransactions: [], transactions: [], 
+        summary: { balance: 0 }, categoryStats: [], pieData: [], dailyData: [],
+        planType: 'free' // Padrão se não logado
+      };
     }
 
-    // Sincroniza categorias essenciais para ESTE usuário
+    // Sincroniza categorias essenciais
     await syncEssentialCategories(userId);
+
+    // 1. BUSCA O PLANO DO USUÁRIO
+    const userConfig = await db.select().from(userSettings).where(eq(userSettings.userId, userId));
+    const planType = userConfig[0]?.planType || 'free';
 
     const allCategories = await db.select().from(categories).where(eq(categories.userId, userId));
     
@@ -82,7 +90,6 @@ export async function getDashboardData(month: number, year: number) {
       }
     }
 
-    console.log(`✅ Dados carregados com sucesso para: ${userId}`);
     return { 
       allCategories, 
       fixedExpenses, 
@@ -91,19 +98,81 @@ export async function getDashboardData(month: number, year: number) {
       summary: { balance, income, expense }, 
       categoryStats, 
       pieData: categoryStats, 
-      dailyData 
+      dailyData,
+      planType: planType // <--- RETORNA O PLANO PARA O FRONTEND
     };
 
   } catch (error) {
     console.error("Erro crítico no dashboard:", error);
-    return { allCategories: [], fixedExpenses: [], variableTransactions: [], transactions: [], summary: { balance: 0 }, categoryStats: [], pieData: [], dailyData: [] };
+    return { 
+        allCategories: [], fixedExpenses: [], variableTransactions: [], transactions: [], 
+        summary: { balance: 0 }, categoryStats: [], pieData: [], dailyData: [], 
+        planType: 'free' 
+    };
+  }
+}
+
+// --- CFO VIRTUAL (AGORA COM BLOQUEIO PREMIUM) ---
+export async function generateMonthlyReport(month: number, year: number) {
+  try {
+    const userId = await getUser();
+    if (!userId) return { success: false, message: "Não autorizado." };
+
+    // 1. VERIFICAÇÃO DE SEGURANÇA (O GUARDIÃO)
+    const userConfig = await db.select().from(userSettings).where(eq(userSettings.userId, userId));
+    const plan = userConfig[0]?.planType || 'free';
+
+    // Se o plano for FREE, retorna a mensagem gatilho
+    if (plan === 'free') {
+      return { 
+        success: false, 
+        message: "⚠️ RECURSO PREMIUM: A análise inteligente do CFO Virtual está disponível apenas para assinantes PRO. Assine agora para liberar!" 
+      };
+    }
+
+    // 2. SE FOR PRO, SEGUE O BAILE
+    const reportData = await getDashboardData(month, year);
+    const txs = reportData.transactions || [];
+    
+    if (txs.length === 0) return { success: false, message: "Sem dados suficientes para análise." };
+
+    const income = txs.filter((t: any) => t.type === 'income').reduce((acc: number, t: any) => acc + Number(t.amount), 0);
+    const expense = txs.filter((t: any) => t.type === 'expense').reduce((acc: number, t: any) => acc + Number(t.amount), 0);
+    
+    const topExpenses = txs
+        .filter((t: any) => t.type === 'expense')
+        .sort((a: any, b: any) => Number(b.amount) - Number(a.amount))
+        .slice(0, 5)
+        .map((t: any) => `${t.description} (R$${t.amount})`)
+        .join(', ');
+
+    const summaryText = `Período: ${month}/${year}\nReceita: R$ ${income}\nDespesas: R$ ${expense}\nResultado: R$ ${income - expense}\nTop Gastos: ${topExpenses}`;
+
+    const API_KEY = process.env.OPENAI_API_KEY; 
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${API_KEY}` },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        messages: [
+          { role: "system", content: "Você é um CFO Virtual. Analise os dados e forneça insights corporativos concisos (max 3 parágrafos). Seja direto e estratégico." },
+          { role: "user", content: summaryText }
+        ],
+        temperature: 0.7,
+      }),
+    });
+
+    const data = await response.json();
+    return { success: true, message: data.choices[0].message.content };
+  } catch (error: any) {
+    return { success: false, message: "O serviço de análise executiva está indisponível momentaneamente." };
   }
 }
 
 // --- CRIAR TRANSAÇÃO ---
 export async function createTransaction(data: any) {
   try {
-    const userId = await getUser(); // <--- AWAIT AQUI
+    const userId = await getUser();
     if (!userId) return { success: false, error: "Faça login para salvar." };
 
     const installments = data.installments ? Number(data.installments) : 1;
@@ -162,7 +231,7 @@ export async function createTransaction(data: any) {
 // --- ATUALIZAR STATUS ---
 export async function toggleTransactionStatus(id: string, currentStatus: boolean) {
   try {
-    const userId = await getUser(); // <--- AWAIT AQUI
+    const userId = await getUser();
     if (!userId) return { success: false };
     
     await db.update(transactions)
@@ -177,7 +246,7 @@ export async function toggleTransactionStatus(id: string, currentStatus: boolean
 // --- VIRAR O MÊS ---
 export async function copyFixedExpenses(currentMonth: number, currentYear: number) {
   try {
-    const userId = await getUser(); // <--- AWAIT AQUI
+    const userId = await getUser();
     if (!userId) return { success: false, message: "Login necessário." };
 
     const fixedExpenses = await db
@@ -238,7 +307,7 @@ export async function copyFixedExpenses(currentMonth: number, currentYear: numbe
 // --- ATUALIZAR ORÇAMENTO ---
 export async function updateCategoryBudget(categoryId: string, budget: string) {
   try {
-    const userId = await getUser(); // <--- AWAIT AQUI
+    const userId = await getUser();
     if (!userId) return { success: false };
 
     await db.update(categories)
@@ -249,51 +318,10 @@ export async function updateCategoryBudget(categoryId: string, budget: string) {
   } catch (error) { return { success: false }; }
 }
 
-// --- CFO VIRTUAL ---
-export async function generateMonthlyReport(month: number, year: number) {
-  try {
-    const reportData = await getDashboardData(month, year);
-    const txs = reportData.transactions || [];
-    
-    if (txs.length === 0) return { success: false, message: "Sem dados suficientes." };
-
-    const income = txs.filter((t: any) => t.type === 'income').reduce((acc: number, t: any) => acc + Number(t.amount), 0);
-    const expense = txs.filter((t: any) => t.type === 'expense').reduce((acc: number, t: any) => acc + Number(t.amount), 0);
-    
-    const topExpenses = txs
-        .filter((t: any) => t.type === 'expense')
-        .sort((a: any, b: any) => Number(b.amount) - Number(a.amount))
-        .slice(0, 5)
-        .map((t: any) => `${t.description} (R$${t.amount})`)
-        .join(', ');
-
-    const summaryText = `Período: ${month}/${year}\nReceita: R$ ${income}\nDespesas: R$ ${expense}\nResultado: R$ ${income - expense}\nTop Gastos: ${topExpenses}`;
-
-    const API_KEY = process.env.OPENAI_API_KEY; 
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${API_KEY}` },
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        messages: [
-          { role: "system", content: "Você é um CFO Virtual. Analise os dados e forneça insights corporativos concisos (max 3 parágrafos)." },
-          { role: "user", content: summaryText }
-        ],
-        temperature: 0.7,
-      }),
-    });
-
-    const data = await response.json();
-    return { success: true, message: data.choices[0].message.content };
-  } catch (error: any) {
-    return { success: false, message: "O serviço de análise executiva está indisponível momentaneamente." };
-  }
-}
-
 // --- EXCLUIR ---
 export async function deleteTransaction(id: string) {
   try {
-    const userId = await getUser(); // <--- AWAIT AQUI
+    const userId = await getUser();
     if (!userId) return { success: false };
 
     await db.delete(transactions).where(and(eq(transactions.id, id), eq(transactions.userId, userId)));
@@ -305,7 +333,7 @@ export async function deleteTransaction(id: string) {
 // --- EDITAR ---
 export async function updateTransaction(id: string, data: any) {
   try {
-    const userId = await getUser(); // <--- AWAIT AQUI
+    const userId = await getUser();
     if (!userId) return { success: false };
 
     await db.update(transactions)

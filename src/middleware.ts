@@ -1,6 +1,6 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
+import { NextResponse } from "next/server";
 
-// 1. Define as rotas públicas
 const isPublicRoute = createRouteMatcher([
   '/sign-in(.*)', 
   '/sign-up(.*)',
@@ -8,18 +8,20 @@ const isPublicRoute = createRouteMatcher([
 ]);
 
 export default clerkMiddleware(async (auth, req) => {
-  // 2. Se a rota NÃO for pública, protege
-  if (!isPublicRoute(req)) {
-    const authObject = await auth();
-    authObject.protect();
+  const session = await auth();
+
+  // Se o usuário NÃO estiver logado e a rota NÃO for pública
+  if (!session.userId && !isPublicRoute(req)) {
+    // Redireciona para o login oficial do Clerk (modo desenvolvimento)
+    return session.redirectToSignIn();
   }
+  
+  return NextResponse.next();
 });
 
 export const config = {
   matcher: [
-    // Pula arquivos estáticos e imagens
     '/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)',
-    // Roda em todas as rotas de API
     '/(api|trpc)(.*)',
   ],
 };

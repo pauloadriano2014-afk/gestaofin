@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useMemo } from "react";
+import { ReportModal } from "@/components/ReportModal"; 
 import { getDashboardData, toggleTransactionStatus, copyFixedExpenses, generateMonthlyReport, deleteTransaction } from "./actions"; 
 import { TransactionModal } from "@/components/TransactionModal";
 import { BudgetModal } from "@/components/BudgetModal";
@@ -96,7 +97,6 @@ export default function Dashboard() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [currentDate, setCurrentDate] = useState(new Date());
   
-  // Estado do Dia Selecionado (null = mês inteiro)
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
 
   const [copying, setCopying] = useState(false);
@@ -105,11 +105,9 @@ export default function Dashboard() {
   const [budgetModalOpen, setBudgetModalOpen] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<any>(null);
 
-  // NOVO: Estado para edição
   const [editingTransaction, setEditingTransaction] = useState<any>(null);
-
-  // NOVO: Estado do Modal Premium
   const [showPremium, setShowPremium] = useState(false);
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
 
   // --- ESTADOS DE UI ---
   const [viewMode, setViewMode] = useState<'all' | 'pf' | 'pj'>('all');
@@ -125,7 +123,6 @@ export default function Dashboard() {
     const month = currentDate.getMonth() + 1;
     const year = currentDate.getFullYear();
     const result = await getDashboardData(month, year);
-    
     setRawData(result);
   }
 
@@ -182,33 +179,23 @@ export default function Dashboard() {
   async function handleTogglePay(id: string, currentStatus: boolean) { await toggleTransactionStatus(id, currentStatus); loadData(); }
   async function handleCopyMonth() { if(confirm("Deseja copiar todas as contas fixas deste mês para o próximo?")) { setCopying(true); const res = await copyFixedExpenses(currentDate.getMonth()+1, currentDate.getFullYear()); alert(res.message); setCopying(false); if(res.success) changeMonth(1); } }
   
-  // --- IA ANALYTICS COM BLOQUEIO ---
   async function handleAnalyze() { 
     setAnalyzing(true); 
     setAdvice(''); 
-    
     const res = await generateMonthlyReport(currentDate.getMonth()+1, currentDate.getFullYear()); 
-    
     if (res.message && res.message.includes("RECURSO PREMIUM")) {
         setAnalyzing(false);
         setShowPremium(true);
         return;
     }
-
     setAdvice(res.message || "Erro ao analisar."); 
     setAnalyzing(false); 
   }
 
-  // --- BLOQUEIO DE PDF (NOVO) ---
   function handleExportPDF() {
-    if (rawData.planType === 'free') {
-        setShowPremium(true);
-        return;
-    }
-    alert("📄 Em breve: Seu relatório PDF será baixado aqui!");
+    setIsReportModalOpen(true);
   }
 
-  // FUNÇÕES DE EDIÇÃO
   async function handleDelete(id: string) {
     if(confirm("Deseja realmente excluir este lançamento?")) {
       await deleteTransaction(id);
@@ -224,72 +211,78 @@ export default function Dashboard() {
   const changeMonth = (offset: number) => { setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + offset, 1)); setAdvice(''); };
   const formatCurrency = (val: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
 
-  // Verifica se o usuário é PRO para mudar visual dos botões
   const isPro = rawData.planType !== 'free';
 
   return (
     <main 
-      className={`min-h-screen w-full ${theme.bg} ${theme.text} pt-0 md:pt-8 font-sans transition-colors duration-500 overflow-x-hidden`}
+      className={`min-h-screen w-full ${theme.bg} ${theme.text} pt-4 md:pt-8 font-sans transition-colors duration-500 overflow-x-hidden`}
       style={{ backgroundImage: 'none', backgroundColor: currentTheme === 'dark' ? '#09090b' : undefined }} 
     >
       <div className="max-w-7xl mx-auto space-y-6 px-4 md:px-0">
         
-        {/* HEADER */}
-        <header className="flex flex-col gap-0 md:gap-6">
+        {/* HEADER RESPONSIVO */}
+        <header className="flex flex-col gap-4 md:gap-6">
           <div className="flex flex-col md:flex-row justify-between items-center w-full gap-4">
+            
+            {/* LOGO */}
             <div className="w-full md:w-auto flex justify-center md:justify-start">
               <img 
                 src="/logo.png" 
                 alt="KORE" 
-                className={`h-32 w-[90vw] md:w-auto md:h-40 object-contain -mt-4 md:mt-0 transition-all duration-500 ${theme.logoFilter}`} 
+                className={`h-24 md:h-40 w-auto object-contain transition-all duration-500 ${theme.logoFilter}`} 
               />
             </div>
 
-            <div className="flex items-center gap-3 w-full md:w-auto justify-between md:justify-end mb-6 md:mb-0">
-                {/* BOTÃO PRO (Só mostra se for Free para incentivar) */}
-                {!isPro && (
-                    <button 
-                      onClick={() => setShowPremium(true)}
-                      className="bg-gradient-to-r from-yellow-400 to-orange-500 text-black font-bold px-4 py-2 rounded-full text-xs hover:scale-105 transition-all shadow-lg flex items-center gap-2 animate-pulse"
-                    >
-                      <Crown className="w-4 h-4"/> Seja PRO
-                    </button>
-                )}
-
-                {isPro && (
-                    <span className="bg-gradient-to-r from-blue-500 to-purple-600 text-white font-bold px-3 py-1 rounded-full text-[10px] uppercase tracking-wider shadow-lg flex items-center gap-1">
-                        <Crown className="w-3 h-3"/> Membro PRO
-                    </span>
-                )}
-
-                <div className="flex items-center justify-center bg-white/10 rounded-full p-1" title="Minha Conta">
-                   <UserButton afterSignOutUrl="/sign-in" />
-                </div>
-
-                <div className="relative">
-                    <button 
-                        onClick={() => setIsThemeMenuOpen(!isThemeMenuOpen)}
-                        className={`p-2 rounded-full border transition-all ${isThemeMenuOpen ? theme.navActive : theme.card}`}
-                    >
-                        <Palette className="w-5 h-5" />
-                    </button>
-                    {isThemeMenuOpen && (
-                        <div className={`absolute top-full right-0 mt-2 p-2 rounded-xl border shadow-xl flex flex-col gap-2 z-50 animate-in fade-in slide-in-from-top-2 ${theme.card}`}>
-                        <div className="flex gap-2">
-                            <button onClick={() => { setCurrentTheme('dark'); setIsThemeMenuOpen(false); }} className="w-8 h-8 rounded-full bg-zinc-950 border border-zinc-700 hover:scale-110" title="Dark" />
-                            <button onClick={() => { setCurrentTheme('nubank'); setIsThemeMenuOpen(false); }} className="w-8 h-8 rounded-full bg-purple-600 hover:scale-110" title="Nubank" />
-                            <button onClick={() => { setCurrentTheme('green'); setIsThemeMenuOpen(false); }} className="w-8 h-8 rounded-full bg-emerald-500 hover:scale-110" title="Eco" />
-                            <button onClick={() => { setCurrentTheme('blue'); setIsThemeMenuOpen(false); }} className="w-8 h-8 rounded-full bg-blue-600 hover:scale-110" title="Executivo" />
-                            <button onClick={() => { setCurrentTheme('red'); setIsThemeMenuOpen(false); }} className="w-8 h-8 rounded-full bg-rose-600 hover:scale-110" title="Red" />
-                        </div>
-                        </div>
+            {/* BARRA DE AÇÕES SUPERIOR */}
+            <div className="flex flex-col md:flex-row items-center gap-3 w-full md:w-auto justify-end">
+                
+                <div className="flex items-center gap-3 w-full justify-center md:justify-end">
+                    {/* BOTÃO PRO */}
+                    {!isPro && (
+                        <button 
+                          onClick={() => setShowPremium(true)} 
+                          className="bg-gradient-to-r from-yellow-400 to-orange-500 text-black font-bold px-3 py-2 rounded-full text-xs hover:scale-105 transition-all shadow-lg flex items-center gap-2 animate-pulse whitespace-nowrap"
+                        >
+                          <Crown className="w-4 h-4"/> Seja PRO
+                        </button>
                     )}
+
+                    {isPro && (
+                        <span className="bg-gradient-to-r from-blue-500 to-purple-600 text-white font-bold px-3 py-1 rounded-full text-[10px] uppercase tracking-wider shadow-lg flex items-center gap-1 whitespace-nowrap">
+                            <Crown className="w-3 h-3"/> PRO
+                        </span>
+                    )}
+
+                    <div className="flex items-center justify-center bg-white/10 rounded-full p-1 shrink-0" title="Minha Conta">
+                       <UserButton afterSignOutUrl="/sign-in" />
+                    </div>
+
+                    <div className="relative shrink-0">
+                        <button 
+                            onClick={() => setIsThemeMenuOpen(!isThemeMenuOpen)}
+                            className={`p-2 rounded-full border transition-all ${isThemeMenuOpen ? theme.navActive : theme.card}`}
+                        >
+                            <Palette className="w-5 h-5" />
+                        </button>
+                        {isThemeMenuOpen && (
+                            <div className={`absolute top-full right-0 mt-2 p-2 rounded-xl border shadow-xl flex flex-col gap-2 z-50 animate-in fade-in slide-in-from-top-2 ${theme.card}`}>
+                            <div className="flex gap-2">
+                                <button onClick={() => { setCurrentTheme('dark'); setIsThemeMenuOpen(false); }} className="w-8 h-8 rounded-full bg-zinc-950 border border-zinc-700 hover:scale-110" title="Dark" />
+                                <button onClick={() => { setCurrentTheme('nubank'); setIsThemeMenuOpen(false); }} className="w-8 h-8 rounded-full bg-purple-600 hover:scale-110" title="Nubank" />
+                                <button onClick={() => { setCurrentTheme('green'); setIsThemeMenuOpen(false); }} className="w-8 h-8 rounded-full bg-emerald-500 hover:scale-110" title="Eco" />
+                                <button onClick={() => { setCurrentTheme('blue'); setIsThemeMenuOpen(false); }} className="w-8 h-8 rounded-full bg-blue-600 hover:scale-110" title="Executivo" />
+                                <button onClick={() => { setCurrentTheme('red'); setIsThemeMenuOpen(false); }} className="w-8 h-8 rounded-full bg-rose-600 hover:scale-110" title="Red" />
+                            </div>
+                            </div>
+                        )}
+                    </div>
                 </div>
 
+                {/* FILTROS PF/PJ */}
                 <div className={`flex p-1 rounded-full border w-full md:w-auto justify-between ${theme.card}`}>
-                    <button onClick={() => setViewMode('all')} className={`flex-1 md:flex-none px-6 md:px-8 py-3 text-xs md:text-sm font-bold rounded-full flex items-center justify-center gap-2 transition-all ${viewMode === 'all' ? theme.navActive : theme.navInactive}`}><Layers className="w-3 h-3"/> Tudo</button>
-                    <button onClick={() => setViewMode('pf')} className={`flex-1 md:flex-none px-6 md:px-8 py-3 text-xs md:text-sm font-bold rounded-full flex items-center justify-center gap-2 transition-all ${viewMode === 'pf' ? theme.navActive : theme.navInactive}`}><User className="w-3 h-3"/> PF</button>
-                    <button onClick={() => setViewMode('pj')} className={`flex-1 md:flex-none px-6 md:px-8 py-3 text-xs md:text-sm font-bold rounded-full flex items-center justify-center gap-2 transition-all ${viewMode === 'pj' ? theme.navActive : theme.navInactive}`}><Briefcase className="w-3 h-3"/> PJ</button>
+                    <button onClick={() => setViewMode('all')} className={`flex-1 md:flex-none px-4 md:px-8 py-2 md:py-3 text-xs md:text-sm font-bold rounded-full flex items-center justify-center gap-2 transition-all ${viewMode === 'all' ? theme.navActive : theme.navInactive}`}><Layers className="w-3 h-3"/> Tudo</button>
+                    <button onClick={() => setViewMode('pf')} className={`flex-1 md:flex-none px-4 md:px-8 py-2 md:py-3 text-xs md:text-sm font-bold rounded-full flex items-center justify-center gap-2 transition-all ${viewMode === 'pf' ? theme.navActive : theme.navInactive}`}><User className="w-3 h-3"/> PF</button>
+                    <button onClick={() => setViewMode('pj')} className={`flex-1 md:flex-none px-4 md:px-8 py-2 md:py-3 text-xs md:text-sm font-bold rounded-full flex items-center justify-center gap-2 transition-all ${viewMode === 'pj' ? theme.navActive : theme.navInactive}`}><Briefcase className="w-3 h-3"/> PJ</button>
                 </div>
             </div>
           </div>
@@ -308,13 +301,13 @@ export default function Dashboard() {
                 <button onClick={() => changeMonth(1)} className={`p-2 rounded-full transition-colors ${theme.navInactive}`}><ChevronRight className="w-6 h-6" /></button>
             </div>
 
-            {/* BOTÕES DE AÇÃO PRINCIPAL */}
+            {/* BOTÃO DE LANÇAR - GRANDE */}
             <div className="flex gap-2 w-full md:w-auto">
                 <button 
                   onClick={() => { setEditingTransaction(null); setIsModalOpen(true); }}
                   className={`flex-1 md:flex-none ${theme.button} active:scale-95 px-6 py-4 md:py-3 rounded-full font-bold text-sm shadow-lg flex items-center justify-center gap-2 transition-all`}
                 >
-                  <Plus className="w-5 h-5" /> Lançar
+                  <Plus className="w-5 h-5" /> Lançar Nova Transação
                 </button>
             </div>
           </div>
@@ -348,18 +341,18 @@ export default function Dashboard() {
            </div>
         </div>
 
-        {/* ÁREA DE IA E RELATÓRIOS */}
+        {/* ÁREA DE IA E RELATÓRIOS - WRAP NOS BOTOES */}
         <div className="flex flex-col gap-4">
-          <div className="flex justify-end gap-2">
-             {/* BOTÃO PDF (CADEADO DE OURO) */}
+          <div className="flex flex-wrap justify-end gap-2">
+             {/* BOTÃO PDF */}
              {!advice && (
                  <button 
                    onClick={handleExportPDF}
-                   className={`flex items-center gap-2 text-sm font-bold px-4 py-2.5 rounded-full border shadow-sm transition-all hover:scale-105 ${theme.buttonSecondary}`}
-                   title="Exportar Relatório PDF (PRO)"
+                   className={`flex-1 md:flex-none flex items-center justify-center gap-2 text-sm font-bold px-4 py-2.5 rounded-full border shadow-sm transition-all hover:scale-105 ${theme.buttonSecondary}`}
+                   title="Relatórios Executivos"
                  >
                    <Download className={`w-4 h-4 ${!isPro && 'text-zinc-400'}`} />
-                   <span className="hidden md:inline">PDF</span>
+                   <span className="inline">Relatório PDF</span>
                    {!isPro && <span className="text-[10px] bg-yellow-400 text-black px-1 rounded font-bold">PRO</span>}
                  </button>
              )}
@@ -368,10 +361,10 @@ export default function Dashboard() {
                <button 
                  onClick={handleAnalyze}
                  disabled={analyzing}
-                 className={`flex items-center gap-2 text-sm font-bold px-5 py-2.5 rounded-full border shadow-sm transition-all hover:bg-blue-500 hover:text-white ${theme.buttonSecondary}`}
+                 className={`flex-1 md:flex-none flex items-center justify-center gap-2 text-sm font-bold px-5 py-2.5 rounded-full border shadow-sm transition-all hover:bg-blue-500 hover:text-white ${theme.buttonSecondary}`}
                >
                  {analyzing ? <Loader2 className="w-4 h-4 animate-spin" /> : <MessageSquare className="w-4 h-4" />}
-                 {analyzing ? "Analisando..." : "Análise Executiva"}
+                 {analyzing ? "Analisando..." : "Análise IA"}
                </button>
              )}
           </div>
@@ -395,8 +388,7 @@ export default function Dashboard() {
           )}
         </div>
 
-        {/* RESTANTE DA DASHBOARD (KPI CARDS, GRÁFICOS, LISTAS) */}
-        {/* KPI CARDS */}
+        {/* RESTANTE DA DASHBOARD */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className={`${theme.card} p-6 rounded-2xl border relative overflow-hidden group transition-all`}>
             <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity"><Wallet className="w-16 h-16" /></div>
@@ -520,10 +512,8 @@ export default function Dashboard() {
             
             <div className="p-4 space-y-3">
               {processedData.fixedExpenses.map((tx: any) => {
-                // LÓGICA DE VENCIMENTO INTELIGENTE
                 const today = new Date();
                 const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
-                
                 const isLate = !tx.isPaid && tx.date < todayStr;
                 const isToday = !tx.isPaid && tx.date === todayStr;
 
@@ -538,7 +528,6 @@ export default function Dashboard() {
                         <p className={`text-[10px] font-bold uppercase flex items-center gap-1 ${theme.textMuted}`}>
                           {tx.entityType === 'pj' ? <Briefcase className="w-3 h-3 text-blue-500"/> : <User className="w-3 h-3 opacity-50"/>}
                           
-                          {/* AVISO VISUAL DE VENCIMENTO */}
                           {isLate ? (
                             <span className="flex items-center gap-1 text-red-500 animate-pulse"><AlertCircle className="w-3 h-3"/> VENCIDO (Dia {tx.date.split('-')[2]})</span>
                           ) : isToday ? (
@@ -554,7 +543,6 @@ export default function Dashboard() {
                         <p className={`font-bold font-mono text-sm ${theme.text}`}>{formatCurrency(Number(tx.amount))}</p>
                         <span className={`text-[9px] font-bold uppercase tracking-wider ${tx.isPaid ? 'text-emerald-600' : isLate ? 'text-red-500' : 'text-orange-500'}`}>{tx.isPaid ? 'PAGO' : 'PENDENTE'}</span>
                       </div>
-                      {/* BOTÕES DE AÇÃO */}
                       <div className="flex flex-col gap-1">
                           <button onClick={() => handleEdit(tx)} className="p-1.5 hover:bg-blue-500/10 text-blue-500 rounded transition-colors"><Pencil className="w-3.5 h-3.5"/></button>
                           <button onClick={() => handleDelete(tx.id)} className="p-1.5 hover:bg-red-500/10 text-red-500 rounded transition-colors"><Trash2 className="w-3.5 h-3.5"/></button>
@@ -591,7 +579,6 @@ export default function Dashboard() {
                   </div>
                   <div className="flex items-center gap-4">
                     <span className={`font-mono text-sm font-bold whitespace-nowrap ${tx.type === 'income' ? 'text-emerald-500' : theme.text}`}>{tx.type === 'expense' && '- '}{formatCurrency(Number(tx.amount))}</span >
-                    {/* BOTÕES DE AÇÃO */}
                     <div className="flex flex-col gap-1">
                         <button onClick={() => handleEdit(tx)} className="p-1.5 hover:bg-blue-500/10 text-blue-500 rounded transition-colors"><Pencil className="w-3.5 h-3.5"/></button>
                         <button onClick={() => handleDelete(tx.id)} className="p-1.5 hover:bg-red-500/10 text-red-500 rounded transition-colors"><Trash2 className="w-3.5 h-3.5"/></button>
@@ -615,7 +602,6 @@ export default function Dashboard() {
                 setEditingTransaction(null);
                 loadData(); 
             }}
-            // PASSO IMPORTANTE: Passando o status do plano para o modal
             userPlan={rawData.planType}
             onRequestPremium={() => setShowPremium(true)}
         />
@@ -625,8 +611,17 @@ export default function Dashboard() {
         <BudgetModal category={selectedCategory} onClose={() => { setBudgetModalOpen(false); loadData(); }} />
       )}
 
-      {/* MODAL PREMIUM (NOVO) */}
+      {/* MODAL PREMIUM */}
       <PremiumModal isOpen={showPremium} onClose={() => setShowPremium(false)} />
+
+      {/* MODAL DE RELATÓRIO AVANÇADO (PDF) */}
+      {isReportModalOpen && (
+         <ReportModal 
+            onClose={() => setIsReportModalOpen(false)} 
+            userPlan={rawData.planType} 
+            onRequestPremium={() => setShowPremium(true)} 
+         />
+      )}
     </main>
   );
 }

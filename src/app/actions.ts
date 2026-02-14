@@ -390,3 +390,131 @@ async function syncEssentialCategories(userId: string) {
     console.error("Erro ao sincronizar categorias:", error);
   }
 }
+
+// --- RELATÓRIOS AVANÇADOS (RANGE + FILTRO) ---
+export async function getReportData(startMonth: string, endMonth: string, filterType: string = 'all') {
+  try {
+    const userId = await getUser();
+    if (!userId) return { success: false, message: "Login necessário." };
+
+    const startDate = new Date(`${startMonth}-01T00:00:00`);
+    const [endY, endM] = endMonth.split('-').map(Number);
+    const endDate = new Date(endY, endM, 0, 23, 59, 59);
+
+    // Constrói os filtros dinamicamente
+    const filters = [
+      eq(transactions.userId, userId),
+      sql`${transactions.date} >= ${startDate.toISOString().split('T')[0]}`,
+      sql`${transactions.date} <= ${endDate.toISOString().split('T')[0]}`
+    ];
+
+    // Se não for 'all', adiciona o filtro de tipo (pf ou pj)
+    if (filterType !== 'all') {
+      filters.push(eq(transactions.entityType, filterType as 'pf' | 'pj'));
+    }
+
+    const periodTransactions = await db
+      .select()
+      .from(transactions)
+      .where(and(...filters))
+      .orderBy(desc(transactions.date));
+
+    // Cálculos
+    const income = periodTransactions.filter(t => t.type === 'income').reduce((acc, t) => acc + Number(t.amount), 0);
+    const expense = periodTransactions.filter(t => t.type === 'expense').reduce((acc, t) => acc + Number(t.amount), 0);
+    const balance = income - expense;
+
+    const diffTime = Math.abs(endDate.getTime() - startDate.getTime());
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
+    const monthsCount = Math.max(1, Math.round(diffDays / 30));
+
+    const avgExpense = expense / monthsCount;
+    const avgIncome = income / monthsCount;
+
+    return {
+      success: true,
+      data: {
+        income,
+        expense,
+        balance,
+        monthsCount,
+        avgIncome,
+        avgExpense,
+        transactions: periodTransactions
+      }
+    };
+  } catch (error) {
+    console.error(error);
+    return { success: false, message: "Erro ao gerar dados do relatório." };
+  }
+}
+
+// --- IA ANALYTICS PARA PERÍODO (ATUALIZADA COM FILTRO) ---
+export async function generateRangeReport(startMonth: string, endMonth: string, filterType: string = 'all') {
+  try {
+    const userId = await getUser();
+    if (!userId) return { success: false, message: "Não autorizado." };
+
+    // 1. VERIFICAÇÃO DE PLANO
+    const userConfig = await db.select().from(userSettings).where(eq(userSettings.userId, userId));
+    const plan = userConfig[0]?.planType || 'free';
+    const isPro = plan !== 'free';
+
+    // 2. BUSCA OS DADOS (Agora liberado para TODOS)
+    const result = await getReportData(startMonth, endMonth, filterType);
+    if (!result.success || !result.data) return { success: false, message: "Erro ao buscar dados." };
+
+    // SE FOR FREE: Retorna os dados, mas com mensagem travada para a IA
+    if (!isPro) {
+      return { 
+        success: true, 
+        message: "LOCKED_CONTENT", // Código que o Front vai entender
+        stats: result.data,
+        isPro: false 
+      };
+    }
+
+    // SE FOR PRO: Segue para a IA (Gasta token)
+    const { income, expense, balance, avgExpense, monthsCount } = result.data;
+    const contextMap: any = { 'all': 'Geral (Pessoal + Empresa)', 'pf': 'Pessoa Física (Pessoal)', 'pj': 'Pessoa Jurídica (Empresa)' };
+    const contextName = contextMap[filterType] || 'Geral';
+
+    const summaryText = `
+      Análise de Período (${monthsCount} meses) - Foco: ${contextName}.
+      De ${startMonth} até ${endMonth}.
+      - Receita Total: R$ ${income.toFixed(2)}
+      - Despesa Total: R$ ${expense.toFixed(2)}
+      - Saldo do Período: R$ ${balance.toFixed(2)}
+      - Média de Gastos Mensal: R$ ${avgExpense.toFixed(2)}
+      
+      Aja como um CFO Virtual. Analise esses números para o contexto ${contextName}.
+      Se o saldo for negativo, dê um alerta.
+      Seja direto, use emojis e tópicos. Máximo 150 palavras.
+    `;
+
+    const API_KEY = process.env.OPENAI_API_KEY; 
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${API_KEY}` },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        messages: [
+          { role: "system", content: "Você é um Consultor Financeiro Pessoal experiente e direto." },
+          { role: "user", content: summaryText }
+        ],
+        temperature: 0.7,
+      }),
+    });
+
+    const data = await response.json();
+    return { 
+      success: true, 
+      message: data.choices[0].message.content, 
+      stats: result.data,
+      isPro: true
+    };
+
+  } catch (error: any) {
+    return { success: false, message: "Erro na IA." };
+  }
+}

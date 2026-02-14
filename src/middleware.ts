@@ -1,6 +1,6 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 
-// Define as rotas que não precisam de login
+// 1. Define as rotas públicas
 const isPublicRoute = createRouteMatcher([
   '/sign-in(.*)', 
   '/sign-up(.*)',
@@ -8,10 +8,10 @@ const isPublicRoute = createRouteMatcher([
 ]);
 
 export default clerkMiddleware(async (auth, req) => {
-  // Se não for rota pública, o protect() cuida do redirecionamento
-  // No modo Teste, ele te manda para o portal do Clerk automaticamente
+  // 2. Se a rota NÃO for pública, protege
   if (!isPublicRoute(req)) {
-    await auth().protect();
+    const authObject = await auth();
+    authObject.protect();
   }
 });
 

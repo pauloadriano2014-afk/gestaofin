@@ -52,7 +52,7 @@ export function ReportModal({ onClose, userPlan, onRequestPremium }: { onClose: 
     <div className="fixed inset-0 bg-black/90 backdrop-blur-sm flex items-center justify-center p-4 z-50">
       <div className="bg-zinc-900 border border-zinc-800 w-full max-w-2xl rounded-2xl p-6 space-y-6 shadow-2xl relative max-h-[90vh] overflow-y-auto custom-scrollbar">
         
-        <div className="flex justify-between items-center">
+        <div className="flex justify-between items-center sticky top-0 bg-zinc-900 z-10 pb-2">
           <h2 className="text-xl font-bold flex items-center gap-2 text-white">
             <FileText className="w-5 h-5 text-purple-500" />
             Relatórios {userPlan === 'free' ? 'Básicos' : 'Avançados'}
@@ -63,28 +63,28 @@ export function ReportModal({ onClose, userPlan, onRequestPremium }: { onClose: 
         </div>
 
         {/* SELEÇÃO DE TIPO (ABAS) */}
-        <div className="grid grid-cols-3 gap-2 bg-zinc-950 p-1 rounded-xl border border-zinc-800">
-            <button onClick={() => setFilterType('all')} className={`py-2 text-xs font-bold rounded-lg flex items-center justify-center gap-2 transition-all ${filterType === 'all' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}><Layers className="w-3 h-3" /> Geral</button>
-            <button onClick={() => setFilterType('pf')} className={`py-2 text-xs font-bold rounded-lg flex items-center justify-center gap-2 transition-all ${filterType === 'pf' ? 'bg-purple-900/30 text-purple-400 border border-purple-500/20' : 'text-zinc-500 hover:text-zinc-300'}`}><User className="w-3 h-3" /> Pessoa Física</button>
-            <button onClick={() => setFilterType('pj')} className={`py-2 text-xs font-bold rounded-lg flex items-center justify-center gap-2 transition-all ${filterType === 'pj' ? 'bg-blue-900/30 text-blue-400 border border-blue-500/20' : 'text-zinc-500 hover:text-zinc-300'}`}><Building2 className="w-3 h-3" /> Pessoa Jurídica</button>
+        <div className="flex flex-col sm:flex-row gap-2 bg-zinc-950 p-1 rounded-xl border border-zinc-800">
+            <button onClick={() => setFilterType('all')} className={`flex-1 py-3 text-xs font-bold rounded-lg flex items-center justify-center gap-2 transition-all ${filterType === 'all' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}><Layers className="w-3 h-3" /> Geral</button>
+            <button onClick={() => setFilterType('pf')} className={`flex-1 py-3 text-xs font-bold rounded-lg flex items-center justify-center gap-2 transition-all ${filterType === 'pf' ? 'bg-purple-900/30 text-purple-400 border border-purple-500/20' : 'text-zinc-500 hover:text-zinc-300'}`}><User className="w-3 h-3" /> Pessoa Física</button>
+            <button onClick={() => setFilterType('pj')} className={`flex-1 py-3 text-xs font-bold rounded-lg flex items-center justify-center gap-2 transition-all ${filterType === 'pj' ? 'bg-blue-900/30 text-blue-400 border border-blue-500/20' : 'text-zinc-500 hover:text-zinc-300'}`}><Building2 className="w-3 h-3" /> Pessoa Jurídica</button>
         </div>
 
-        {/* SELEÇÃO DE DATAS */}
-        <div className="grid grid-cols-2 gap-4 bg-zinc-950 p-4 rounded-xl border border-zinc-800">
+        {/* SELEÇÃO DE DATAS - CORREÇÃO DE LAYOUT MOBILE */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-zinc-950 p-4 rounded-xl border border-zinc-800">
             <div>
                 <label className="text-xs text-zinc-500 font-bold uppercase mb-2 block">De:</label>
-                <input type="month" value={startMonth} onChange={(e) => setStartMonth(e.target.value)} className="w-full bg-zinc-900 border border-zinc-700 rounded-lg p-2 text-white outline-none focus:border-purple-500 transition-colors"/>
+                <input type="month" value={startMonth} onChange={(e) => setStartMonth(e.target.value)} className="w-full bg-zinc-900 border border-zinc-700 rounded-lg p-3 text-white outline-none focus:border-purple-500 transition-colors"/>
             </div>
             <div>
                 <label className="text-xs text-zinc-500 font-bold uppercase mb-2 block">Até:</label>
-                <input type="month" value={endMonth} onChange={(e) => setEndMonth(e.target.value)} className="w-full bg-zinc-900 border border-zinc-700 rounded-lg p-2 text-white outline-none focus:border-purple-500 transition-colors"/>
+                <input type="month" value={endMonth} onChange={(e) => setEndMonth(e.target.value)} className="w-full bg-zinc-900 border border-zinc-700 rounded-lg p-3 text-white outline-none focus:border-purple-500 transition-colors"/>
             </div>
         </div>
 
         <button 
             onClick={handleGenerate}
             disabled={loading}
-            className="w-full bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-purple-900/20"
+            className="w-full bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-purple-900/20 active:scale-[0.98]"
         >
             {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Sparkles className="w-5 h-5" />}
             {loading ? "Processando Inteligência..." : "Gerar Relatório"}
@@ -94,7 +94,7 @@ export function ReportModal({ onClose, userPlan, onRequestPremium }: { onClose: 
             <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-700">
                 
                 {/* CARDS DE RESUMO (VISÍVEL PARA TODOS) */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <div className="bg-zinc-950 p-4 rounded-xl border border-zinc-800">
                         <p className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider">Saldo do Período</p>
                         <p className={`text-2xl font-mono font-bold mt-1 ${reportResult.balance >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>

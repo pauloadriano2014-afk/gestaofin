@@ -18,15 +18,17 @@ export function BudgetModal({ category, onClose }: { category: any, onClose: () 
   }
 
   return (
-    <div className="fixed inset-0 bg-black/90 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
-      <div className="bg-zinc-900 border border-zinc-800 w-full max-w-sm rounded-2xl p-6 space-y-6 shadow-2xl">
+    <div className="fixed inset-0 bg-black/90 backdrop-blur-sm flex items-center justify-center p-4 z-[9999] animate-in fade-in duration-200">
+      {/* Adicionado max-h-[85vh] e overflow-y-auto para garantir scroll em telas pequenas */}
+      {/* Adicionado max-w-[95vw] para não vazar lateralmente no mobile */}
+      <div className="bg-zinc-900 border border-zinc-800 w-full max-w-[95vw] sm:max-w-sm max-h-[85vh] overflow-y-auto rounded-2xl p-6 space-y-6 shadow-2xl">
         
-        <div className="flex justify-between items-center">
+        <div className="flex justify-between items-center sticky top-0 bg-zinc-900 z-10 pb-2">
           <h2 className="text-xl font-bold text-white flex items-center gap-2">
             <Target className="text-purple-500 w-6 h-6" />
-            Meta: {category.name}
+            <span className="truncate max-w-[200px]">Meta: {category.name}</span>
           </h2>
-          <button onClick={onClose} className="text-zinc-500 hover:text-white transition-colors">
+          <button onClick={onClose} className="text-zinc-500 hover:text-white transition-colors p-1">
             <X className="w-6 h-6" />
           </button>
         </div>
@@ -52,7 +54,7 @@ export function BudgetModal({ category, onClose }: { category: any, onClose: () 
         <button 
           onClick={handleSave}
           disabled={loading}
-          className="w-full bg-purple-600 hover:bg-purple-700 p-4 rounded-xl font-bold text-white flex justify-center items-center gap-2 transition-all active:scale-95"
+          className="w-full bg-purple-600 hover:bg-purple-700 p-4 rounded-xl font-bold text-white flex justify-center items-center gap-2 transition-all active:scale-95 mb-2"
         >
           {loading ? <Loader2 className="animate-spin w-5 h-5" /> : <Save className="w-5 h-5" />}
           Salvar Meta

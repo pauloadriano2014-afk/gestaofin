@@ -163,10 +163,15 @@ export function TransactionModal({
   );
 
   return (
-    <div className="fixed inset-0 bg-black/90 backdrop-blur-sm flex items-center justify-center p-4 z-50 transition-all">
-      <div className="bg-zinc-900 border border-zinc-800 w-full max-w-md rounded-2xl p-6 space-y-6 shadow-2xl relative">
+    <div className="fixed inset-0 bg-black/90 backdrop-blur-sm flex items-center justify-center p-4 z-[9999] transition-all">
+      {/* UPDATES VISUAIS:
+         1. max-h-[85vh] e overflow-y-auto: Permite rolar se a tela for pequena
+         2. max-w-[95vw]: Garante margem lateral no mobile
+      */}
+      <div className="bg-zinc-900 border border-zinc-800 w-full max-w-[95vw] sm:max-w-md max-h-[85vh] overflow-y-auto rounded-2xl p-6 shadow-2xl relative">
         
-        <div className="flex justify-between items-center">
+        {/* Header Sticky para não perder o botão de fechar ao rolar */}
+        <div className="flex justify-between items-center sticky top-0 bg-zinc-900 z-10 pb-4 mb-2 border-b border-zinc-800/50">
           <h2 className="text-xl font-bold flex items-center gap-2 text-white">
             <Sparkles className="w-5 h-5 text-blue-500" />
             {transaction ? 'Editar Lançamento' : 'Lançamento Inteligente'}
@@ -183,166 +188,168 @@ export function TransactionModal({
           </div>
         </div>
 
-        <div className="flex bg-zinc-950 p-1 rounded-xl border border-zinc-800">
-          <button 
-            onClick={() => setEntityType('pf')}
-            className={`flex-1 py-2 text-xs font-bold rounded-lg flex items-center justify-center gap-2 transition-all ${entityType === 'pf' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
-          >
-            <User className="w-4 h-4" /> Pessoa Física
-          </button>
-          <button 
-            onClick={() => setEntityType('pj')}
-            className={`flex-1 py-2 text-xs font-bold rounded-lg flex items-center justify-center gap-2 transition-all ${entityType === 'pj' ? 'bg-blue-900/30 text-blue-400 shadow-sm border border-blue-500/20' : 'text-zinc-500 hover:text-zinc-300'}`}
-          >
-            <Building2 className="w-4 h-4" /> Pessoa Jurídica
-          </button>
-        </div>
-
-        <div className="flex bg-zinc-950 p-1 rounded-xl border border-zinc-800">
-          <button 
-            onClick={() => setType('expense')}
-            className={`flex-1 py-3 text-sm font-bold rounded-lg transition-all duration-300 ${type === 'expense' ? 'bg-red-500/10 text-red-500 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
-          >
-            Gasto
-          </button>
-          <button 
-            onClick={() => setType('income')}
-            className={`flex-1 py-3 text-sm font-bold rounded-lg transition-all duration-300 ${type === 'income' ? 'bg-green-500/10 text-green-500 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
-          >
-            Entrada
-          </button>
-        </div>
-
-        <div className="space-y-2">
-          <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">O que você fez?</label>
-          <div className="flex gap-3">
-            <input 
-              placeholder="Ex: Mercado 50 reais..."
-              className="flex-1 bg-zinc-950 border border-zinc-800 rounded-xl p-4 text-white placeholder:text-zinc-600 focus:border-blue-600 focus:ring-1 focus:ring-blue-600 outline-none transition-all"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              onBlur={() => description.length > 3 && handleAIProcess(description)}
-            />
-            {/* BOTÃO DO MICROFONE COM TRAVA */}
-            <button 
-              onClick={startListening}
-              className={`p-4 rounded-xl border transition-all duration-300 flex items-center justify-center relative group ${
-                isListening 
-                  ? 'bg-red-600 border-red-500 animate-pulse text-white shadow-[0_0_15px_rgba(220,38,38,0.5)]' 
-                  : 'bg-zinc-800 border-zinc-700 text-blue-400 hover:bg-zinc-700 hover:text-white'
-              }`}
-            >
-              {isListening ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
-              
-              {/* O CADEADO DE OURO (PONTO AMARELO) SE FOR FREE */}
-              {userPlan === 'free' && (
-                  <div className="absolute top-2 right-2 w-2 h-2 bg-yellow-400 rounded-full animate-pulse shadow-lg" title="Recurso PRO" />
-              )}
-            </button>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-4">
-          <div className="col-span-2">
-            <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1 block">Data</label>
-            <div className="relative">
-              <Calendar className="absolute left-3 top-3.5 w-4 h-4 text-zinc-500" />
-              <input 
-                type="date" 
-                className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 pl-10 text-white outline-none focus:border-blue-600 transition-all appearance-none"
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
-              />
+        <div className="space-y-6"> {/* Wrapper de conteúdo com espaçamento */}
+            <div className="flex bg-zinc-950 p-1 rounded-xl border border-zinc-800">
+              <button 
+                onClick={() => setEntityType('pf')}
+                className={`flex-1 py-2 text-xs font-bold rounded-lg flex items-center justify-center gap-2 transition-all ${entityType === 'pf' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+              >
+                <User className="w-4 h-4" /> Pessoa Física
+              </button>
+              <button 
+                onClick={() => setEntityType('pj')}
+                className={`flex-1 py-2 text-xs font-bold rounded-lg flex items-center justify-center gap-2 transition-all ${entityType === 'pj' ? 'bg-blue-900/30 text-blue-400 shadow-sm border border-blue-500/20' : 'text-zinc-500 hover:text-zinc-300'}`}
+              >
+                <Building2 className="w-4 h-4" /> Pessoa Jurídica
+              </button>
             </div>
-          </div>
 
-          <div>
-            <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1 block">Valor Total</label>
-            <div className="relative">
-              <span className="absolute left-3 top-3.5 text-zinc-500 text-sm font-bold">R$</span>
-              <input 
-                type="number"
-                placeholder="0,00"
-                className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 pl-10 text-white outline-none focus:border-blue-600 transition-all font-mono"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-              />
+            <div className="flex bg-zinc-950 p-1 rounded-xl border border-zinc-800">
+              <button 
+                onClick={() => setType('expense')}
+                className={`flex-1 py-3 text-sm font-bold rounded-lg transition-all duration-300 ${type === 'expense' ? 'bg-red-500/10 text-red-500 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+              >
+                Gasto
+              </button>
+              <button 
+                onClick={() => setType('income')}
+                className={`flex-1 py-3 text-sm font-bold rounded-lg transition-all duration-300 ${type === 'income' ? 'bg-green-500/10 text-green-500 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+              >
+                Entrada
+              </button>
             </div>
-          </div>
 
-          <div>
-            <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1 block">Categoria</label>
-            <select 
-              className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-white outline-none focus:border-blue-600 transition-all appearance-none"
-              value={categoryId}
-              onChange={(e) => setCategoryId(e.target.value)}
-            >
-              <option value="">Selecione...</option>
-              {uniqueCategories.map((cat: any) => (
-                <option key={cat.id} value={cat.id}>{cat.name}</option>
-              ))}
-            </select>
-          </div>
-        </div>
+            <div className="space-y-2">
+              <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">O que você fez?</label>
+              <div className="flex gap-3">
+                <input 
+                  placeholder="Ex: Mercado 50 reais..."
+                  className="flex-1 bg-zinc-950 border border-zinc-800 rounded-xl p-4 text-white placeholder:text-zinc-600 focus:border-blue-600 focus:ring-1 focus:ring-blue-600 outline-none transition-all"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  onBlur={() => description.length > 3 && handleAIProcess(description)}
+                />
+                {/* BOTÃO DO MICROFONE COM TRAVA */}
+                <button 
+                  onClick={startListening}
+                  className={`p-4 rounded-xl border transition-all duration-300 flex items-center justify-center relative group ${
+                    isListening 
+                      ? 'bg-red-600 border-red-500 animate-pulse text-white shadow-[0_0_15px_rgba(220,38,38,0.5)]' 
+                      : 'bg-zinc-800 border-zinc-700 text-blue-400 hover:bg-zinc-700 hover:text-white'
+                  }`}
+                >
+                  {isListening ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+                  
+                  {/* O CADEADO DE OURO (PONTO AMARELO) SE FOR FREE */}
+                  {userPlan === 'free' && (
+                      <div className="absolute top-2 right-2 w-2 h-2 bg-yellow-400 rounded-full animate-pulse shadow-lg" title="Recurso PRO" />
+                  )}
+                </button>
+              </div>
+            </div>
 
-        {type === 'expense' && (
-          <div className="bg-zinc-950/50 rounded-xl p-4 border border-zinc-800 space-y-4">
-            <div 
-              onClick={() => { 
-                setIsFixed(!isFixed); 
-                if (!isFixed) setInstallments(1);
-              }} 
-              className="flex items-center justify-between cursor-pointer group"
-            >
-              <div className="flex items-center gap-2">
-                <div className={`w-4 h-4 rounded border flex items-center justify-center transition-all ${isFixed ? 'bg-blue-600 border-blue-600' : 'border-zinc-600 group-hover:border-zinc-400'}`}>
-                  {isFixed && <CheckCircle2 className="w-3 h-3 text-white" />}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="col-span-2">
+                <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1 block">Data</label>
+                <div className="relative">
+                  <Calendar className="absolute left-3 top-3.5 w-4 h-4 text-zinc-500" />
+                  <input 
+                    type="date" 
+                    className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 pl-10 text-white outline-none focus:border-blue-600 transition-all appearance-none"
+                    value={date}
+                    onChange={(e) => setDate(e.target.value)}
+                  />
                 </div>
-                <span className="text-sm text-zinc-300 font-medium select-none">É uma despesa fixa?</span>
               </div>
-              <span className="text-[10px] text-zinc-500 uppercase tracking-wider">(Aluguel, Luz...)</span>
+
+              <div>
+                <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1 block">Valor Total</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-3.5 text-zinc-500 text-sm font-bold">R$</span>
+                  <input 
+                    type="number"
+                    placeholder="0,00"
+                    className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 pl-10 text-white outline-none focus:border-blue-600 transition-all font-mono"
+                    value={amount}
+                    onChange={(e) => setAmount(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1 block">Categoria</label>
+                <select 
+                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-white outline-none focus:border-blue-600 transition-all appearance-none"
+                  value={categoryId}
+                  onChange={(e) => setCategoryId(e.target.value)}
+                >
+                  <option value="">Selecione...</option>
+                  {uniqueCategories.map((cat: any) => (
+                    <option key={cat.id} value={cat.id}>{cat.name}</option>
+                  ))}
+                </select>
+              </div>
             </div>
 
-            <div 
-              onClick={() => setIsPaid(!isPaid)}
-              className="flex items-center gap-2 cursor-pointer group"
-            >
-              <div className={`w-4 h-4 rounded border flex items-center justify-center transition-all ${isPaid ? 'bg-green-500 border-green-500' : 'border-zinc-600 group-hover:border-zinc-400'}`}>
-                {isPaid && <CheckCircle2 className="w-3 h-3 text-white" />}
-              </div>
-              <span className="text-sm text-zinc-300 font-medium select-none">
-                Status: <span className={isPaid ? "text-green-500" : "text-orange-500"}>{isPaid ? "Pago" : "Pendente"}</span>
-              </span>
-            </div>
-
-            {!isFixed && !transaction && (
-                <div className="pt-2 border-t border-zinc-800 animate-in slide-in-from-top-2">
-                  <label className="text-[10px] font-bold text-zinc-500 uppercase mb-2 block flex items-center gap-1">
-                    <CreditCard className="w-3 h-3" /> Parcelamento
-                  </label>
-                  <div className="flex items-center gap-3">
-                    <input 
-                      type="range" min="1" max="12" step="1"
-                      className="flex-1 accent-blue-600 h-2 bg-zinc-800 rounded-lg appearance-none cursor-pointer"
-                      value={installments}
-                      onChange={(e) => setInstallments(Number(e.target.value))}
-                    />
-                    <span className="bg-zinc-800 px-3 py-1 rounded-lg text-white font-mono font-bold text-sm min-w-[3rem] text-center">
-                      {installments}x
-                    </span>
+            {type === 'expense' && (
+              <div className="bg-zinc-950/50 rounded-xl p-4 border border-zinc-800 space-y-4">
+                <div 
+                  onClick={() => { 
+                    setIsFixed(!isFixed); 
+                    if (!isFixed) setInstallments(1);
+                  }} 
+                  className="flex items-center justify-between cursor-pointer group"
+                >
+                  <div className="flex items-center gap-2">
+                    <div className={`w-4 h-4 rounded border flex items-center justify-center transition-all ${isFixed ? 'bg-blue-600 border-blue-600' : 'border-zinc-600 group-hover:border-zinc-400'}`}>
+                      {isFixed && <CheckCircle2 className="w-3 h-3 text-white" />}
+                    </div>
+                    <span className="text-sm text-zinc-300 font-medium select-none">É uma despesa fixa?</span>
                   </div>
+                  <span className="text-[10px] text-zinc-500 uppercase tracking-wider">(Aluguel, Luz...)</span>
                 </div>
-            )}
-          </div>
-        )}
 
-        <button 
-          onClick={handleSave}
-          disabled={loading}
-          className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-4 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-900/20 active:scale-[0.98]"
-        >
-          {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : (transaction ? "Salvar Alterações" : "Confirmar Lançamento")}
-        </button>
+                <div 
+                  onClick={() => setIsPaid(!isPaid)}
+                  className="flex items-center gap-2 cursor-pointer group"
+                >
+                  <div className={`w-4 h-4 rounded border flex items-center justify-center transition-all ${isPaid ? 'bg-green-500 border-green-500' : 'border-zinc-600 group-hover:border-zinc-400'}`}>
+                    {isPaid && <CheckCircle2 className="w-3 h-3 text-white" />}
+                  </div>
+                  <span className="text-sm text-zinc-300 font-medium select-none">
+                    Status: <span className={isPaid ? "text-green-500" : "text-orange-500"}>{isPaid ? "Pago" : "Pendente"}</span>
+                  </span>
+                </div>
+
+                {!isFixed && !transaction && (
+                    <div className="pt-2 border-t border-zinc-800 animate-in slide-in-from-top-2">
+                      <label className="text-[10px] font-bold text-zinc-500 uppercase mb-2 block flex items-center gap-1">
+                        <CreditCard className="w-3 h-3" /> Parcelamento
+                      </label>
+                      <div className="flex items-center gap-3">
+                        <input 
+                          type="range" min="1" max="12" step="1"
+                          className="flex-1 accent-blue-600 h-2 bg-zinc-800 rounded-lg appearance-none cursor-pointer"
+                          value={installments}
+                          onChange={(e) => setInstallments(Number(e.target.value))}
+                        />
+                        <span className="bg-zinc-800 px-3 py-1 rounded-lg text-white font-mono font-bold text-sm min-w-[3rem] text-center">
+                          {installments}x
+                        </span>
+                      </div>
+                    </div>
+                )}
+              </div>
+            )}
+
+            <button 
+              onClick={handleSave}
+              disabled={loading}
+              className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-4 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-900/20 active:scale-[0.98]"
+            >
+              {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : (transaction ? "Salvar Alterações" : "Confirmar Lançamento")}
+            </button>
+        </div>
 
       </div>
     </div>

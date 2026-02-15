@@ -165,8 +165,8 @@ export function PremiumModal({ isOpen, onClose }: PremiumModalProps) {
         <div className="w-full md:w-1/2 bg-zinc-950 p-6 md:p-8 flex flex-col">
           <h3 className="text-xl font-bold text-white mb-6">Escolha o plano ideal</h3>
           
-          {/* Ajustado max-h para mobile para não empurrar o botão para fora */}
-          <div className="flex-1 space-y-3 mb-6 overflow-y-auto max-h-[300px] md:max-h-[400px] custom-scrollbar pr-1">
+          {/* CORREÇÃO AQUI: pt-4 para dar espaço pro badge "Mais Vendido" e px-1 para margem */}
+          <div className="flex-1 space-y-3 mb-6 overflow-y-auto max-h-[300px] md:max-h-[400px] custom-scrollbar px-1 pt-4">
             {/* PLANO ANUAL */}
             <div 
               onClick={() => setSelectedPlan('annual')}

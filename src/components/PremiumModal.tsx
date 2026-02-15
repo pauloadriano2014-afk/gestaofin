@@ -76,17 +76,21 @@ export function PremiumModal({ isOpen, onClose }: PremiumModalProps) {
   };
 
   return (
-    // CORREÇÃO AQUI: Mudei de z-50 para z-[100] para garantir que fique acima de tudo
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-sm p-4 overflow-y-auto">
-      <div className="bg-zinc-950 border border-zinc-800 w-full max-w-4xl rounded-3xl overflow-hidden relative shadow-2xl flex flex-col md:flex-row animate-in fade-in zoom-in duration-300">
+    // CORREÇÃO: z-[100] para ficar acima de tudo. Flex center para centralizar.
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-sm p-4">
+      
+      {/* CORREÇÃO PRINCIPAL: max-h-[90vh] e overflow-y-auto no container do modal.
+          Isso garante que se o conteúdo for grande, o scroll acontece DENTRO do modal, não na página.
+      */}
+      <div className="bg-zinc-950 border border-zinc-800 w-full max-w-[95vw] md:max-w-4xl max-h-[85vh] overflow-y-auto rounded-3xl relative shadow-2xl flex flex-col md:flex-row animate-in fade-in zoom-in duration-300">
         
-        {/* Botão Fechar */}
-        <button onClick={onClose} className="absolute top-4 right-4 z-10 p-2 bg-zinc-900/50 hover:bg-zinc-800 rounded-full text-zinc-400 hover:text-white transition-all">
+        {/* Botão Fechar (Fixo no canto do container) */}
+        <button onClick={onClose} className="absolute top-4 right-4 z-20 p-2 bg-zinc-900/80 hover:bg-zinc-800 rounded-full text-zinc-400 hover:text-white transition-all backdrop-blur-sm">
           <X className="w-5 h-5" />
         </button>
 
         {/* Lado Esquerdo: Benefícios */}
-        <div className="w-full md:w-1/2 bg-gradient-to-br from-blue-950 via-zinc-900 to-black p-8 md:p-10 flex flex-col justify-between relative overflow-hidden">
+        <div className="w-full md:w-1/2 bg-gradient-to-br from-blue-950 via-zinc-900 to-black p-6 md:p-10 flex flex-col justify-between relative overflow-hidden shrink-0">
           {/* Noise Texture */}
           <div className="absolute top-0 left-0 w-full h-full opacity-20 pointer-events-none" style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='1'/%3E%3C/svg%3E")` }}></div>
           
@@ -96,7 +100,7 @@ export function PremiumModal({ isOpen, onClose }: PremiumModalProps) {
               <span className="text-xs font-bold text-blue-300 uppercase tracking-wider">KORE Premium</span>
             </div>
             
-            <h2 className="text-3xl md:text-4xl font-bold text-white mb-4 leading-tight">
+            <h2 className="text-2xl md:text-4xl font-bold text-white mb-4 leading-tight">
               Sua vida financeira em <span className="text-blue-400">outro nível</span>.
             </h2>
             <p className="text-zinc-300 text-sm leading-relaxed mb-8">
@@ -161,7 +165,8 @@ export function PremiumModal({ isOpen, onClose }: PremiumModalProps) {
         <div className="w-full md:w-1/2 bg-zinc-950 p-6 md:p-8 flex flex-col">
           <h3 className="text-xl font-bold text-white mb-6">Escolha o plano ideal</h3>
           
-          <div className="flex-1 space-y-3 mb-6 overflow-y-auto max-h-[400px] custom-scrollbar pr-1">
+          {/* Ajustado max-h para mobile para não empurrar o botão para fora */}
+          <div className="flex-1 space-y-3 mb-6 overflow-y-auto max-h-[300px] md:max-h-[400px] custom-scrollbar pr-1">
             {/* PLANO ANUAL */}
             <div 
               onClick={() => setSelectedPlan('annual')}
@@ -246,7 +251,7 @@ export function PremiumModal({ isOpen, onClose }: PremiumModalProps) {
             </div>
           </div>
 
-          <div className="mt-auto">
+          <div className="mt-auto pt-4 border-t border-zinc-900">
             <button 
               onClick={handleSubscribe}
               disabled={isLoading}

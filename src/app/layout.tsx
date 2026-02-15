@@ -3,7 +3,6 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { ClerkProvider } from "@clerk/nextjs";
 import { ptBR } from "@clerk/localizations";
-import { dark } from "@clerk/themes"; // Adicionado para o login ficar escuro igual ao app
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -44,17 +43,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <ClerkProvider 
-      localization={ptBR}
-      appearance={{
-        baseTheme: dark, // Força o tema escuro no login/cadastro
-        variables: { colorPrimary: "#22c55e" }, // (Opcional) Deixa o verde neon como cor principal
-        elements: {
-          formButtonPrimary: "bg-green-600 hover:bg-green-700 text-white",
-          footerActionLink: "text-green-500 hover:text-green-400"
-        }
-      }}
-    >
+    <ClerkProvider localization={ptBR}>
       <html lang="pt-BR">
         <body
           className={`${geistSans.variable} ${geistMono.variable} antialiased`}

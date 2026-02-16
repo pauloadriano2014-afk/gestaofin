@@ -76,34 +76,37 @@ export function PremiumModal({ isOpen, onClose }: PremiumModalProps) {
   };
 
   return (
-    // CORREÇÃO AQUI: Mudei de z-50 para z-[100] para garantir que fique acima de tudo
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-sm p-4 overflow-y-auto">
-      <div className="bg-zinc-950 border border-zinc-800 w-full max-w-4xl rounded-3xl overflow-hidden relative shadow-2xl flex flex-col md:flex-row animate-in fade-in zoom-in duration-300">
+    // CORREÇÃO 1: z-[99999] para ficar na frente de tudo e backdrop-blur mais forte
+    <div className="fixed inset-0 z-[99999] flex items-center justify-center bg-black/95 backdrop-blur-md p-2 md:p-4 overflow-hidden">
+      
+      {/* CORREÇÃO 2: max-h-[95vh] e overflow-y-auto no mobile. No PC (md), volta ao normal. */}
+      <div className="bg-zinc-950 border border-zinc-800 w-full max-w-4xl max-h-[95vh] md:max-h-none overflow-y-auto md:overflow-hidden rounded-3xl relative shadow-2xl flex flex-col md:flex-row animate-in fade-in zoom-in duration-300">
         
         {/* Botão Fechar */}
-        <button onClick={onClose} className="absolute top-4 right-4 z-10 p-2 bg-zinc-900/50 hover:bg-zinc-800 rounded-full text-zinc-400 hover:text-white transition-all">
+        <button onClick={onClose} className="absolute top-4 right-4 z-20 p-2 bg-zinc-900/80 hover:bg-zinc-800 rounded-full text-zinc-400 hover:text-white transition-all backdrop-blur-sm">
           <X className="w-5 h-5" />
         </button>
 
         {/* Lado Esquerdo: Benefícios */}
-        <div className="w-full md:w-1/2 bg-gradient-to-br from-blue-950 via-zinc-900 to-black p-8 md:p-10 flex flex-col justify-between relative overflow-hidden">
+        <div className="w-full md:w-1/2 bg-gradient-to-br from-blue-950 via-zinc-900 to-black p-6 md:p-10 flex flex-col justify-between relative overflow-hidden shrink-0">
           {/* Noise Texture */}
           <div className="absolute top-0 left-0 w-full h-full opacity-20 pointer-events-none" style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='1'/%3E%3C/svg%3E")` }}></div>
           
           <div className="relative z-10">
-            <div className="inline-flex items-center gap-2 bg-blue-500/20 border border-blue-500/30 px-3 py-1 rounded-full mb-6">
+            <div className="inline-flex items-center gap-2 bg-blue-500/20 border border-blue-500/30 px-3 py-1 rounded-full mb-4 md:mb-6">
               <Crown className="w-4 h-4 text-blue-400" />
               <span className="text-xs font-bold text-blue-300 uppercase tracking-wider">KORE Premium</span>
             </div>
             
-            <h2 className="text-3xl md:text-4xl font-bold text-white mb-4 leading-tight">
+            {/* Ajuste de fonte mobile */}
+            <h2 className="text-2xl md:text-4xl font-bold text-white mb-4 leading-tight">
               Sua vida financeira em <span className="text-blue-400">outro nível</span>.
             </h2>
-            <p className="text-zinc-300 text-sm leading-relaxed mb-8">
+            <p className="text-zinc-300 text-sm leading-relaxed mb-6 md:mb-8">
               Desbloqueie o poder máximo da Inteligência Artificial para organizar, analisar e multiplicar seu patrimônio.
             </p>
 
-            <ul className="space-y-5">
+            <ul className="space-y-3 md:space-y-5">
               {/* BENEFÍCIO 1: RELATÓRIOS PDF */}
               <li className="flex items-start gap-3">
                 <div className="p-2 bg-purple-500/20 rounded-lg shrink-0"><FileText className="w-5 h-5 text-purple-400" /></div>
@@ -145,7 +148,7 @@ export function PremiumModal({ isOpen, onClose }: PremiumModalProps) {
             </ul>
           </div>
 
-          <div className="mt-8 relative z-10 flex items-center gap-3 bg-black/40 p-3 rounded-xl border border-white/5">
+          <div className="mt-6 md:mt-8 relative z-10 flex items-center gap-3 bg-black/40 p-3 rounded-xl border border-white/5">
              <div className="flex -space-x-2">
                {[1,2,3,4].map(i => (
                  <div key={i} className="w-7 h-7 rounded-full bg-zinc-800 border-2 border-zinc-950 flex items-center justify-center text-[8px] text-zinc-500 overflow-hidden">
@@ -161,7 +164,8 @@ export function PremiumModal({ isOpen, onClose }: PremiumModalProps) {
         <div className="w-full md:w-1/2 bg-zinc-950 p-6 md:p-8 flex flex-col">
           <h3 className="text-xl font-bold text-white mb-6">Escolha o plano ideal</h3>
           
-          <div className="flex-1 space-y-3 mb-6 overflow-y-auto max-h-[400px] custom-scrollbar pr-1">
+          {/* CORREÇÃO 3: max-h-[220px] no mobile para caber o botão, e mantém 400px no PC */}
+          <div className="flex-1 space-y-3 mb-6 overflow-y-auto max-h-[220px] md:max-h-[400px] custom-scrollbar pr-1">
             {/* PLANO ANUAL */}
             <div 
               onClick={() => setSelectedPlan('annual')}

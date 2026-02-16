@@ -21,7 +21,7 @@ export const metadata: Metadata = {
   manifest: "/manifest.json",
   icons: {
     icon: "/logo.png",
-    apple: "/logo.png", 
+    apple: "/logo.png",
   },
   appleWebApp: {
     capable: true,
@@ -35,7 +35,7 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
-  userScalable: false, 
+  userScalable: false,
 };
 
 export default function RootLayout({
@@ -44,11 +44,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <ClerkProvider 
-      localization={ptBR} 
+    <ClerkProvider
+      localization={ptBR}
       appearance={{
         baseTheme: dark,
-        variables: { colorPrimary: "#22c55e" }
+        variables: { colorPrimary: "#22c55e" },
       }}
     >
       <html lang="pt-BR">

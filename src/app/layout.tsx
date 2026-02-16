@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { ClerkProvider } from "@clerk/nextjs";
 import { ptBR } from "@clerk/localizations";
+import { dark } from "@clerk/themes";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -20,7 +21,7 @@ export const metadata: Metadata = {
   manifest: "/manifest.json",
   icons: {
     icon: "/logo.png",
-    apple: "/logo.png", // Usa a logo como ícone no iPhone
+    apple: "/logo.png", 
   },
   appleWebApp: {
     capable: true,
@@ -34,7 +35,7 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
-  userScalable: false, // Impede zoom tipo "pinça", igual app nativo
+  userScalable: false, 
 };
 
 export default function RootLayout({
@@ -43,12 +44,21 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <ClerkProvider localization={ptBR}>
+    <ClerkProvider 
+      localization={ptBR} 
+      appearance={{
+        baseTheme: dark,
+        variables: { colorPrimary: "#22c55e" }
+      }}
+    >
       <html lang="pt-BR">
+        {/* REMOVI 'bg-black' DAQUI. Quem controla a cor agora é o globals (base) ou a página (temas) */}
         <body
-          className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+          className={`${geistSans.variable} ${geistMono.variable} antialiased overflow-x-hidden`}
         >
-          {children}
+          <main className="flex min-h-screen flex-col items-center w-full max-w-[100vw] overflow-x-hidden">
+            {children}
+          </main>
         </body>
       </html>
     </ClerkProvider>

@@ -15,10 +15,12 @@ import { AreaChart, Area, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tool
 import { PremiumModal } from "@/components/PremiumModal";
 
 // --- CONFIGURAÇÃO DE TEMAS ---
+// ADICIONEI O CAMPO 'hex' PARA PINTAR O BODY DO NAVEGADOR
 const THEMES = {
   dark: {
     id: 'dark',
     name: 'Dark',
+    hex: '#09090b', // Cor exata do Zinc 950
     bg: 'bg-zinc-950',
     text: 'text-zinc-50',
     textMuted: 'text-zinc-400',
@@ -34,7 +36,8 @@ const THEMES = {
   nubank: {
     id: 'nubank',
     name: 'Nubank',
-    bg: 'bg-gray-50',
+    hex: '#f5f5f5', // Cor sólida clara
+    bg: 'bg-[#f5f5f5]', 
     text: 'text-gray-900',
     textMuted: 'text-gray-500',
     card: 'bg-white border-gray-200 shadow-sm',
@@ -49,7 +52,8 @@ const THEMES = {
   green: {
     id: 'green',
     name: 'Eco',
-    bg: 'bg-emerald-50',
+    hex: '#ecfdf5', // Cor sólida clara
+    bg: 'bg-[#ecfdf5]', 
     text: 'text-emerald-950',
     textMuted: 'text-emerald-600/70',
     card: 'bg-white border-emerald-100 shadow-sm',
@@ -64,7 +68,8 @@ const THEMES = {
   blue: {
     id: 'blue',
     name: 'Executivo',
-    bg: 'bg-slate-50',
+    hex: '#f8fafc', // Cor sólida clara
+    bg: 'bg-[#f8fafc]', 
     text: 'text-slate-900',
     textMuted: 'text-slate-500',
     card: 'bg-white border-slate-200 shadow-sm',
@@ -79,7 +84,8 @@ const THEMES = {
   red: {
     id: 'red',
     name: 'Red',
-    bg: 'bg-rose-50',
+    hex: '#fff1f2', // Cor sólida clara
+    bg: 'bg-[#fff1f2]', 
     text: 'text-rose-950',
     textMuted: 'text-rose-600/70',
     card: 'bg-white border-rose-100 shadow-sm',
@@ -117,6 +123,12 @@ export default function Dashboard() {
   const theme = THEMES[currentTheme];
 
   const [rawData, setRawData] = useState<any>({ allCategories: [], transactions: [], planType: 'free' });
+
+  // --- EFEITO MÁGICO PARA CORRIGIR O FUNDO ---
+  // Isso força o navegador a pintar o fundo fora da área de conteúdo com a cor exata do tema
+  useEffect(() => {
+    document.body.style.backgroundColor = theme.hex;
+  }, [currentTheme, theme.hex]);
 
   async function loadData() {
     console.log("🔄 Carregando dados...");
@@ -216,7 +228,6 @@ export default function Dashboard() {
   return (
     <main 
       className={`min-h-screen w-full ${theme.bg} ${theme.text} pt-4 md:pt-8 font-sans transition-colors duration-500 overflow-x-hidden`}
-      style={{ backgroundImage: 'none', backgroundColor: currentTheme === 'dark' ? '#09090b' : undefined }} 
     >
       <div className="max-w-7xl mx-auto space-y-6 px-4 md:px-0">
         
@@ -427,7 +438,7 @@ export default function Dashboard() {
                         <stop offset="95%" stopColor="#ef4444" stopOpacity={0}/>
                       </linearGradient>
                     </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke={currentTheme === 'dark' ? '#27272a' : '#f1f5f9'} vertical={false} />
+                    <CartesianGrid strokeDasharray="3 3" stroke={currentTheme === 'dark' ? '#27272a' : '#e2e8f0'} vertical={false} />
                     <XAxis dataKey="day" stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} />
                     <YAxis stroke="#94a3b8" fontSize={10} tickFormatter={(val) => `R$${val}`} tickLine={false} axisLine={false} width={60} />
                     <RechartsTooltip contentStyle={{ backgroundColor: currentTheme === 'dark' ? '#18181b' : '#fff', border: 'none', borderRadius: '8px', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }} />

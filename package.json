@@ -9,8 +9,9 @@
     "lint": "eslint"
   },
   "dependencies": {
-    "@clerk/localizations": "^3.35.3",
+    "@clerk/localizations": "^3.35.4",
     "@clerk/nextjs": "^6.37.3",
+    "@clerk/themes": "^2.4.52",
     "@neondatabase/serverless": "^1.0.2",
     "@stripe/stripe-js": "^8.7.0",
     "dotenv": "^17.2.4",

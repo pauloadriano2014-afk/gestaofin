@@ -1,3 +1,7 @@
+'use client'
+
+import Link from 'next/link'
+
 export default function PoliticaPrivacidade() {
   return (
     <div className="max-w-3xl mx-auto py-16 px-6 text-zinc-400 bg-black min-h-screen">
@@ -21,9 +25,12 @@ export default function PoliticaPrivacidade() {
       </section>
 
       <div className="mt-12 pt-8 border-t border-zinc-800">
-        <button onClick={() => window.history.back()} className="text-blue-500 hover:text-blue-400 font-medium">
+        <Link 
+          href="/" 
+          className="text-blue-500 hover:text-blue-400 font-medium transition-colors"
+        >
           ← Voltar para o App
-        </button>
+        </Link>
       </div>
     </div>
   )

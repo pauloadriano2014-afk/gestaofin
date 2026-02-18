@@ -34,18 +34,10 @@ export async function getDashboardData(month: number, year: number) {
     // Sincroniza categorias essenciais
     await syncEssentialCategories(userId);
 
-    // 1. BUSCA O PLANO DO USUÁRIO (MAS IGNORA O RESULTADO E FORÇA PRO)
-    const userConfig = await db.select().from(userSettings).where(eq(userSettings.userId, userId));
-    
-    // Mantemos a leitura para debug, mas a variável final é forçada
-    const rawPlan = userConfig[0]?.planType || (userConfig[0] as any)?.plan_type || 'free';
-    
     // --- MARRETA DO PRO ---
+    // Forçamos PRO direto. Não lemos mais do banco para decidir o plano.
     const planType = 'pro'; 
     // ---------------------
-
-    // Log para debug no Render
-    console.log(`👤 User: ${userId} | Plano Forçado: ${planType} (Banco dizia: ${rawPlan})`);
 
     const allCategories = await db.select().from(categories).where(eq(categories.userId, userId));
     
@@ -108,7 +100,7 @@ export async function getDashboardData(month: number, year: number) {
       categoryStats, 
       pieData: categoryStats, 
       dailyData,
-      planType: planType // <--- RETORNA 'pro' SEMPRE
+      planType: planType // RETORNA 'pro' SEMPRE
     };
 
   } catch (error) {
@@ -121,29 +113,17 @@ export async function getDashboardData(month: number, year: number) {
   }
 }
 
-// --- CFO VIRTUAL (AGORA COM PRO FORÇADO) ---
+// --- CFO VIRTUAL (AGORA SEM TRAVA DE BUILD) ---
 export async function generateMonthlyReport(month: number, year: number) {
   try {
     const userId = await getUser();
     if (!userId) return { success: false, message: "Não autorizado." };
 
-    // 1. VERIFICAÇÃO DE SEGURANÇA (IGNORANDO O BANCO)
-    // const userConfig = await db.select().from(userSettings).where(eq(userSettings.userId, userId));
-    // const rawPlan = userConfig[0]?.planType || (userConfig[0] as any)?.plan_type || 'free';
-    
     // --- MARRETA DO PRO ---
-    const plan = 'pro';
+    // Removemos a verificação "if plan === free" para não dar erro de Dead Code
+    // O código agora assume que é PRO e segue direto.
     // ---------------------
 
-    // Se o plano for FREE, retorna a mensagem gatilho
-    if (plan === 'free') {
-      return { 
-        success: false, 
-        message: "⚠️ RECURSO PREMIUM: A análise inteligente do CFO Virtual está disponível apenas para assinantes PRO. Assine agora para liberar!" 
-      };
-    }
-
-    // 2. SE FOR PRO, SEGUE O BAILE
     const reportData = await getDashboardData(month, year);
     const txs = reportData.transactions || [];
     
@@ -462,35 +442,23 @@ export async function getReportData(startMonth: string, endMonth: string, filter
   }
 }
 
-// --- IA ANALYTICS PARA PERÍODO (AGORA COM PRO FORÇADO) ---
+// --- IA ANALYTICS PARA PERÍODO (AGORA SEM TRAVA DE BUILD) ---
 export async function generateRangeReport(startMonth: string, endMonth: string, filterType: string = 'all') {
   try {
     const userId = await getUser();
     if (!userId) return { success: false, message: "Não autorizado." };
 
-    // 1. VERIFICAÇÃO DE PLANO (IGNORANDO O BANCO)
-    // const userConfig = await db.select().from(userSettings).where(eq(userSettings.userId, userId));
-    // const rawPlan = userConfig[0]?.planType || (userConfig[0] as any)?.plan_type || 'free';
-    
     // --- MARRETA DO PRO ---
-    const isPro = true;
+    // Removemos a verificação "if (!isPro)" para não dar erro de Dead Code
+    // Agora o sistema apenas pega os dados e envia para a IA
     // ---------------------
 
     // 2. BUSCA OS DADOS (Agora liberado para TODOS)
     const result = await getReportData(startMonth, endMonth, filterType);
     if (!result.success || !result.data) return { success: false, message: "Erro ao buscar dados." };
 
-    // SE FOR FREE: Retorna os dados, mas com mensagem travada para a IA
-    if (!isPro) {
-      return { 
-        success: true, 
-        message: "LOCKED_CONTENT", // Código que o Front vai entender
-        stats: result.data,
-        isPro: false 
-      };
-    }
+    // Removido o IF (!isPro) pois agora é sempre TRUE
 
-    // SE FOR PRO: Segue para a IA (Gasta token)
     const { income, expense, balance, avgExpense, monthsCount } = result.data;
     const contextMap: any = { 'all': 'Geral (Pessoal + Empresa)', 'pf': 'Pessoa Física (Pessoal)', 'pj': 'Pessoa Jurídica (Empresa)' };
     const contextName = contextMap[filterType] || 'Geral';

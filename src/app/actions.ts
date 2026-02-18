@@ -6,6 +6,13 @@ import { desc, and, sql, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { auth } from "@clerk/nextjs/server";
 
+// --- LISTA VIP (O TRIO DE OURO) ---
+const VIP_USERS = [
+  "user_39lFK9Lr5j7Y5lg1e4Zpwb6ZTx8", // Paulo
+  "user_39ocZfmiOfwA0Q3mXpJ158M3Nkw", // Gestão Kore
+  "user_39obnDo2iFblIK7qxNyKkL0H8Hn"  // Adrielle
+];
+
 // --- FUNÇÃO AUXILIAR ASSÍNCRONA ---
 async function getUser() {
   const session = await auth();
@@ -21,23 +28,22 @@ export async function getDashboardData(month: number, year: number) {
   try {
     const userId = await getUser();
     
-    // Se não tiver usuário, retorna tudo vazio
     if (!userId) {
       console.log("⚠️ Dashboard: Sem usuário logado.");
       return { 
         allCategories: [], fixedExpenses: [], variableTransactions: [], transactions: [], 
         summary: { balance: 0 }, categoryStats: [], pieData: [], dailyData: [],
-        planType: 'free' // Padrão se não logado
+        planType: 'free'
       };
     }
 
-    // Sincroniza categorias essenciais
     await syncEssentialCategories(userId);
 
-    // --- MARRETA DO PRO ---
-    // Forçamos PRO direto. Não lemos mais do banco para decidir o plano.
-    const planType = 'pro'; 
-    // ---------------------
+    // --- LÓGICA VIP (SEGURANÇA MÁXIMA) ---
+    // Se estiver na lista, é PRO. Se não, é Free.
+    const isVip = VIP_USERS.includes(userId);
+    const planType = isVip ? 'pro' : 'free';
+    // -------------------------------------
 
     const allCategories = await db.select().from(categories).where(eq(categories.userId, userId));
     
@@ -100,7 +106,7 @@ export async function getDashboardData(month: number, year: number) {
       categoryStats, 
       pieData: categoryStats, 
       dailyData,
-      planType: planType // RETORNA 'pro' SEMPRE
+      planType: planType 
     };
 
   } catch (error) {
@@ -113,16 +119,22 @@ export async function getDashboardData(month: number, year: number) {
   }
 }
 
-// --- CFO VIRTUAL (AGORA SEM TRAVA DE BUILD) ---
+// --- CFO VIRTUAL ---
 export async function generateMonthlyReport(month: number, year: number) {
   try {
     const userId = await getUser();
     if (!userId) return { success: false, message: "Não autorizado." };
 
-    // --- MARRETA DO PRO ---
-    // Removemos a verificação "if plan === free" para não dar erro de Dead Code
-    // O código agora assume que é PRO e segue direto.
-    // ---------------------
+    // --- LÓGICA VIP ---
+    const isVip = VIP_USERS.includes(userId);
+    
+    if (!isVip) {
+      return { 
+        success: false, 
+        message: "⚠️ RECURSO PREMIUM: A análise inteligente do CFO Virtual está disponível apenas para assinantes PRO." 
+      };
+    }
+    // ------------------
 
     const reportData = await getDashboardData(month, year);
     const txs = reportData.transactions || [];
@@ -394,14 +406,12 @@ export async function getReportData(startMonth: string, endMonth: string, filter
     const [endY, endM] = endMonth.split('-').map(Number);
     const endDate = new Date(endY, endM, 0, 23, 59, 59);
 
-    // Constrói os filtros dinamicamente
     const filters = [
       eq(transactions.userId, userId),
       sql`${transactions.date} >= ${startDate.toISOString().split('T')[0]}`,
       sql`${transactions.date} <= ${endDate.toISOString().split('T')[0]}`
     ];
 
-    // Se não for 'all', adiciona o filtro de tipo (pf ou pj)
     if (filterType !== 'all') {
       filters.push(eq(transactions.entityType, filterType as 'pf' | 'pj'));
     }
@@ -412,7 +422,6 @@ export async function getReportData(startMonth: string, endMonth: string, filter
       .where(and(...filters))
       .orderBy(desc(transactions.date));
 
-    // Cálculos
     const income = periodTransactions.filter(t => t.type === 'income').reduce((acc, t) => acc + Number(t.amount), 0);
     const expense = periodTransactions.filter(t => t.type === 'expense').reduce((acc, t) => acc + Number(t.amount), 0);
     const balance = income - expense;
@@ -442,22 +451,28 @@ export async function getReportData(startMonth: string, endMonth: string, filter
   }
 }
 
-// --- IA ANALYTICS PARA PERÍODO (AGORA SEM TRAVA DE BUILD) ---
+// --- IA ANALYTICS PARA PERÍODO ---
 export async function generateRangeReport(startMonth: string, endMonth: string, filterType: string = 'all') {
   try {
     const userId = await getUser();
     if (!userId) return { success: false, message: "Não autorizado." };
 
-    // --- MARRETA DO PRO ---
-    // Removemos a verificação "if (!isPro)" para não dar erro de Dead Code
-    // Agora o sistema apenas pega os dados e envia para a IA
-    // ---------------------
+    // --- LÓGICA VIP ---
+    const isVip = VIP_USERS.includes(userId);
+    
+    // SE NÃO FOR VIP, TRAVA AQUI
+    if (!isVip) {
+      return { 
+        success: true, 
+        message: "LOCKED_CONTENT", 
+        stats: null, // Não precisa mandar dados se tá bloqueado
+        isPro: false 
+      };
+    }
+    // ------------------
 
-    // 2. BUSCA OS DADOS (Agora liberado para TODOS)
     const result = await getReportData(startMonth, endMonth, filterType);
     if (!result.success || !result.data) return { success: false, message: "Erro ao buscar dados." };
-
-    // Removido o IF (!isPro) pois agora é sempre TRUE
 
     const { income, expense, balance, avgExpense, monthsCount } = result.data;
     const contextMap: any = { 'all': 'Geral (Pessoal + Empresa)', 'pf': 'Pessoa Física (Pessoal)', 'pj': 'Pessoa Jurídica (Empresa)' };

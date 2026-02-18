@@ -6,7 +6,7 @@ import { desc, and, sql, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { auth } from "@clerk/nextjs/server";
 
-// --- LISTA VIP (O TRIO DE OURO) ---
+// --- LISTA VIP (MANTENHA AQUI PARA TESTE) ---
 const VIP_USERS = [
   "user_39lFK9Lr5j7Y5lg1e4Zpwb6ZTx8", // Paulo
   "user_39ocZfmiOfwA0Q3mXpJ158M3Nkw", // Gestão Kore
@@ -39,11 +39,16 @@ export async function getDashboardData(month: number, year: number) {
 
     await syncEssentialCategories(userId);
 
-    // --- LÓGICA VIP (SEGURANÇA MÁXIMA) ---
-    // Se estiver na lista, é PRO. Se não, é Free.
-    const isVip = VIP_USERS.includes(userId);
-    const planType = isVip ? 'pro' : 'free';
-    // -------------------------------------
+    // --- MODO DE EMERGÊNCIA (PRO LIBERADO PARA TODOS) ---
+    // A lista VIP está aqui apenas para o Log te mostrar se funcionaria ou não.
+    const isInList = VIP_USERS.includes(userId);
+    
+    // FORÇANDO PRO NA MARRA (Para você voltar a trabalhar)
+    const planType = 'pro'; 
+    // ----------------------------------------------------
+
+    // 🚨 OLHE ESSE LOG NO RENDER DEPOIS DE ENTRAR 🚨
+    console.log(`🚨 ID REAL: ${userId} | TÁ NA LISTA? ${isInList} | PLANO ATUAL: ${planType}`);
 
     const allCategories = await db.select().from(categories).where(eq(categories.userId, userId));
     
@@ -119,22 +124,16 @@ export async function getDashboardData(month: number, year: number) {
   }
 }
 
-// --- CFO VIRTUAL ---
+// --- CFO VIRTUAL (LIBERADO GERAL) ---
 export async function generateMonthlyReport(month: number, year: number) {
   try {
     const userId = await getUser();
     if (!userId) return { success: false, message: "Não autorizado." };
 
-    // --- LÓGICA VIP ---
-    const isVip = VIP_USERS.includes(userId);
-    
-    if (!isVip) {
-      return { 
-        success: false, 
-        message: "⚠️ RECURSO PREMIUM: A análise inteligente do CFO Virtual está disponível apenas para assinantes PRO." 
-      };
-    }
-    // ------------------
+    // --- MODO DE EMERGÊNCIA ---
+    // Removemos a verificação da lista VIP para não te bloquear.
+    const plan = 'pro'; 
+    // ------------------------
 
     const reportData = await getDashboardData(month, year);
     const txs = reportData.transactions || [];
@@ -451,25 +450,15 @@ export async function getReportData(startMonth: string, endMonth: string, filter
   }
 }
 
-// --- IA ANALYTICS PARA PERÍODO ---
+// --- IA ANALYTICS PARA PERÍODO (LIBERADO GERAL) ---
 export async function generateRangeReport(startMonth: string, endMonth: string, filterType: string = 'all') {
   try {
     const userId = await getUser();
     if (!userId) return { success: false, message: "Não autorizado." };
 
-    // --- LÓGICA VIP ---
-    const isVip = VIP_USERS.includes(userId);
-    
-    // SE NÃO FOR VIP, TRAVA AQUI
-    if (!isVip) {
-      return { 
-        success: true, 
-        message: "LOCKED_CONTENT", 
-        stats: null, // Não precisa mandar dados se tá bloqueado
-        isPro: false 
-      };
-    }
-    // ------------------
+    // --- MODO DE EMERGÊNCIA ---
+    const isPro = true;
+    // ------------------------
 
     const result = await getReportData(startMonth, endMonth, filterType);
     if (!result.success || !result.data) return { success: false, message: "Erro ao buscar dados." };

@@ -34,15 +34,18 @@ export async function getDashboardData(month: number, year: number) {
     // Sincroniza categorias essenciais
     await syncEssentialCategories(userId);
 
-    // 1. BUSCA O PLANO DO USUÁRIO (BLINDADO)
+    // 1. BUSCA O PLANO DO USUÁRIO (MAS IGNORA O RESULTADO E FORÇA PRO)
     const userConfig = await db.select().from(userSettings).where(eq(userSettings.userId, userId));
     
-    // Tenta ler camelCase (Schema) OU snake_case (Banco Cru) e ignora maiúsculas
+    // Mantemos a leitura para debug, mas a variável final é forçada
     const rawPlan = userConfig[0]?.planType || (userConfig[0] as any)?.plan_type || 'free';
-    const planType = String(rawPlan).toLowerCase() === 'pro' ? 'pro' : 'free';
+    
+    // --- MARRETA DO PRO ---
+    const planType = 'pro'; 
+    // ---------------------
 
-    // Log para debug no Render (opcional, pode remover depois)
-    console.log(`👤 User: ${userId} | Plano Detectado: ${planType} (Raw: ${rawPlan})`);
+    // Log para debug no Render
+    console.log(`👤 User: ${userId} | Plano Forçado: ${planType} (Banco dizia: ${rawPlan})`);
 
     const allCategories = await db.select().from(categories).where(eq(categories.userId, userId));
     
@@ -105,7 +108,7 @@ export async function getDashboardData(month: number, year: number) {
       categoryStats, 
       pieData: categoryStats, 
       dailyData,
-      planType: planType // <--- RETORNA O PLANO CORRIGIDO
+      planType: planType // <--- RETORNA 'pro' SEMPRE
     };
 
   } catch (error) {
@@ -118,18 +121,19 @@ export async function getDashboardData(month: number, year: number) {
   }
 }
 
-// --- CFO VIRTUAL (AGORA COM BLOQUEIO PREMIUM) ---
+// --- CFO VIRTUAL (AGORA COM PRO FORÇADO) ---
 export async function generateMonthlyReport(month: number, year: number) {
   try {
     const userId = await getUser();
     if (!userId) return { success: false, message: "Não autorizado." };
 
-    // 1. VERIFICAÇÃO DE SEGURANÇA (O GUARDIÃO)
-    const userConfig = await db.select().from(userSettings).where(eq(userSettings.userId, userId));
+    // 1. VERIFICAÇÃO DE SEGURANÇA (IGNORANDO O BANCO)
+    // const userConfig = await db.select().from(userSettings).where(eq(userSettings.userId, userId));
+    // const rawPlan = userConfig[0]?.planType || (userConfig[0] as any)?.plan_type || 'free';
     
-    // Verificação Blindada também aqui
-    const rawPlan = userConfig[0]?.planType || (userConfig[0] as any)?.plan_type || 'free';
-    const plan = String(rawPlan).toLowerCase() === 'pro' ? 'pro' : 'free';
+    // --- MARRETA DO PRO ---
+    const plan = 'pro';
+    // ---------------------
 
     // Se o plano for FREE, retorna a mensagem gatilho
     if (plan === 'free') {
@@ -458,18 +462,19 @@ export async function getReportData(startMonth: string, endMonth: string, filter
   }
 }
 
-// --- IA ANALYTICS PARA PERÍODO (ATUALIZADA COM FILTRO) ---
+// --- IA ANALYTICS PARA PERÍODO (AGORA COM PRO FORÇADO) ---
 export async function generateRangeReport(startMonth: string, endMonth: string, filterType: string = 'all') {
   try {
     const userId = await getUser();
     if (!userId) return { success: false, message: "Não autorizado." };
 
-    // 1. VERIFICAÇÃO DE PLANO (BLINDADO)
-    const userConfig = await db.select().from(userSettings).where(eq(userSettings.userId, userId));
+    // 1. VERIFICAÇÃO DE PLANO (IGNORANDO O BANCO)
+    // const userConfig = await db.select().from(userSettings).where(eq(userSettings.userId, userId));
+    // const rawPlan = userConfig[0]?.planType || (userConfig[0] as any)?.plan_type || 'free';
     
-    // Verificação Blindada também aqui
-    const rawPlan = userConfig[0]?.planType || (userConfig[0] as any)?.plan_type || 'free';
-    const isPro = String(rawPlan).toLowerCase() === 'pro';
+    // --- MARRETA DO PRO ---
+    const isPro = true;
+    // ---------------------
 
     // 2. BUSCA OS DADOS (Agora liberado para TODOS)
     const result = await getReportData(startMonth, endMonth, filterType);

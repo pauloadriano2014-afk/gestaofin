@@ -36,7 +36,7 @@ export async function getDashboardData(month: number, year: number) {
 
     // 1. BUSCA O PLANO DO USUÁRIO
     const userConfig = await db.select().from(userSettings).where(eq(userSettings.userId, userId));
-    const planType = userConfig[0]?.planType || 'free';
+    const planType = userConfig[0]?.planType?.toLowerCase() === 'pro' ? 'pro' : 'free';
 
     const allCategories = await db.select().from(categories).where(eq(categories.userId, userId));
     

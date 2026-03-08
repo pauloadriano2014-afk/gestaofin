@@ -6,10 +6,9 @@ import { desc, and, sql, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { auth } from "@clerk/nextjs/server";
 
-// --- LISTA VIP (MANTENHA AQUI PARA TESTE) ---
+// --- LISTA VIP (AGORA COM O ID EXATO DO LOG - BLOQUEIO SAAS ATIVADO) ---
 const VIP_USERS = [
-  "user_39lFK9Lr5j7Y5lg1e4Zpwb6ZTx8", // Paulo
-  "user_39ocZfmiOfwA0Q3mXpJ158M3Nkw", // Gestão Kore
+  "user_39lFK9Lr5j7Y5lg1e4ZPwb6ZTx8", // Paulo e Gestão Kore (P maiúsculo)
   "user_39obnDo2iFblIK7qxNyKkL0H8Hn"  // Adrielle
 ];
 
@@ -39,16 +38,18 @@ export async function getDashboardData(month: number, year: number) {
 
     await syncEssentialCategories(userId);
 
-    // --- MODO DE EMERGÊNCIA (PRO LIBERADO PARA TODOS) ---
-    // A lista VIP está aqui apenas para o Log te mostrar se funcionaria ou não.
-    const isInList = VIP_USERS.includes(userId);
+    // --- LÓGICA DE PRODUÇÃO (SAAS MODE) ---
+    // 1. É um dos fundadores na lista VIP?
+    const isVip = VIP_USERS.includes(userId);
     
-    // FORÇANDO PRO NA MARRA (Para você voltar a trabalhar)
-    const planType = 'pro'; 
-    // ----------------------------------------------------
+    // 2. Se não for VIP, ele pagou no banco de dados?
+    const userConfig = await db.select().from(userSettings).where(eq(userSettings.userId, userId));
+    const rawPlan = userConfig[0]?.planType || (userConfig[0] as any)?.plan_type || 'free';
+    const isDbPro = String(rawPlan).toLowerCase() === 'pro';
 
-    // 🚨 OLHE ESSE LOG NO RENDER DEPOIS DE ENTRAR 🚨
-    console.log(`🚨 ID REAL: ${userId} | TÁ NA LISTA? ${isInList} | PLANO ATUAL: ${planType}`);
+    // 3. Define o plano final
+    const planType = (isVip || isDbPro) ? 'pro' : 'free';
+    // --------------------------------------
 
     const allCategories = await db.select().from(categories).where(eq(categories.userId, userId));
     
@@ -124,16 +125,29 @@ export async function getDashboardData(month: number, year: number) {
   }
 }
 
-// --- CFO VIRTUAL (LIBERADO GERAL) ---
+// --- CFO VIRTUAL (BLOQUEADO PARA FREE) ---
 export async function generateMonthlyReport(month: number, year: number) {
   try {
     const userId = await getUser();
     if (!userId) return { success: false, message: "Não autorizado." };
 
-    // --- MODO DE EMERGÊNCIA ---
-    // Removemos a verificação da lista VIP para não te bloquear.
-    const plan = 'pro'; 
-    // ------------------------
+    // --- VALIDAÇÃO DE ACESSO ---
+    const isVip = VIP_USERS.includes(userId);
+    let isPro = isVip;
+    
+    if (!isPro) {
+        const userConfig = await db.select().from(userSettings).where(eq(userSettings.userId, userId));
+        const dbPlanRaw = userConfig[0]?.planType || (userConfig[0] as any)?.plan_type || 'free';
+        isPro = String(dbPlanRaw).toLowerCase() === 'pro';
+    }
+
+    if (!isPro) {
+      return { 
+        success: false, 
+        message: "⚠️ RECURSO PREMIUM: A análise inteligente do CFO Virtual está disponível apenas para assinantes PRO." 
+      };
+    }
+    // ---------------------------
 
     const reportData = await getDashboardData(month, year);
     const txs = reportData.transactions || [];
@@ -356,7 +370,7 @@ export async function updateTransaction(id: string, data: any) {
   } catch (error) { return { success: false }; }
 }
 
-// --- SINCRONIZAR CATEGORIAS (ROBUSTO) ---
+// --- SINCRONIZAR CATEGORIAS (COM AS NOVAS CATEGORIAS) ---
 async function syncEssentialCategories(userId: string) {
   try {
     const essential = [
@@ -370,8 +384,13 @@ async function syncEssentialCategories(userId: string) {
       { name: "Reembolsos / Empréstimos", type: "expense" },
       { name: "Transporte", type: "expense" },
       { name: "Saúde", type: "expense" },
+      { name: "Compras Variadas", type: "expense" },
+      { name: "Despesas Variadas", type: "expense" },
+      { name: "Impostos e Taxas", type: "expense" }, // O NOME NOVO E LIMPO
+      { name: "Cartão de Crédito", type: "expense" }, // O NOVO CARTÃO QUE VOCÊ PEDIU
       { name: "Salário", type: "income" },
-      { name: "Investimentos", type: "income" }
+      { name: "Investimentos", type: "income" },
+      { name: "Consultoria", type: "income" }
     ];
 
     const existingCategories = await db.select().from(categories).where(eq(categories.userId, userId));
@@ -450,15 +469,31 @@ export async function getReportData(startMonth: string, endMonth: string, filter
   }
 }
 
-// --- IA ANALYTICS PARA PERÍODO (LIBERADO GERAL) ---
+// --- IA ANALYTICS PARA PERÍODO (BLOQUEADO PARA FREE) ---
 export async function generateRangeReport(startMonth: string, endMonth: string, filterType: string = 'all') {
   try {
     const userId = await getUser();
     if (!userId) return { success: false, message: "Não autorizado." };
 
-    // --- MODO DE EMERGÊNCIA ---
-    const isPro = true;
-    // ------------------------
+    // --- VALIDAÇÃO DE ACESSO ---
+    const isVip = VIP_USERS.includes(userId);
+    let isPro = isVip;
+    
+    if (!isPro) {
+        const userConfig = await db.select().from(userSettings).where(eq(userSettings.userId, userId));
+        const dbPlanRaw = userConfig[0]?.planType || (userConfig[0] as any)?.plan_type || 'free';
+        isPro = String(dbPlanRaw).toLowerCase() === 'pro';
+    }
+
+    if (!isPro) {
+      return { 
+        success: true, 
+        message: "LOCKED_CONTENT", 
+        stats: null,
+        isPro: false 
+      };
+    }
+    // ---------------------------
 
     const result = await getReportData(startMonth, endMonth, filterType);
     if (!result.success || !result.data) return { success: false, message: "Erro ao buscar dados." };
@@ -504,5 +539,104 @@ export async function generateRangeReport(startMonth: string, endMonth: string, 
 
   } catch (error: any) {
     return { success: false, message: "Erro na IA." };
+  }
+}
+
+// --- IMPORTAÇÃO INTELIGENTE DE CSV (BLINDADA CONTRA ERROS DA IA) ---
+export async function processAndImportCSV(batch: { date: string, amount: number, description: string }[]) {
+  try {
+    const userId = await getUser();
+    if (!userId) return { success: false, message: "Login necessário." };
+
+    const userCategories = await db.select().from(categories).where(eq(categories.userId, userId));
+    const categoriesList = userCategories.map(c => `{ id: '${c.id}', name: '${c.name}' }`).join(', ');
+
+    const API_KEY = process.env.OPENAI_API_KEY;
+
+    // Prompt muito mais rígido para a IA não "engolir" dados
+    const promptText = `
+      Categorize as seguintes transações bancárias.
+      Categorias disponíveis: ${categoriesList}
+
+      REGRAS OBRIGATÓRIAS:
+      1. Devolva um array JSON contendo TODOS os objetos originais.
+      2. MANTENHA os campos originais de cada objeto: 'date', 'amount', e 'description'. NÃO APAGUE NADA.
+      3. Adicione o campo 'type': 'income' para valores positivos, 'expense' para negativos.
+      4. Adicione o campo 'categoryId': o id da categoria que melhor corresponde à descrição (Ex: Impostos vão para Impostos).
+      5. Apenas retorne o JSON puro, sem crases ou marcações.
+
+      Transações:
+      ${JSON.stringify(batch)}
+    `;
+
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${API_KEY}` },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        messages: [
+          { role: "system", content: "Você é um classificador financeiro estrito. Responda APENAS com um Array JSON estruturado e mantenha os dados originais." },
+          { role: "user", content: promptText }
+        ],
+        temperature: 0.1, 
+      })
+    });
+
+    if (!response.ok) throw new Error("Falha na API da OpenAI");
+
+    const data = await response.json();
+    
+    let enrichedTransactions = [];
+    try {
+        let content = data.choices[0].message.content;
+        const jsonStr = content.replace(/```json/g, '').replace(/```/g, '').trim();
+        enrichedTransactions = JSON.parse(jsonStr);
+    } catch (e) {
+        console.error("OpenAI não devolveu um JSON válido para este lote.");
+        return { success: false }; // Pula esse lote e não trava o app
+    }
+
+    // Salva no banco de dados com FALLBACK (Garante que nunca vai quebrar por falta de campo)
+    for (let i = 0; i < batch.length; i++) {
+      const originalTx = batch[i]; // Os dados 100% seguros que vieram do arquivo CSV
+      const aiTx = enrichedTransactions[i] || {}; // Os dados que a IA tentou adivinhar
+
+      // PLANO B: Se a IA engoliu algum dado, pegamos o original na marra!
+      const dateToUse = aiTx.date || originalTx.date || "";
+      const descToUse = aiTx.description || originalTx.description || "Transação Importada";
+      const amountToUse = aiTx.amount !== undefined ? aiTx.amount : originalTx.amount;
+
+      // Formatação de data blindada
+      let formattedDate = new Date().toISOString().split('T')[0];
+      if (dateToUse.includes('/')) {
+         const [day, month, year] = dateToUse.split('/');
+         formattedDate = `${year}-${month}-${day}`;
+      } else if (dateToUse.includes('-')) {
+         formattedDate = dateToUse; // Caso a IA já tenha convertido para YYYY-MM-DD
+      }
+
+      const amountValue = Math.abs(Number(amountToUse)).toFixed(2);
+      const isIncome = Number(amountToUse) >= 0;
+
+      await db.insert(transactions).values({
+        userId: userId,
+        description: String(descToUse).substring(0, 100),
+        amount: amountValue,
+        categoryId: aiTx.categoryId || null,
+        type: aiTx.type || (isIncome ? 'income' : 'expense'),
+        date: formattedDate,
+        isFixed: false,
+        isPaid: true, 
+        entityType: "pf",
+        aiTags: ["importado_csv"],
+      });
+    }
+
+    revalidatePath("/");
+    return { success: true };
+
+  } catch (error) {
+    console.error("Erro ao importar lote:", error);
+    return { success: false };
   }
 }

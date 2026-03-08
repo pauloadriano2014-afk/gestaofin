@@ -7,9 +7,9 @@ import { createTransaction, updateTransaction, deleteTransaction } from '@/app/a
 export function TransactionModal({ 
   categories, 
   onClose, 
-  transaction, // Se vier preenchido, entra em modo edição
-  userPlan = 'free', // NOVO: Recebe o plano do usuário
-  onRequestPremium // NOVO: Função para abrir o modal de venda
+  transaction, 
+  userPlan = 'free', 
+  onRequestPremium 
 }: { 
   categories: any[], 
   onClose: () => void,
@@ -17,17 +17,14 @@ export function TransactionModal({
   userPlan?: string,
   onRequestPremium?: () => void
 }) {
-  // Estados de Dados (Preenche se for edição)
   const [description, setDescription] = useState(transaction?.description || '')
   const [amount, setAmount] = useState(transaction?.amount ? Math.abs(Number(transaction.amount)).toString() : '')
   const [categoryId, setCategoryId] = useState(transaction?.categoryId || '')
   const [type, setType] = useState<"income" | "expense">(transaction?.type || 'expense')
   
-  // CORREÇÃO DE DATA: Evita ISOString para não fugir o dia no fuso horário
   const [date, setDate] = useState(() => {
     if (transaction?.date) return transaction.date;
     const now = new Date();
-    // Pega a data local de Brasília formatada como YYYY-MM-DD
     const offset = now.getTimezoneOffset();
     const localDate = new Date(now.getTime() - (offset * 60 * 1000));
     return localDate.toISOString().split('T')[0];
@@ -37,14 +34,12 @@ export function TransactionModal({
   const [isPaid, setIsPaid] = useState(transaction?.isPaid ?? true) 
   const [installments, setInstallments] = useState(1) 
 
-  // NOVO: Tipo de Entidade (PF ou PJ)
   const [entityType, setEntityType] = useState<'pf' | 'pj'>(transaction?.entityType || 'pf')
 
-  // Estados de UI
   const [loading, setLoading] = useState(false)
   const [isListening, setIsListening] = useState(false)
 
-  // --- LÓGICA DE IA ---
+  // --- LÓGICA DE IA (AGORA ESCUTANDO DATE E ENTITYTYPE) ---
   const handleAIProcess = async (text: string) => {
     if (!text || text.trim().length < 3 || transaction) return; 
 
@@ -64,6 +59,14 @@ export function TransactionModal({
         setDescription(data.description || text);
         setAmount(data.amount ? data.amount.toString() : '');
         setType(data.type || 'expense');
+        
+        // --- AS LINHAS MÁGICAS ESTÃO AQUI ---
+        // Se a IA mandou uma data válida, atualiza o formulário
+        if (data.date) setDate(data.date);
+        
+        // Se a IA mandou 'pj', atualiza os botões lá em cima
+        if (data.entityType) setEntityType(data.entityType);
+        // ------------------------------------
 
         if (data.categoryName) {
           const foundCategory = categories.find(c => 
@@ -79,18 +82,14 @@ export function TransactionModal({
     }
   };
 
-  // --- LÓGICA DE MICROFONE ATUALIZADA (CORREÇÃO ERRO ABORTED) ---
   const startListening = () => {
-    // 0. PREVINE CLIQUE DUPLO OU PROCESSO JÁ RODANDO
     if (isListening) return;
 
-    // 1. VERIFICA SE É FREE
     if (userPlan === 'free') {
         if (onRequestPremium) onRequestPremium(); 
         return; 
     }
 
-    // 2. TENTA OBTER A API DO NAVEGADOR
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
     if (!SpeechRecognition) {
@@ -119,16 +118,14 @@ export function TransactionModal({
       };
 
       recognition.onerror = (event: any) => {
-        setIsListening(false); // Reseta o estado sempre
+        setIsListening(false); 
         
-        // IGNORA O ERRO ABORTED (É APENAS CANCELAMENTO TÉCNICO)
         if (event.error === 'aborted') {
             return; 
         }
 
         console.error("Erro Mic:", event.error);
         
-        // ALERTAS ESPECÍFICOS PARA O USUÁRIO ENTENDER O PROBLEMA
         if (event.error === 'not-allowed') {
             alert("Acesso ao microfone negado. Permita o acesso nas configurações do navegador.");
         } else if (event.error === 'no-speech') {
@@ -136,7 +133,6 @@ export function TransactionModal({
         } else if (event.error === 'network') {
             alert("Erro de conexão. Verifique sua internet.");
         } else {
-            // Outros erros menos comuns, mas não mostra aborted
             alert("Erro no microfone: " + event.error);
         }
       };
@@ -149,7 +145,6 @@ export function TransactionModal({
     }
   };
 
-  // --- EXCLUIR ---
   const handleDelete = async () => {
     if (!transaction?.id) return;
     if (confirm("Deseja realmente excluir este lançamento?")) {
@@ -160,7 +155,6 @@ export function TransactionModal({
     }
   };
 
-  // --- SALVAR (CRIAR OU ATUALIZAR) ---
   const handleSave = async () => {
     if (!description || !amount) {
       alert("Preencha descrição e valor!");
@@ -173,7 +167,7 @@ export function TransactionModal({
       amount, 
       categoryId, 
       type,
-      date, // Agora envia a string YYYY-MM-DD pura
+      date, 
       isFixed,
       isPaid,
       installments: Number(installments),
@@ -190,17 +184,14 @@ export function TransactionModal({
     onClose();
   };
 
-  // --- REMOVER DUPLICADOS DA LISTA DE CATEGORIAS ---
   const uniqueCategories = Array.from(
     new Map(categories.map((cat) => [cat.name.trim().toLowerCase(), cat])).values()
   );
 
   return (
     <div className="fixed inset-0 bg-black/90 backdrop-blur-sm flex items-center justify-center p-4 z-[9999] transition-all">
-      {/* Container Principal */}
       <div className="bg-zinc-900 border border-zinc-800 w-full max-w-[95vw] sm:max-w-md max-h-[85vh] overflow-y-auto rounded-2xl p-6 shadow-2xl relative">
         
-        {/* Header Sticky */}
         <div className="flex justify-between items-center sticky top-0 bg-zinc-900 z-10 pb-4 mb-2 border-b border-zinc-800/50">
           <h2 className="text-xl font-bold flex items-center gap-2 text-white">
             <Sparkles className="w-5 h-5 text-blue-500" />
@@ -218,7 +209,7 @@ export function TransactionModal({
           </div>
         </div>
 
-        <div className="space-y-6"> {/* Wrapper de conteúdo com espaçamento */}
+        <div className="space-y-6"> 
             <div className="flex bg-zinc-950 p-1 rounded-xl border border-zinc-800">
               <button 
                 onClick={() => setEntityType('pf')}
@@ -259,7 +250,6 @@ export function TransactionModal({
                   onChange={(e) => setDescription(e.target.value)}
                   onBlur={() => description.length > 3 && handleAIProcess(description)}
                 />
-                {/* BOTÃO DO MICROFONE COM TRAVA */}
                 <button 
                   onClick={startListening}
                   className={`p-4 rounded-xl border transition-all duration-300 flex items-center justify-center relative group ${
@@ -270,7 +260,6 @@ export function TransactionModal({
                 >
                   {isListening ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
                   
-                  {/* O CADEADO DE OURO (PONTO AMARELO) SE FOR FREE */}
                   {userPlan === 'free' && (
                       <div className="absolute top-2 right-2 w-2 h-2 bg-yellow-400 rounded-full animate-pulse shadow-lg" title="Recurso PRO" />
                   )}

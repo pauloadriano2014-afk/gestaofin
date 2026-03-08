@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { ReportModal } from "@/components/ReportModal"; 
-import { getDashboardData, toggleTransactionStatus, copyFixedExpenses, generateMonthlyReport, deleteTransaction } from "./actions"; 
+import { getDashboardData, toggleTransactionStatus, copyFixedExpenses, generateMonthlyReport, deleteTransaction, processAndImportCSV } from "./actions"; 
 import { TransactionModal } from "@/components/TransactionModal";
 import { BudgetModal } from "@/components/BudgetModal";
 import { UserButton } from "@clerk/nextjs"; 
@@ -15,12 +15,11 @@ import { AreaChart, Area, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tool
 import { PremiumModal } from "@/components/PremiumModal";
 
 // --- CONFIGURAÇÃO DE TEMAS ---
-// ADICIONEI O CAMPO 'hex' PARA PINTAR O BODY DO NAVEGADOR
 const THEMES = {
   dark: {
     id: 'dark',
     name: 'Dark',
-    hex: '#09090b', // Cor exata do Zinc 950
+    hex: '#09090b', 
     bg: 'bg-zinc-950',
     text: 'text-zinc-50',
     textMuted: 'text-zinc-400',
@@ -36,7 +35,7 @@ const THEMES = {
   nubank: {
     id: 'nubank',
     name: 'Nubank',
-    hex: '#f5f5f5', // Cor sólida clara
+    hex: '#f5f5f5', 
     bg: 'bg-[#f5f5f5]', 
     text: 'text-gray-900',
     textMuted: 'text-gray-500',
@@ -52,7 +51,7 @@ const THEMES = {
   green: {
     id: 'green',
     name: 'Eco',
-    hex: '#ecfdf5', // Cor sólida clara
+    hex: '#ecfdf5', 
     bg: 'bg-[#ecfdf5]', 
     text: 'text-emerald-950',
     textMuted: 'text-emerald-600/70',
@@ -68,7 +67,7 @@ const THEMES = {
   blue: {
     id: 'blue',
     name: 'Executivo',
-    hex: '#f8fafc', // Cor sólida clara
+    hex: '#f8fafc', 
     bg: 'bg-[#f8fafc]', 
     text: 'text-slate-900',
     textMuted: 'text-slate-500',
@@ -84,7 +83,7 @@ const THEMES = {
   red: {
     id: 'red',
     name: 'Red',
-    hex: '#fff1f2', // Cor sólida clara
+    hex: '#fff1f2', 
     bg: 'bg-[#fff1f2]', 
     text: 'text-rose-950',
     textMuted: 'text-rose-600/70',
@@ -115,6 +114,9 @@ export default function Dashboard() {
   const [showPremium, setShowPremium] = useState(false);
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
 
+  // NOVO: STATUS TEXTUAL DO UPLOAD DE CSV
+  const [uploadStatus, setUploadStatus] = useState("");
+
   // --- ESTADOS DE UI ---
   const [viewMode, setViewMode] = useState<'all' | 'pf' | 'pj'>('all');
   const [currentTheme, setCurrentTheme] = useState<'dark' | 'nubank' | 'green' | 'blue' | 'red'>('nubank');
@@ -124,8 +126,6 @@ export default function Dashboard() {
 
   const [rawData, setRawData] = useState<any>({ allCategories: [], transactions: [], planType: 'free' });
 
-  // --- EFEITO MÁGICO PARA CORRIGIR O FUNDO ---
-  // Isso força o navegador a pintar o fundo fora da área de conteúdo com a cor exata do tema
   useEffect(() => {
     document.body.style.backgroundColor = theme.hex;
   }, [currentTheme, theme.hex]);
@@ -138,19 +138,82 @@ export default function Dashboard() {
     setRawData(result);
   }
 
-  // --- GERAÇÃO DOS DIAS DO MÊS ---
+  // --- NOVA MÁGICA: FATIAMENTO NO FRONT-END ---
+  const handleFileUpload = (event: any) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    
+    reader.onload = async (e) => {
+      try {
+        const text = e.target?.result as string;
+        const lines = text.split('\n');
+        
+        const transactionsRaw = [];
+        
+        // Pula o cabeçalho
+        for (let i = 1; i < lines.length; i++) {
+          if (!lines[i].trim()) continue;
+          
+          const [data, valor, identificador, ...descricaoArr] = lines[i].split(',');
+          const descricao = descricaoArr.join(','); 
+
+          if (data && valor) {
+            transactionsRaw.push({
+              date: data,
+              amount: parseFloat(valor),
+              description: descricao.replace(/"/g, '').trim() 
+            });
+          }
+        }
+
+        // Fatiando a pizza de 15 em 15!
+        const BATCH_SIZE = 15;
+        const totalBatches = Math.ceil(transactionsRaw.length / BATCH_SIZE);
+        let totalImportados = 0;
+
+        for (let i = 0; i < transactionsRaw.length; i += BATCH_SIZE) {
+          const loteAtual = Math.floor(i / BATCH_SIZE) + 1;
+          const batch = transactionsRaw.slice(i, i + BATCH_SIZE);
+          
+          // Atualiza o texto do botão para você acompanhar
+          setUploadStatus(`IA Lote ${loteAtual} de ${totalBatches}...`);
+
+          // Envia só esse pedacinho pro servidor
+          const result = await processAndImportCSV(batch);
+          if (result.success) {
+            totalImportados += batch.length;
+          } else {
+            console.error(`Erro no lote ${loteAtual}`);
+          }
+        }
+
+        setUploadStatus(""); 
+        alert(`Sucesso! Foram processadas ${totalImportados} transações do extrato!`);
+        loadData(); // Atualiza a tela com os novos dados
+
+      } catch (error) {
+        console.error("Erro no upload", error);
+        alert("Ocorreu um erro ao processar o arquivo.");
+        setUploadStatus("");
+      }
+    };
+
+    reader.readAsText(file);
+    event.target.value = null; // Limpa o input
+  };
+
   const daysInMonthArray = useMemo(() => {
     const days = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0).getDate();
     return Array.from({ length: days }, (_, i) => i + 1);
   }, [currentDate]);
 
   const processedData = useMemo(() => {
-    // 1. Filtra por PF/PJ
     let txs = (rawData.transactions || []).filter((t: any) => 
       viewMode === 'all' ? true : t.entityType === viewMode
     );
 
-    // 2. Filtra por Dia (se selecionado)
     if (selectedDay !== null) {
       const targetDate = `${currentDate.getFullYear()}-${String(currentDate.getMonth()+1).padStart(2,'0')}-${String(selectedDay).padStart(2,'0')}`;
       txs = txs.filter((t: any) => t.date === targetDate);
@@ -167,7 +230,6 @@ export default function Dashboard() {
         return { ...cat, id: cat.id, name: cat.name, value: spent, budget: Number(cat.budget || 0) };
     }).filter((c: any) => c.value > 0 || c.budget > 0).sort((a: any, b: any) => b.value - a.value);
 
-    // Dados para gráfico
     const chartTxs = (rawData.transactions || []).filter((t: any) => viewMode === 'all' ? true : t.entityType === viewMode);
     
     const dailyData = [];
@@ -312,8 +374,14 @@ export default function Dashboard() {
                 <button onClick={() => changeMonth(1)} className={`p-2 rounded-full transition-colors ${theme.navInactive}`}><ChevronRight className="w-6 h-6" /></button>
             </div>
 
-            {/* BOTÃO DE LANÇAR - GRANDE */}
+            {/* BOTÕES DE LANÇAR E IMPORTAR CSV */}
             <div className="flex gap-2 w-full md:w-auto">
+                <label className={`flex-1 md:flex-none ${theme.buttonSecondary} cursor-pointer active:scale-95 px-6 py-4 md:py-3 rounded-full font-bold text-sm shadow-sm flex items-center justify-center gap-2 transition-all border ${uploadStatus ? 'bg-purple-100 text-purple-600 border-purple-300' : ''}`}>
+                  {uploadStatus ? <Loader2 className="w-5 h-5 animate-spin text-purple-600" /> : <FileText className="w-5 h-5" />} 
+                  {uploadStatus ? uploadStatus : "Importar CSV"}
+                  <input type="file" accept=".csv" className="hidden" onChange={handleFileUpload} disabled={!!uploadStatus} />
+                </label>
+
                 <button 
                   onClick={() => { setEditingTransaction(null); setIsModalOpen(true); }}
                   className={`flex-1 md:flex-none ${theme.button} active:scale-95 px-6 py-4 md:py-3 rounded-full font-bold text-sm shadow-lg flex items-center justify-center gap-2 transition-all`}

@@ -1,3 +1,4 @@
+'use client'
 'use server'
 
 import { db } from "@/db";
@@ -35,6 +36,11 @@ export async function getDashboardData(month: number, year: number) {
         planType: 'free'
       };
     }
+
+    // 🔥 ARMADILHA DO ID: O Render vai cuspir isso nos Logs assim que a tela carregar!
+    console.log("==========================================");
+    console.log(`🎯 ATENÇÃO CHEFE! O SEU ID EXATO NESTE LOGIN É: ${userId}`);
+    console.log("==========================================");
 
     await syncEssentialCategories(userId);
 

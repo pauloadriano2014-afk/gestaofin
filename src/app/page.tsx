@@ -136,8 +136,73 @@ export default function Dashboard() {
     return Array.from({ length: days }, (_, i) => i + 1);
   }, [currentDate]);
 
+  // 🔥 MOTOR CFO: LÓGICA DE CÁLCULO ATUALIZADA AQUI 🔥
   const processedData = useMemo(() => {
+<<<<<<< HEAD
     return calculateDashboardData(rawData, viewMode, currentDate, selectedDay, daysInMonthArray);
+=======
+    let txs = (rawData.transactions || []).filter((t: any) => 
+      viewMode === 'all' ? true : t.entityType === viewMode
+    );
+
+    if (selectedDay !== null) {
+      const targetDate = `${currentDate.getFullYear()}-${String(currentDate.getMonth()+1).padStart(2,'0')}-${String(selectedDay).padStart(2,'0')}`;
+      txs = txs.filter((t: any) => t.date === targetDate);
+    }
+
+    // 1. Identificando Categorias Especiais
+    const catInvestimentosId = rawData.allCategories.find((c: any) => c.name.toLowerCase().includes('investimento'))?.id;
+    const catCartaoId = rawData.allCategories.find((c: any) => c.name.toLowerCase().includes('cartão de crédito'))?.id;
+    const catReembolsoId = rawData.allCategories.find((c: any) => c.name.toLowerCase().includes('reembolso'))?.id;
+
+    // 2. Separando as transações de Investimento (Aportes)
+    const txsInvestimentos = txs.filter((t: any) => t.categoryId === catInvestimentosId);
+
+    // 3. O Fluxo Operacional Limpo (Sem Investimentos, Cartão de Crédito e Reembolsos)
+    const txsOperacionais = txs.filter((t: any) => 
+      t.categoryId !== catInvestimentosId && 
+      t.categoryId !== catCartaoId && 
+      t.categoryId !== catReembolsoId
+    );
+
+    // 4. Cálculos dos Cards (Receita e Despesa usam apenas o fluxo limpo)
+    const income = txsOperacionais.filter((t: any) => t.type === 'income').reduce((acc: number, t: any) => acc + Number(t.amount), 0);
+    const expense = txsOperacionais.filter((t: any) => t.type === 'expense').reduce((acc: number, t: any) => acc + Number(t.amount), 0);
+    
+    // 5. Cálculo do 4º Card (Aportes/Investido)
+    const investidoOut = txsInvestimentos.filter((t: any) => t.type === 'expense').reduce((acc: number, t: any) => acc + Number(t.amount), 0);
+    const investidoIn = txsInvestimentos.filter((t: any) => t.type === 'income').reduce((acc: number, t: any) => acc + Number(t.amount), 0);
+    const invested = investidoOut - investidoIn; // Saldo de investimentos do mês
+
+    // 6. Saldo Geral (O que de fato mexeu na conta corrente)
+    const totalIn = txs.filter((t: any) => t.type === 'income').reduce((acc: number, t: any) => acc + Number(t.amount), 0);
+    const totalOut = txs.filter((t: any) => t.type === 'expense').reduce((acc: number, t: any) => acc + Number(t.amount), 0);
+    const balance = totalIn - totalOut;
+    
+    const fixedExpenses = txs.filter((t: any) => t.isFixed && t.type === 'expense');
+    const variableTransactions = txs.filter((t: any) => !t.isFixed || t.type === 'income');
+
+    const categoryStats = (rawData.allCategories || []).map((cat: any) => {
+        const spent = txs.filter((t: any) => t.categoryId === cat.id && t.type === 'expense').reduce((sum: number, t: any) => sum + Number(t.amount), 0);
+        return { ...cat, id: cat.id, name: cat.name, value: spent, budget: Number(cat.budget || 0) };
+    }).filter((c: any) => c.value > 0 || c.budget > 0).sort((a: any, b: any) => b.value - a.value);
+    
+    const dailyData = [];
+    for (let i = 1; i <= daysInMonthArray.length; i++) {
+        const d = `${currentDate.getFullYear()}-${String(currentDate.getMonth()+1).padStart(2,'0')}-${String(i).padStart(2,'0')}`;
+        // 🔥 Gráfico também usa as transações limpas para não criar picos anormais
+        const dayTxs = txsOperacionais.filter((t: any) => t.date === d);
+        if(dayTxs.length > 0) {
+            dailyData.push({
+                day: i,
+                entrada: dayTxs.filter((t: any) => t.type === 'income').reduce((a: number, b: any) => a + Number(b.amount), 0),
+                saida: dayTxs.filter((t: any) => t.type === 'expense').reduce((a: number, b: any) => a + Number(b.amount), 0)
+            });
+        }
+    }
+
+    return { summary: { balance, income, expense, invested }, fixedExpenses, variableTransactions, categoryStats, dailyData };
+>>>>>>> 3cda5e28384b31043a4b5802e838554350a4b0e2
   }, [rawData, viewMode, currentDate, selectedDay, daysInMonthArray]);
 
   useEffect(() => { loadData(); setSelectedDay(null); }, [currentDate]);
@@ -262,6 +327,7 @@ export default function Dashboard() {
           )}
         </div>
 
+<<<<<<< HEAD
         {/* COMPONENTES ISOLADOS */}
         <DashboardCards theme={theme} summary={processedData.summary} selectedDay={selectedDay} formatCurrency={formatCurrency} />
         <DashboardCharts theme={theme} processedData={processedData} currentTheme={currentTheme} formatCurrency={formatCurrency} setSelectedCategory={setSelectedCategory} setBudgetModalOpen={setBudgetModalOpen} />
@@ -281,6 +347,61 @@ export default function Dashboard() {
                         <option key={c.id} value={c.id}>{c.name}</option>
                     ))}
                 </select>
+=======
+        {/* RESTANTE DA DASHBOARD - AGORA COM 4 CARDS */}
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+          <div className={`${theme.card} p-6 rounded-2xl border relative overflow-hidden group transition-all`}>
+            <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity"><Wallet className="w-16 h-16" /></div>
+            <p className={`text-xs font-bold uppercase tracking-wider mb-1 ${theme.textMuted}`}>Saldo Líquido {selectedDay && `(Dia ${selectedDay})`}</p>
+            <h2 className={`text-2xl xl:text-3xl font-mono font-bold ${processedData.summary.balance >= 0 ? theme.text : 'text-red-500'}`}>
+              {formatCurrency(processedData.summary.balance)}
+            </h2>
+          </div>
+          <div className={`${theme.card} p-6 rounded-2xl border transition-all`}>
+            <p className={`text-xs font-bold uppercase tracking-wider mb-1 ${theme.textMuted}`}>Receita Operacional</p>
+            <h2 className="text-2xl font-mono font-bold text-emerald-500">{formatCurrency(processedData.summary.income)}</h2>
+          </div>
+          <div className={`${theme.card} p-6 rounded-2xl border transition-all`}>
+            <p className={`text-xs font-bold uppercase tracking-wider mb-1 ${theme.textMuted}`}>Despesas de Fato</p>
+            <h2 className="text-2xl font-mono font-bold text-red-500">{formatCurrency(processedData.summary.expense)}</h2>
+          </div>
+          <div className={`${theme.card} p-6 rounded-2xl border transition-all bg-gradient-to-br from-blue-500/5 to-transparent`}>
+            <p className={`text-xs font-bold uppercase tracking-wider mb-1 text-blue-500`}>Aportes (Investido)</p>
+            <h2 className="text-2xl font-mono font-bold text-blue-500">{formatCurrency(processedData.summary.invested)}</h2>
+          </div>
+        </div>
+
+        {/* GRÁFICOS */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className={`lg:col-span-2 ${theme.card} p-6 rounded-2xl border flex flex-col h-[350px]`}>
+            {/* Título Atualizado para clareza */}
+            <h3 className={`text-sm font-bold mb-6 flex items-center gap-2 ${theme.textMuted}`}>
+              <TrendingUp className="w-4 h-4" /> Fluxo de Caixa Limpo (Sem Cartão/Inv)
+            </h3>
+            <div className="flex-1 w-full">
+              {processedData.dailyData.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={processedData.dailyData}>
+                    <defs>
+                      <linearGradient id="colorEntrada" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.2}/>
+                        <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                      </linearGradient>
+                      <linearGradient id="colorSaida" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#ef4444" stopOpacity={0.2}/>
+                        <stop offset="95%" stopColor="#ef4444" stopOpacity={0}/>
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke={currentTheme === 'dark' ? '#27272a' : '#e2e8f0'} vertical={false} />
+                    <XAxis dataKey="day" stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} />
+                    <YAxis stroke="#94a3b8" fontSize={10} tickFormatter={(val) => `R$${val}`} tickLine={false} axisLine={false} width={60} />
+                    <RechartsTooltip contentStyle={{ backgroundColor: currentTheme === 'dark' ? '#18181b' : '#fff', border: 'none', borderRadius: '8px', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }} />
+                    <Area type="monotone" dataKey="entrada" name="Entrada" stroke="#10b981" fillOpacity={1} fill="url(#colorEntrada)" strokeWidth={2} />
+                    <Area type="monotone" dataKey="saida" name="Saída" stroke="#ef4444" fillOpacity={1} fill="url(#colorSaida)" strokeWidth={2} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              ) : ( <div className={`h-full flex items-center justify-center text-sm ${theme.textMuted}`}>Sem dados suficientes.</div> )}
+>>>>>>> 3cda5e28384b31043a4b5802e838554350a4b0e2
             </div>
         </div>
 

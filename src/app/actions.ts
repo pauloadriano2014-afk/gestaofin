@@ -6,10 +6,12 @@ import { desc, and, sql, eq, lte } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { auth } from "@clerk/nextjs/server";
 
-// --- LISTA VIP (AGORA COM O ID EXATO DO LOG - BLOQUEIO SAAS ATIVADO) ---
+// --- LISTA VIP (BLOQUEIO SAAS ATIVADO) ---
 const VIP_USERS = [
-  "user_39lFK9Lr5j7Y5lg1e4ZPwb6ZTx8", // Paulo e Gestão Kore (P maiúsculo)
-  "user_39obnDo2iFblIK7qxNyKkL0H8Hn"  // Adrielle
+  "user_39lFK9Lr5j7Y5lg1e4ZPwb6ZTx8", // Paulo e Gestão Kore (Antigo)
+  "user_39obnDo2iFblIK7qxNyKkL0H8Hn", // Adrielle
+  "user_39ocZfmiOfwA0Q3mXpJ158M3Nkw"  // 🔥 SEU ID NOVO (Adicionado agora)
+  // SE VOCÊ ADICIONOU MAIS ALGUM USUÁRIO PELO CELULAR, COLE O ID DELE AQUI EMBAIXO:
 ];
 
 // --- FUNÇÃO AUXILIAR ASSÍNCRONA ---
@@ -35,6 +37,11 @@ export async function getDashboardData(month: number, year: number) {
         planType: 'free'
       };
     }
+
+    // 🔥 ARMADILHA DO ID: O Render vai cuspir isso nos Logs assim que a tela carregar!
+    console.log("==========================================");
+    console.log(`🎯 ATENÇÃO CHEFE! O SEU ID EXATO NESTE LOGIN É: ${userId}`);
+    console.log("==========================================");
 
     await syncEssentialCategories(userId);
 
@@ -465,6 +472,7 @@ export async function saveBulkTransactions(transactionsList: any[]) {
         const userId = await getUser();
         if (!userId) return { success: false, message: "Login necessário." };
 
+<<<<<<< HEAD
         for (const tx of transactionsList) {
             await db.insert(transactions).values({
                 userId: userId,
@@ -486,3 +494,10 @@ export async function saveBulkTransactions(transactionsList: any[]) {
         return { success: false };
     }
 }
+=======
+  } catch (error) {
+    console.error("Erro ao importar lote:", error);
+    return { success: false };
+  }
+}
+>>>>>>> 3cda5e28384b31043a4b5802e838554350a4b0e2

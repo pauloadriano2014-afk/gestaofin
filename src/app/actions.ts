@@ -10,14 +10,12 @@ import { auth } from "@clerk/nextjs/server";
 const VIP_USERS = [
   "user_39lFK9Lr5j7Y5lg1e4ZPwb6ZTx8", // Paulo e Gestão Kore (Antigo)
   "user_39obnDo2iFblIK7qxNyKkL0H8Hn", // Adrielle
-  "user_39ocZfmiOfwA0Q3mXpJ158M3Nkw"  // 🔥 SEU ID NOVO (Adicionado agora)
-  // SE VOCÊ ADICIONOU MAIS ALGUM USUÁRIO PELO CELULAR, COLE O ID DELE AQUI EMBAIXO:
+  "user_39ocZfmiOfwA0Q3mXpJ158M3Nkw"  // 🔥 SEU ID NOVO
 ];
 
 // --- FUNÇÃO AUXILIAR ASSÍNCRONA ---
 async function getUser() {
   const session = await auth();
-  
   if (!session || !session.userId) {
     return null;
   }
@@ -37,11 +35,6 @@ export async function getDashboardData(month: number, year: number) {
         planType: 'free'
       };
     }
-
-    // 🔥 ARMADILHA DO ID: O Render vai cuspir isso nos Logs assim que a tela carregar!
-    console.log("==========================================");
-    console.log(`🎯 ATENÇÃO CHEFE! O SEU ID EXATO NESTE LOGIN É: ${userId}`);
-    console.log("==========================================");
 
     await syncEssentialCategories(userId);
 
@@ -145,7 +138,7 @@ export async function getDashboardData(month: number, year: number) {
   }
 }
 
-// --- CFO VIRTUAL (BLOQUEADO PARA FREE) ---
+// --- CFO VIRTUAL ---
 export async function generateMonthlyReport(month: number, year: number) {
   try {
     const userId = await getUser();
@@ -407,7 +400,7 @@ export async function generateRangeReport(startMonth: string, endMonth: string, 
   } catch (error: any) { return { success: false, message: "Erro na IA." }; }
 }
 
-// --- 1. IA PROCESSA E DEVOLVE (NÃO SALVA MAIS DIRETO) ---
+// --- 1. IA PROCESSA E DEVOLVE ---
 export async function processCSVWithAI(batch: { date: string, amount: number, description: string }[]) {
   try {
     const userId = await getUser();
@@ -447,7 +440,6 @@ export async function processCSVWithAI(batch: { date: string, amount: number, de
       const amountValue = Math.abs(Number(aiTx.amount !== undefined ? aiTx.amount : originalTx.amount)).toFixed(2);
       const isIncome = Number(aiTx.amount !== undefined ? aiTx.amount : originalTx.amount) >= 0;
 
-      // Ao invés de salvar no banco, guardamos no array temporário
       processedBatch.push({
         description: String(aiTx.description || originalTx.description || "Importado").substring(0, 100),
         amount: amountValue, 
@@ -456,23 +448,21 @@ export async function processCSVWithAI(batch: { date: string, amount: number, de
         date: formattedDate, 
         isFixed: false, 
         isPaid: true, 
-        entityType: "pf", // Padrão que você vai revisar na tela
+        entityType: "pf",
         aiTags: ["importado_csv"],
       });
     }
     
-    // Devolvemos pra tela de revisão!
     return { success: true, data: processedBatch };
   } catch (error) { return { success: false }; }
 }
 
-// --- 2. SALVAR LOTE REVISADO PELA TELA DE CONFIRMAÇÃO ---
+// --- 2. SALVAR LOTE REVISADO ---
 export async function saveBulkTransactions(transactionsList: any[]) {
     try {
         const userId = await getUser();
         if (!userId) return { success: false, message: "Login necessário." };
 
-<<<<<<< HEAD
         for (const tx of transactionsList) {
             await db.insert(transactions).values({
                 userId: userId,
@@ -494,10 +484,3 @@ export async function saveBulkTransactions(transactionsList: any[]) {
         return { success: false };
     }
 }
-=======
-  } catch (error) {
-    console.error("Erro ao importar lote:", error);
-    return { success: false };
-  }
-}
->>>>>>> 3cda5e28384b31043a4b5802e838554350a4b0e2

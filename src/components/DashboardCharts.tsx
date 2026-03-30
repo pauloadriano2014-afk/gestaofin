@@ -68,11 +68,14 @@ export function DashboardCharts({ theme, processedData, currentTheme, formatCurr
                       <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                     ))}
                   </Pie>
+                  
+                  {/* 🔥 CORREÇÃO AQUI: Tipagem 'any' e valor default || 0 🔥 */}
                   <RechartsTooltip 
-                    formatter={(value: number) => formatCurrency(value)}
+                    formatter={(value: any) => formatCurrency(value || 0)}
                     contentStyle={{ backgroundColor: currentTheme === 'dark' ? '#18181b' : '#fff', border: 'none', borderRadius: '8px', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', color: currentTheme === 'dark' ? '#fff' : '#000' }}
                     itemStyle={{ color: currentTheme === 'dark' ? '#fff' : '#000' }}
                   />
+                  
                   <Legend 
                     verticalAlign="bottom" 
                     height={80}

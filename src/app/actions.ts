@@ -2,7 +2,7 @@
 
 import { db } from "@/db";
 import { categories, transactions, userSettings } from "@/db/schema";
-import { desc, and, sql, eq, lte } from "drizzle-orm";
+import { desc, and, sql, eq, lte, gte } from "drizzle-orm"; // 1. Adicionado gte (Greater Than or Equal)
 import { revalidatePath } from "next/cache";
 import { auth } from "@clerk/nextjs/server";
 
@@ -22,8 +22,8 @@ async function getUser() {
   return session.userId;
 }
 
-// --- BUSCAR DADOS DA DASHBOARD ---
-export async function getDashboardData(month: number, year: number) {
+// --- BUSCAR DADOS DA DASHBOARD (AGORA COM RANGE DE DATAS E FLAG ISOLATE) ---
+export async function getDashboardData(startMonth: number, startYear: number, endMonth: number, endYear: number, isolatePeriod: boolean = false) {
   try {
     const userId = await getUser();
     
@@ -48,35 +48,47 @@ export async function getDashboardData(month: number, year: number) {
 
     const allCategories = await db.select().from(categories).where(eq(categories.userId, userId));
     
+    // 1. Definindo o Início e o Fim do Período exato
+    const startDateStr = `${startYear}-${String(startMonth).padStart(2, '0')}-01`;
+    const lastDayOfEndMonth = new Date(endYear, endMonth, 0).getDate();
+    const endDateStr = `${endYear}-${String(endMonth).padStart(2, '0')}-${String(lastDayOfEndMonth).padStart(2, '0')}`;
+
+    // 2. Buscando transações DENTRO do período selecionado
     const currentTransactions = await db
       .select()
       .from(transactions)
       .where(
         and(
           eq(transactions.userId, userId),
-          sql`EXTRACT(MONTH FROM ${transactions.date}) = ${month}`,
-          sql`EXTRACT(YEAR FROM ${transactions.date}) = ${year}`
+          gte(transactions.date, startDateStr),
+          lte(transactions.date, endDateStr)
         )
       )
       .orderBy(desc(transactions.date));
 
-    // 🔥 LÓGICA DO SALDO GLOBAL (COM TRAVA DE TEMPO) 🔥
-    const lastDayOfMonth = new Date(year, month, 0).getDate();
-    const cutoffDateStr = `${year}-${String(month).padStart(2, '0')}-${String(lastDayOfMonth).padStart(2, '0')}`;
-
-    const allTx = await db
-        .select({ type: transactions.type, amount: transactions.amount })
-        .from(transactions)
-        .where(
-            and(
-                eq(transactions.userId, userId),
-                lte(transactions.date, cutoffDateStr)
-            )
-        );
-
-    const globalIncome = allTx.filter(t => t.type === 'income').reduce((acc, t) => acc + Math.abs(Number(t.amount)), 0);
-    const globalExpense = allTx.filter(t => t.type === 'expense').reduce((acc, t) => acc + Math.abs(Number(t.amount)), 0);
-    const globalBalance = globalIncome - globalExpense;
+    // 3. Lógica do Saldo do Banco (Global ou Isolado)
+    let globalBalance = 0;
+    
+    if (isolatePeriod) {
+        // Se a chavinha estiver LIGADA (Isolar), o saldo do banco é apenas o que rolou no período, ignorando o passado.
+        const periodIncome = currentTransactions.filter(t => t.type === 'income').reduce((acc, t) => acc + Math.abs(Number(t.amount)), 0);
+        const periodExpense = currentTransactions.filter(t => t.type === 'expense').reduce((acc, t) => acc + Math.abs(Number(t.amount)), 0);
+        globalBalance = periodIncome - periodExpense;
+    } else {
+        // Se a chavinha estiver DESLIGADA (Padrão), traz a vida toda ATÉ o fim do período.
+        const allTx = await db
+            .select({ type: transactions.type, amount: transactions.amount })
+            .from(transactions)
+            .where(
+                and(
+                    eq(transactions.userId, userId),
+                    lte(transactions.date, endDateStr)
+                )
+            );
+        const globalIncome = allTx.filter(t => t.type === 'income').reduce((acc, t) => acc + Math.abs(Number(t.amount)), 0);
+        const globalExpense = allTx.filter(t => t.type === 'expense').reduce((acc, t) => acc + Math.abs(Number(t.amount)), 0);
+        globalBalance = globalIncome - globalExpense;
+    }
 
     const fixedExpenses = currentTransactions.filter(t => t.isFixed === true && t.type === 'expense');
     const variableTransactions = currentTransactions.filter(t => t.isFixed === false || t.type === 'income');
@@ -90,31 +102,10 @@ export async function getDashboardData(month: number, year: number) {
         .filter(tx => tx.categoryId === cat.id && tx.type === 'expense')
         .reduce((sum, tx) => sum + Math.abs(Number(tx.amount)), 0);
       
-      return {
-        id: cat.id,
-        name: cat.name,
-        value: spent,
-        budget: Number(cat.budget || 0),
-        color: '#3b82f6'
-      };
+      return { id: cat.id, name: cat.name, value: spent, budget: Number(cat.budget || 0), color: '#3b82f6' };
     })
     .filter(i => i.value > 0 || i.budget > 0)
     .sort((a, b) => b.value - a.value);
-
-    const dailyData = [];
-    const daysInMonth = new Date(year, month, 0).getDate();
-    
-    for (let i = 1; i <= daysInMonth; i++) {
-      const dayStr = `${year}-${String(month).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
-      const dayTxs = currentTransactions.filter(t => t.date === dayStr);
-      
-      const dayInc = dayTxs.filter(t => t.type === 'income').reduce((acc, t) => acc + Math.abs(Number(t.amount)), 0);
-      const dayExp = dayTxs.filter(t => t.type === 'expense').reduce((acc, t) => acc + Math.abs(Number(t.amount)), 0);
-      
-      if(dayInc > 0 || dayExp > 0) {
-        dailyData.push({ day: i, entrada: dayInc, saida: dayExp });
-      }
-    }
 
     return { 
       allCategories, 
@@ -124,7 +115,7 @@ export async function getDashboardData(month: number, year: number) {
       summary: { balance, income, expense, globalBalance },
       categoryStats, 
       pieData: categoryStats, 
-      dailyData,
+      dailyData: [], // O Gráfico de linhas não faz sentido para ranges maiores que um mês, faremos no Front.
       planType: planType 
     };
 
@@ -157,13 +148,13 @@ export async function generateMonthlyReport(month: number, year: number) {
       return { success: false, message: "⚠️ RECURSO PREMIUM: A análise inteligente do CFO Virtual está disponível apenas para assinantes PRO." };
     }
 
-    const reportData = await getDashboardData(month, year);
+    const reportData = await getDashboardData(month, year, month, year, false); // Fix do report pro mês atual
     const txs = reportData.transactions || [];
     
     if (txs.length === 0) return { success: false, message: "Sem dados suficientes para análise." };
 
     const income = txs.filter((t: any) => t.type === 'income').reduce((acc: number, t: any) => acc + Math.abs(Number(t.amount)), 0);
-    const expense = txs.filter((t: any) => t.type === 'expense').reduce((acc: number, t: any) => acc + Math.abs(Number(t.amount)), 0);
+    const expense = txs.filter((t: any) => t.type === 'expense').reduce((acc, t) => acc + Math.abs(Number(t.amount)), 0);
     
     const topExpenses = txs
         .filter((t: any) => t.type === 'expense')

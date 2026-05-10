@@ -11,9 +11,9 @@ import { DashboardCards } from "@/components/DashboardCards";
 import { DashboardCharts } from "@/components/DashboardCharts"; 
 import { calculateDashboardData } from "@/utils/dashboardCalculations"; 
 import { 
-  Calendar as CalendarIcon, Plus, ArrowUpRight, ArrowDownRight, 
+  Plus, ArrowUpRight, ArrowDownRight, 
   Clock, CheckCircle2, Circle, Copy, Loader2,
-  Briefcase, User, Layers, MessageSquare, X, ChevronLeft, ChevronRight, Palette, Pencil, Trash2, AlertCircle, Crown, FileText, Download, Filter
+  Briefcase, User, Layers, MessageSquare, X, Palette, Pencil, Trash2, AlertCircle, Crown, FileText, Download, Filter, Calendar as CalendarIcon, ToggleLeft, ToggleRight
 } from "lucide-react";
 import { PremiumModal } from "@/components/PremiumModal";
 
@@ -28,7 +28,6 @@ const THEMES = {
 
 export default function Dashboard() {
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
   const [copying, setCopying] = useState(false);
   const [advice, setAdvice] = useState('');
@@ -48,17 +47,25 @@ export default function Dashboard() {
   const [reviewTransactions, setReviewTransactions] = useState<any[]>([]);
   const [isSavingBulk, setIsSavingBulk] = useState(false);
 
+  // 🔥 NOVOS ESTADOS DE RANGE DE DATA 🔥
+  const [startMonth, setStartMonth] = useState<number>(new Date().getMonth() + 1);
+  const [startYear, setStartYear] = useState<number>(new Date().getFullYear());
+  const [endMonth, setEndMonth] = useState<number>(new Date().getMonth() + 1);
+  const [endYear, setEndYear] = useState<number>(new Date().getFullYear());
+  const [isolatePeriod, setIsolatePeriod] = useState<boolean>(false); // Chavinha de ZERAR o passado
+
   const theme = THEMES[currentTheme];
   const [rawData, setRawData] = useState<any>({ allCategories: [], transactions: [], summary: { globalBalance: 0 }, planType: 'free' });
 
   useEffect(() => { document.body.style.backgroundColor = theme.hex; }, [currentTheme, theme.hex]);
 
+  // Carrega sempre que o range ou a chavinha mudar
   async function loadData() {
-    const month = currentDate.getMonth() + 1;
-    const year = currentDate.getFullYear();
-    const result = await getDashboardData(month, year);
+    const result = await getDashboardData(startMonth, startYear, endMonth, endYear, isolatePeriod);
     setRawData(result);
   }
+
+  useEffect(() => { loadData(); setSelectedDay(null); }, [startMonth, startYear, endMonth, endYear, isolatePeriod]);
 
   const handleFileUpload = (event: any) => {
     const file = event.target.files[0];
@@ -128,23 +135,20 @@ export default function Dashboard() {
       }
   }
 
-  const daysInMonthArray = useMemo(() => {
-    const days = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0).getDate();
-    return Array.from({ length: days }, (_, i) => i + 1);
-  }, [currentDate]);
-
   const processedData = useMemo(() => {
-    return calculateDashboardData(rawData, viewMode, currentDate, selectedDay, daysInMonthArray);
-  }, [rawData, viewMode, currentDate, selectedDay, daysInMonthArray]);
-
-  useEffect(() => { loadData(); setSelectedDay(null); }, [currentDate]);
+    return calculateDashboardData(rawData, viewMode, selectedDay);
+  }, [rawData, viewMode, selectedDay]);
 
   async function handleTogglePay(id: string, currentStatus: boolean) { await toggleTransactionStatus(id, currentStatus); loadData(); }
-  async function handleCopyMonth() { if(confirm("Deseja copiar todas as contas fixas deste mês para o próximo?")) { setCopying(true); const res = await copyFixedExpenses(currentDate.getMonth()+1, currentDate.getFullYear()); alert(res.message); setCopying(false); if(res.success) changeMonth(1); } }
+  async function handleCopyMonth() { 
+      if(confirm("Deseja copiar todas as contas fixas deste mês inicial para o próximo?")) { 
+          setCopying(true); const res = await copyFixedExpenses(startMonth, startYear); alert(res.message); setCopying(false); 
+      } 
+  }
   
   async function handleAnalyze() { 
     setAnalyzing(true); setAdvice(''); 
-    const res = await generateMonthlyReport(currentDate.getMonth()+1, currentDate.getFullYear()); 
+    const res = await generateMonthlyReport(endMonth, endYear); 
     if (res.message && res.message.includes("RECURSO PREMIUM")) { setAnalyzing(false); setShowPremium(true); return; }
     setAdvice(res.message || "Erro ao analisar."); setAnalyzing(false); 
   }
@@ -153,7 +157,6 @@ export default function Dashboard() {
   async function handleDelete(id: string) { if(confirm("Deseja realmente excluir este lançamento?")) { await deleteTransaction(id); loadData(); } }
   function handleEdit(tx: any) { setEditingTransaction(tx); setIsModalOpen(true); }
 
-  const changeMonth = (offset: number) => { setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + offset, 1)); setAdvice(''); };
   const formatCurrency = (val: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
 
   const isPro = rawData.planType !== 'free';
@@ -165,7 +168,6 @@ export default function Dashboard() {
     <main className={`min-h-screen w-full ${theme.bg} ${theme.text} pt-4 md:pt-8 font-sans transition-colors duration-500 overflow-x-hidden`}>
       <div className="max-w-7xl mx-auto space-y-6 px-4 md:px-0">
         
-        {/* HEADER RESPONSIVO */}
         <header className="flex flex-col gap-4 md:gap-6">
           <div className="flex flex-col md:flex-row justify-between items-center w-full gap-4">
             <div className="w-full md:w-auto flex justify-center md:justify-start">
@@ -202,13 +204,36 @@ export default function Dashboard() {
           </div>
 
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 w-full">
-            <div className="flex items-center gap-4 w-full md:w-auto justify-center">
-                <button onClick={() => changeMonth(-1)} className={`p-2 rounded-full transition-colors ${theme.navInactive}`}><ChevronLeft className="w-6 h-6" /></button>
-                <div className="flex flex-col items-center min-w-[120px]">
-                    <span className={`text-2xl font-bold capitalize leading-none tracking-tight ${theme.text}`}>{currentDate.toLocaleString('pt-BR', { month: 'long' })}</span>
-                    <span className={`text-xs font-bold tracking-widest uppercase opacity-50 ${theme.text}`}>{currentDate.getFullYear()}</span>
+            
+            {/* 🔥 BARRA DE CONTROLE DE PERÍODO (DATA RANGE) 🔥 */}
+            <div className={`flex flex-col lg:flex-row items-center gap-4 w-full md:w-auto p-3 rounded-2xl border ${theme.card}`}>
+                <div className="flex items-center gap-2">
+                    <CalendarIcon className={`w-4 h-4 ${theme.textMuted}`} />
+                    <input 
+                        type="month" 
+                        value={`${startYear}-${String(startMonth).padStart(2, '0')}`} 
+                        onChange={(e) => { const [y, m] = e.target.value.split('-'); setStartYear(Number(y)); setStartMonth(Number(m)); }}
+                        className={`bg-transparent text-sm font-bold outline-none cursor-pointer ${theme.text}`}
+                    />
+                    <span className={theme.textMuted}>até</span>
+                    <input 
+                        type="month" 
+                        value={`${endYear}-${String(endMonth).padStart(2, '0')}`} 
+                        onChange={(e) => { const [y, m] = e.target.value.split('-'); setEndYear(Number(y)); setEndMonth(Number(m)); }}
+                        className={`bg-transparent text-sm font-bold outline-none cursor-pointer ${theme.text}`}
+                    />
                 </div>
-                <button onClick={() => changeMonth(1)} className={`p-2 rounded-full transition-colors ${theme.navInactive}`}><ChevronRight className="w-6 h-6" /></button>
+
+                <div className="hidden lg:block w-px h-6 bg-gray-200 dark:bg-zinc-800"></div>
+
+                <button 
+                    onClick={() => setIsolatePeriod(!isolatePeriod)}
+                    className={`flex items-center gap-2 text-xs font-bold px-3 py-1.5 rounded-full transition-all ${isolatePeriod ? 'bg-blue-100 text-blue-600 dark:bg-blue-500/20 dark:text-blue-400' : theme.navInactive}`}
+                    title="Se ativado, o Saldo Principal zera o passado e calcula APENAS as receitas e despesas deste período."
+                >
+                    {isolatePeriod ? <ToggleRight className="w-5 h-5" /> : <ToggleLeft className="w-5 h-5" />}
+                    Isolar Saldo
+                </button>
             </div>
 
             <div className="flex gap-2 w-full md:w-auto">
@@ -217,27 +242,10 @@ export default function Dashboard() {
                   {uploadStatus ? uploadStatus : "Importar CSV"}
                   <input type="file" accept=".csv" className="hidden" onChange={handleFileUpload} disabled={!!uploadStatus} />
                 </label>
-                <button onClick={() => { setEditingTransaction(null); setIsModalOpen(true); }} className={`flex-1 md:flex-none ${theme.button} active:scale-95 px-6 py-4 md:py-3 rounded-full font-bold text-sm shadow-lg flex items-center justify-center gap-2 transition-all`}><Plus className="w-5 h-5" /> Lançar Nova Transação</button>
+                <button onClick={() => { setEditingTransaction(null); setIsModalOpen(true); }} className={`flex-1 md:flex-none ${theme.button} active:scale-95 px-6 py-4 md:py-3 rounded-full font-bold text-sm shadow-lg flex items-center justify-center gap-2 transition-all`}><Plus className="w-5 h-5" /> Lançar</button>
             </div>
           </div>
         </header>
-
-        {/* CALENDÁRIO */}
-        <div className={`w-full overflow-x-auto pb-4 custom-scrollbar`}>
-           <div className="flex gap-2 min-w-max px-1">
-              <button onClick={() => setSelectedDay(null)} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all border ${selectedDay === null ? theme.navActive : theme.card + ' ' + theme.navInactive}`}>Mês Todo</button>
-              {daysInMonthArray.map(day => {
-                 const isToday = day === new Date().getDate() && currentDate.getMonth() === new Date().getMonth() && currentDate.getFullYear() === new Date().getFullYear();
-                 const isSelected = selectedDay === day;
-                 return (
-                   <button key={day} onClick={() => setSelectedDay(isSelected ? null : day)} className={`w-10 h-10 flex flex-col items-center justify-center rounded-xl border transition-all text-xs font-bold ${isSelected ? theme.navActive : isToday ? `border-blue-400 border-2 ${theme.text}` : `${theme.card} ${theme.navInactive}`}`}>
-                     {day}
-                     {isToday && <span className="w-1 h-1 rounded-full bg-blue-500 mt-0.5"></span>}
-                   </button>
-                 )
-              })}
-           </div>
-        </div>
 
         {/* ÁREA DE IA E RELATÓRIOS */}
         <div className="flex flex-col gap-4">

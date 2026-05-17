@@ -1,38 +1,55 @@
-import { Wallet } from "lucide-react";
+import { Wallet, TrendingUp, TrendingDown, PiggyBank, Info } from "lucide-react";
 
 export function DashboardCards({ theme, summary, selectedDay, formatCurrency }: any) {
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-      {/* 1. Saldo Histórico Global (O valor real do banco) */}
-      <div className={`${theme.card} p-6 rounded-2xl border relative overflow-hidden group transition-all`}>
-        <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
-            <Wallet className="w-16 h-16" />
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      
+      {/* Card 1: Saldo */}
+      <div className={`${theme.card} p-4 md:p-6 rounded-2xl border flex flex-col justify-between transition-colors ${theme.cardHover}`}>
+        <div className="flex items-center justify-between mb-2 md:mb-4">
+          <h3 className={`text-xs md:text-sm font-bold flex items-center gap-2 ${theme.textMuted}`}><Wallet className="w-4 h-4 text-blue-500" /> Saldo Principal</h3>
         </div>
-        <p className={`text-xs font-bold uppercase tracking-wider mb-1 ${theme.textMuted}`}>
-            Saldo do Banco {selectedDay && `(Dia ${selectedDay})`}
-        </p>
-        <h2 className={`text-2xl xl:text-3xl font-mono font-bold ${summary.balance >= 0 ? theme.text : 'text-red-500'}`}>
-          {formatCurrency(summary.balance)}
-        </h2>
+        <p className={`text-lg md:text-3xl font-bold font-mono tracking-tight ${theme.text}`}>{formatCurrency(summary.balance)}</p>
+        <p className={`text-[10px] md:text-xs mt-2 ${theme.textMuted}`}>{selectedDay ? `Em ${selectedDay}` : 'Disponível na Conta'}</p>
       </div>
 
-      {/* 2. Receita do Mês (Sem contar Resgates de Investimentos ou Pix de esposa) */}
-      <div className={`${theme.card} p-6 rounded-2xl border transition-all`}>
-        <p className={`text-xs font-bold uppercase tracking-wider mb-1 ${theme.textMuted}`}>Receita Operacional</p>
-        <h2 className="text-2xl font-mono font-bold text-emerald-500">{formatCurrency(summary.income)}</h2>
+      {/* Card 2: Receita Operacional */}
+      <div className={`${theme.card} p-4 md:p-6 rounded-2xl border flex flex-col justify-between transition-colors ${theme.cardHover}`}>
+        <div className="flex items-center justify-between mb-2 md:mb-4">
+          <h3 className={`text-xs md:text-sm font-bold flex items-center gap-2 ${theme.textMuted}`}><TrendingUp className="w-4 h-4 text-emerald-500" /> Receita Operacional</h3>
+        </div>
+        <p className={`text-lg md:text-3xl font-bold font-mono tracking-tight text-emerald-500`}>{formatCurrency(summary.income)}</p>
+        
+        {/* SUBTÍTULO NOVO: Receita Bruta */}
+        <div className={`mt-2 flex items-center gap-1 ${theme.textMuted}`} title="Total bruto movimentado (inclui resgates e reembolsos)">
+            <Info className="w-3 h-3 shrink-0" />
+            <p className="text-[9px] md:text-[10px] truncate">Bruto: {summary.grossIncome !== undefined ? formatCurrency(summary.grossIncome) : formatCurrency(summary.income)}</p>
+        </div>
       </div>
 
-      {/* 3. Despesas do Mês (Sem contar o Cartão de Crédito repetido) */}
-      <div className={`${theme.card} p-6 rounded-2xl border transition-all`}>
-        <p className={`text-xs font-bold uppercase tracking-wider mb-1 ${theme.textMuted}`}>Despesas de Fato</p>
-        <h2 className="text-2xl font-mono font-bold text-red-500">{formatCurrency(summary.expense)}</h2>
+      {/* Card 3: Despesas de Fato */}
+      <div className={`${theme.card} p-4 md:p-6 rounded-2xl border flex flex-col justify-between transition-colors ${theme.cardHover}`}>
+        <div className="flex items-center justify-between mb-2 md:mb-4">
+          <h3 className={`text-xs md:text-sm font-bold flex items-center gap-2 ${theme.textMuted}`}><TrendingDown className="w-4 h-4 text-red-500" /> Despesas de Fato</h3>
+        </div>
+        <p className={`text-lg md:text-3xl font-bold font-mono tracking-tight text-red-500`}>{formatCurrency(summary.expense)}</p>
+        
+        {/* SUBTÍTULO NOVO: Despesa Bruta (A que bate com o PDF) */}
+        <div className={`mt-2 flex items-center gap-1 ${theme.textMuted}`} title="Total bruto debitado (inclui cartões e aportes)">
+            <Info className="w-3 h-3 shrink-0" />
+            <p className="text-[9px] md:text-[10px] truncate">Bruto: {summary.grossExpense !== undefined ? formatCurrency(summary.grossExpense) : formatCurrency(summary.expense)}</p>
+        </div>
       </div>
 
-      {/* 4. Aportes do Mês (O dinheiro que virou Patrimônio) */}
-      <div className={`${theme.card} p-6 rounded-2xl border transition-all bg-gradient-to-br from-blue-500/5 to-transparent`}>
-        <p className={`text-xs font-bold uppercase tracking-wider mb-1 text-blue-500`}>Aportes (Investido)</p>
-        <h2 className="text-2xl font-mono font-bold text-blue-500">{formatCurrency(summary.invested)}</h2>
+      {/* Card 4: Aportes / Investido */}
+      <div className={`${theme.card} p-4 md:p-6 rounded-2xl border flex flex-col justify-between transition-colors ${theme.cardHover}`}>
+        <div className="flex items-center justify-between mb-2 md:mb-4">
+          <h3 className={`text-xs md:text-sm font-bold flex items-center gap-2 ${theme.textMuted}`}><PiggyBank className="w-4 h-4 text-purple-500" /> Aportes / Investido</h3>
+        </div>
+        <p className={`text-lg md:text-3xl font-bold font-mono tracking-tight text-purple-500`}>{formatCurrency(summary.invested)}</p>
+        <p className={`text-[10px] md:text-xs mt-2 ${theme.textMuted}`}>Patrimônio alocado</p>
       </div>
+
     </div>
   );
 }

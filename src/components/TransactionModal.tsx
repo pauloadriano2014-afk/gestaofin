@@ -1,8 +1,10 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { X, Sparkles, Loader2, Mic, MicOff, Calendar, CheckCircle2, CreditCard, User, Building2, Trash2 } from 'lucide-react'
+import { X, Sparkles, Loader2, Mic, MicOff, Calendar, CheckCircle2, CreditCard, User, Building2, Trash2, Wallet } from 'lucide-react'
 import { createTransaction, updateTransaction, deleteTransaction } from '@/app/actions'
+import { getUserCreditCards } from '@/app/creditCardActions'
+import { getInvoiceCycleForDate } from '@/utils/creditCard'
 
 export function TransactionModal({ 
   categories, 
@@ -38,6 +40,16 @@ export function TransactionModal({
 
   const [loading, setLoading] = useState(false)
   const [isListening, setIsListening] = useState(false)
+
+  // --- NOVO: cartão de crédito vinculado à compra ---
+  const [creditCardId, setCreditCardId] = useState<string>(transaction?.creditCardId || '')
+  const [userCreditCards, setUserCreditCards] = useState<any[]>([])
+
+  useEffect(() => {
+    getUserCreditCards().then(setUserCreditCards).catch(() => setUserCreditCards([]))
+  }, [])
+
+  const selectedCard = userCreditCards.find((c) => c.id === creditCardId)
 
   // --- LÓGICA DE IA (AGORA ESCUTANDO DATE E ENTITYTYPE) ---
   const handleAIProcess = async (text: string) => {
@@ -162,16 +174,17 @@ export function TransactionModal({
     }
 
     setLoading(true);
-    const payload = { 
-      description, 
-      amount, 
-      categoryId, 
+    const payload = {
+      description,
+      amount,
+      categoryId,
       type,
-      date, 
-      isFixed,
+      date,
+      isFixed: creditCardId ? false : isFixed,
       isPaid,
       installments: Number(installments),
-      entityType 
+      entityType,
+      creditCardId: type === 'expense' ? (creditCardId || null) : null,
     };
 
     if (transaction?.id) {
@@ -312,11 +325,39 @@ export function TransactionModal({
 
             {type === 'expense' && (
               <div className="bg-zinc-950/50 rounded-xl p-4 border border-zinc-800 space-y-4">
-                <div 
-                  onClick={() => { 
-                    setIsFixed(!isFixed); 
+
+                {/* NOVO: Como foi pago (dinheiro/débito/pix ou cartão de crédito) */}
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1 block flex items-center gap-1">
+                    <Wallet className="w-3 h-3" /> Como foi pago?
+                  </label>
+                  <select
+                    className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-white outline-none focus:border-blue-600 transition-all appearance-none"
+                    value={creditCardId}
+                    onChange={(e) => setCreditCardId(e.target.value)}
+                  >
+                    <option value="">Dinheiro / Débito / Pix</option>
+                    {userCreditCards.map((card: any) => (
+                      <option key={card.id} value={card.id}>Cartão: {card.name}</option>
+                    ))}
+                  </select>
+                  {selectedCard && date && (
+                    <p className="text-[10px] text-blue-400 pt-1">
+                      {(() => {
+                        const cycle = getInvoiceCycleForDate(date, selectedCard.closingDay, selectedCard.dueDay)
+                        const fmt = (s: string) => s.split('-').reverse().join('/')
+                        return `Entra na fatura que fecha em ${fmt(cycle.closingDate)} e vence em ${fmt(cycle.dueDate)}.`
+                      })()}
+                    </p>
+                  )}
+                </div>
+
+                {!creditCardId && (
+                <div
+                  onClick={() => {
+                    setIsFixed(!isFixed);
                     if (!isFixed) setInstallments(1);
-                  }} 
+                  }}
                   className="flex items-center justify-between cursor-pointer group"
                 >
                   <div className="flex items-center gap-2">
@@ -327,8 +368,10 @@ export function TransactionModal({
                   </div>
                   <span className="text-[10px] text-zinc-500 uppercase tracking-wider">(Aluguel, Luz...)</span>
                 </div>
+                )}
 
-                <div 
+                {!creditCardId && (
+                <div
                   onClick={() => setIsPaid(!isPaid)}
                   className="flex items-center gap-2 cursor-pointer group"
                 >
@@ -339,6 +382,13 @@ export function TransactionModal({
                     Status: <span className={isPaid ? "text-green-500" : "text-orange-500"}>{isPaid ? "Pago" : "Pendente"}</span>
                   </span>
                 </div>
+                )}
+
+                {creditCardId && (
+                  <p className="text-xs text-zinc-500 bg-zinc-900 rounded-lg p-2">
+                    Compras no cartão são baixadas quando você pagar a fatura inteira (tela de Cartões), não uma por uma.
+                  </p>
+                )}
 
                 {!isFixed && !transaction && (
                     <div className="pt-2 border-t border-zinc-800 animate-in slide-in-from-top-2">
@@ -373,4 +423,4 @@ export function TransactionModal({
       </div>
     </div>
   )
-}
+}

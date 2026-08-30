@@ -114,7 +114,10 @@ export function ReportModal({ onClose, userPlan, onRequestPremium }: { onClose: 
                     <div className="bg-zinc-950 p-4 rounded-xl border border-zinc-800">
                         <p className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider">Gastos</p>
                         <p className="text-lg sm:text-xl font-mono font-bold text-zinc-200 mt-1 break-words">
-                             {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(reportResult.avgExpense)}
+                             {/* 🔥 CORRIGIDO: mostrava avgExpense (média mensal) rotulado como
+                                 "Gastos" totais do período — os dois só batiam quando o período
+                                 era exatamente 1 mês. Agora mostra o total gasto de fato. */}
+                             {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(reportResult.expense)}
                         </p>
                     </div>
                     <div className="bg-zinc-950 p-4 rounded-xl border border-zinc-800">

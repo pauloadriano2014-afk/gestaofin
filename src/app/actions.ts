@@ -1,10 +1,15 @@
 'use server'
 
 import { db } from "@/db";
-import { categories, transactions, userSettings } from "@/db/schema";
-import { desc, and, sql, eq, lte, gte } from "drizzle-orm";
+import { categories, transactions, userSettings, categoryRules } from "@/db/schema";
+import { desc, asc, and, sql, eq, lte, gte } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { auth } from "@clerk/nextjs/server";
+import { isPlanPro } from "@/utils/plan";
+import { addMonthsClamped, splitAmountIntoInstallments } from "@/utils/dates";
+import { findMatchingRuleCategoryId } from "@/utils/categoryRules";
+import { learnCategoryRule } from "./categoryRuleActions";
+import { todayDateStr, addDays } from "@/utils/dates";
 
 // --- LISTA VIP (BLOQUEIO SAAS ATIVADO) ---
 const VIP_USERS = [
@@ -14,7 +19,8 @@ const VIP_USERS = [
 ];
 
 // --- FUNÇÃO AUXILIAR ASSÍNCRONA ---
-async function getUser() {
+// Exportada para ser reaproveitada pelos outros arquivos de actions (cartões, regras de categoria).
+export async function getUser() {
   const session = await auth();
   if (!session || !session.userId) {
     return null;
@@ -42,7 +48,10 @@ export async function getDashboardData(startMonth: number, startYear: number, en
     const isVip = VIP_USERS.includes(userId);
     const userConfig = await db.select().from(userSettings).where(eq(userSettings.userId, userId));
     const rawPlan = userConfig[0]?.planType || (userConfig[0] as any)?.plan_type || 'free';
-    const isDbPro = String(rawPlan).toLowerCase() === 'pro';
+    // 🔥 CORRIGIDO: o webhook da Stripe salva 'monthly'/'quarterly'/'annual' etc,
+    // nunca o texto "pro". Comparar com === 'pro' fazia todo assinante pagante
+    // continuar aparecendo como "free". Usamos o helper isPlanPro (planType + status).
+    const isDbPro = isPlanPro(rawPlan, userConfig[0]?.status);
     const planType = (isVip || isDbPro) ? 'pro' : 'free';
     // --------------------------------------
 
@@ -156,7 +165,7 @@ export async function generateMonthlyReport(month: number, year: number) {
     if (!isPro) {
         const userConfig = await db.select().from(userSettings).where(eq(userSettings.userId, userId));
         const dbPlanRaw = userConfig[0]?.planType || (userConfig[0] as any)?.plan_type || 'free';
-        isPro = String(dbPlanRaw).toLowerCase() === 'pro';
+        isPro = isPlanPro(dbPlanRaw, userConfig[0]?.status);
     }
 
     if (!isPro) {
@@ -195,8 +204,18 @@ export async function generateMonthlyReport(month: number, year: number) {
     });
 
     const data = await response.json();
+
+    // 🔥 CORRIGIDO: antes lia data.choices[0] direto; se a OpenAI respondesse
+    // com erro (chave inválida, sem créditos, etc.) isso quebrava com um
+    // TypeError genérico, escondido pelo catch, sem log nenhum do motivo real.
+    if (!response.ok || data.error) {
+      console.error("Erro da OpenAI em generateMonthlyReport:", data.error || response.statusText);
+      return { success: false, message: "O serviço de análise executiva está indisponível momentaneamente." };
+    }
+
     return { success: true, message: data.choices[0].message.content };
   } catch (error: any) {
+    console.error("Erro em generateMonthlyReport:", error.message);
     return { success: false, message: "O serviço de análise executiva está indisponível momentaneamente." };
   }
 }
@@ -208,7 +227,11 @@ export async function createTransaction(data: any) {
     if (!userId) return { success: false, error: "Faça login para salvar." };
 
     const installments = data.installments ? Number(data.installments) : 1;
-    const amountPerInstallment = (Number(data.amount) / installments).toFixed(2);
+    // 🔥 CORRIGIDO: antes cada parcela usava o mesmo valor arredondado
+    // (ex: R$100 / 3 = 33.33 x3 = R$99,99, sumindo com 1 centavo). Agora
+    // distribuímos os centavos restantes nas primeiras parcelas, então a
+    // soma das parcelas sempre bate exatamente com o valor total lançado.
+    const installmentAmounts = splitAmountIntoInstallments(Number(data.amount), installments);
 
     let baseDate: string = data.date;
     if (!baseDate) {
@@ -221,27 +244,36 @@ export async function createTransaction(data: any) {
     }
 
     for (let i = 0; i < installments; i++) {
-      const [y, m, d] = baseDate.split('-').map(Number);
-      let nextMonth = m + i;
-      let nextYear = y;
-      
-      while (nextMonth > 12) { nextMonth -= 12; nextYear += 1; }
-
-      const finalDateStr = `${nextYear}-${String(nextMonth).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      // 🔥 CORRIGIDO: somar meses direto no dia (ex: dia 31 + 1 mês) podia
+      // gerar datas de calendário inválidas como "2026-02-31". Agora a data
+      // é "grudada" no último dia válido do mês de destino (ex: 28/29 de fev).
+      const finalDateStr = addMonthsClamped(baseDate, i);
       const description = installments > 1 ? `${data.description} (${i + 1}/${installments})` : data.description;
+
+      // 🔥 NOVO: compra feita num cartão de crédito nunca nasce "paga" — quem
+      // dá baixa é a fatura inteira (payCreditCardInvoice), não a compra avulsa.
+      const isCardPurchase = !!data.creditCardId;
+      const isPaidValue = isCardPurchase ? false : ((installments > 1 && i > 0) ? false : (data.isPaid ?? true));
 
       await db.insert(transactions).values({
         userId: userId,
         description: description,
-        amount: Math.abs(Number(installments > 1 ? amountPerInstallment : data.amount)).toString(),
+        amount: installmentAmounts[i],
         categoryId: data.categoryId || null,
         type: data.type,
-        date: finalDateStr, 
+        date: finalDateStr,
         isFixed: data.isFixed || false,
-        isPaid: (installments > 1 && i > 0) ? false : (data.isPaid ?? true),
+        isPaid: isPaidValue,
         entityType: data.entityType || "pf",
+        creditCardId: data.creditCardId || null,
         aiTags: [],
       });
+    }
+
+    // 🔥 NOVO: aprende com a categoria escolhida, pra próxima importação/lançamento
+    // com descrição parecida já vir sugerido sozinho.
+    if (data.categoryId) {
+      await learnCategoryRule(userId, data.description, data.categoryId);
     }
 
     revalidatePath("/");
@@ -254,10 +286,46 @@ export async function toggleTransactionStatus(id: string, currentStatus: boolean
   try {
     const userId = await getUser();
     if (!userId) return { success: false };
-    await db.update(transactions).set({ isPaid: !currentStatus }).where(and(eq(transactions.id, id), eq(transactions.userId, userId)));
+    const newStatus = !currentStatus;
+    // 🔥 NOVO: antes só existia o sim/não (isPaid). Agora também guardamos a
+    // data/hora exata em que a baixa foi dada (paidAt), e limpamos se desmarcar.
+    await db.update(transactions).set({
+      isPaid: newStatus,
+      paidAt: newStatus ? todayDateStr() : null,
+    }).where(and(eq(transactions.id, id), eq(transactions.userId, userId)));
     revalidatePath("/");
     return { success: true };
   } catch (error) { return { success: false }; }
+}
+
+// --- CONTAS FIXAS EM ABERTO (painel independente do período/mês selecionado) ---
+// Antes, "vencido"/"vence hoje" só aparecia se a conta estivesse dentro do
+// filtro de mês selecionado no topo do dashboard — então, olhando outro mês,
+// uma conta atrasada passava despercebida. Isso busca TODAS as contas fixas
+// não pagas (vencidas, de qualquer época, + as que vencem nos próximos 15
+// dias), sem depender do período escolhido na tela.
+export async function getOpenFixedBills() {
+  try {
+    const userId = await getUser();
+    if (!userId) return [];
+
+    const windowEnd = addDays(todayDateStr(), 15);
+
+    const bills = await db.select().from(transactions).where(
+      and(
+        eq(transactions.userId, userId),
+        eq(transactions.isFixed, true),
+        eq(transactions.type, 'expense'),
+        eq(transactions.isPaid, false),
+        lte(transactions.date, windowEnd)
+      )
+    ).orderBy(asc(transactions.date));
+
+    return bills;
+  } catch (error) {
+    console.error("Erro ao buscar contas em aberto:", error);
+    return [];
+  }
 }
 
 // --- VIRAR O MÊS ---
@@ -274,12 +342,10 @@ export async function copyFixedExpenses(currentMonth: number, currentYear: numbe
 
     let count = 0;
     for (const expense of fixedExpenses) {
-      const [y, m, d] = expense.date.split('-').map(Number);
-      let nextMonth = m + 1;
-      let nextYear = y;
-      if (nextMonth > 12) { nextMonth = 1; nextYear = y + 1; }
-
-      const nextDateStr = `${nextYear}-${String(nextMonth).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      // 🔥 CORRIGIDO: mesmo problema do parcelamento — uma conta fixa no dia 31
+      // (ex: aluguel) virava uma data inválida como "2026-02-31" ao copiar
+      // para fevereiro. Agora gruda no último dia válido do mês seguinte.
+      const nextDateStr = addMonthsClamped(expense.date, 1);
       const existing = await db.select().from(transactions).where(and(eq(transactions.userId, userId), eq(transactions.description, expense.description), eq(transactions.date, nextDateStr), eq(transactions.amount, expense.amount)));
 
       if (existing.length === 0) {
@@ -323,7 +389,13 @@ export async function updateTransaction(id: string, data: any) {
     if (!userId) return { success: false };
     await db.update(transactions).set({
         description: data.description, amount: Math.abs(Number(data.amount)).toString(), date: data.date, categoryId: data.categoryId, type: data.type, isFixed: data.isFixed, entityType: data.entityType,
+        creditCardId: data.creditCardId || null,
       }).where(and(eq(transactions.id, id), eq(transactions.userId, userId)));
+
+    if (data.categoryId) {
+      await learnCategoryRule(userId, data.description, data.categoryId);
+    }
+
     revalidatePath("/");
     return { success: true };
   } catch (error) { return { success: false }; }
@@ -354,11 +426,24 @@ export async function getReportData(startMonth: string, endMonth: string, filter
   try {
     const userId = await getUser();
     if (!userId) return { success: false, message: "Login necessário." };
-    const startDate = new Date(`${startMonth}-01T00:00:00`);
-    const [endY, endM] = endMonth.split('-').map(Number);
-    const endDate = new Date(endY, endM, 0, 23, 59, 59);
 
-    const filters = [ eq(transactions.userId, userId), sql`${transactions.date} >= ${startDate.toISOString().split('T')[0]}`, sql`${transactions.date} <= ${endDate.toISOString().split('T')[0]}` ];
+    // 🔥 CORRIGIDO: as datas eram montadas com `new Date(...).toISOString()`,
+    // que depende do fuso horário do servidor. Rodando em America/Sao_Paulo
+    // (UTC-3), "23:59:59 do último dia" virava UTC do dia SEGUINTE, então o
+    // relatório incluía por engano transações do primeiro dia do mês seguinte.
+    // Agora montamos as strings de data diretamente, igual ao getDashboardData.
+    const [startY, startM] = startMonth.split('-').map(Number);
+    const [endY, endM] = endMonth.split('-').map(Number);
+
+    const startDateStr = `${startY}-${String(startM).padStart(2, '0')}-01`;
+    const lastDayOfEndMonth = new Date(endY, endM, 0).getDate();
+    const endDateStr = `${endY}-${String(endM).padStart(2, '0')}-${String(lastDayOfEndMonth).padStart(2, '0')}`;
+
+    const filters = [
+      eq(transactions.userId, userId),
+      gte(transactions.date, startDateStr),
+      lte(transactions.date, endDateStr),
+    ];
     if (filterType !== 'all') { filters.push(eq(transactions.entityType, filterType as 'pf' | 'pj')); }
 
     const periodTransactions = await db.select().from(transactions).where(and(...filters)).orderBy(desc(transactions.date));
@@ -366,9 +451,9 @@ export async function getReportData(startMonth: string, endMonth: string, filter
     const expense = periodTransactions.filter(t => t.type === 'expense').reduce((acc, t) => acc + Math.abs(Number(t.amount)), 0);
     const balance = income - expense;
 
-    const diffTime = Math.abs(endDate.getTime() - startDate.getTime());
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
-    const monthsCount = Math.max(1, Math.round(diffDays / 30));
+    // Nº de meses contado pelo calendário (antes era estimado por dias/30,
+    // impreciso em meses com 28, 29 ou 31 dias).
+    const monthsCount = Math.max(1, (endY - startY) * 12 + (endM - startM) + 1);
 
     return { success: true, data: { income, expense, balance, monthsCount, avgIncome: income / monthsCount, avgExpense: expense / monthsCount, transactions: periodTransactions } };
   } catch (error) { return { success: false, message: "Erro ao gerar dados." }; }
@@ -384,7 +469,8 @@ export async function generateRangeReport(startMonth: string, endMonth: string, 
     
     if (!isPro) {
         const userConfig = await db.select().from(userSettings).where(eq(userSettings.userId, userId));
-        isPro = String(userConfig[0]?.planType || (userConfig[0] as any)?.plan_type || 'free').toLowerCase() === 'pro';
+        const dbPlanRaw = userConfig[0]?.planType || (userConfig[0] as any)?.plan_type || 'free';
+        isPro = isPlanPro(dbPlanRaw, userConfig[0]?.status);
     }
 
     if (!isPro) { return { success: true, message: "LOCKED_CONTENT", stats: null, isPro: false }; }
@@ -402,8 +488,17 @@ export async function generateRangeReport(startMonth: string, endMonth: string, 
     });
 
     const data = await response.json();
+
+    if (!response.ok || data.error) {
+      console.error("Erro da OpenAI em generateRangeReport:", data.error || response.statusText);
+      return { success: false, message: "Erro na IA." };
+    }
+
     return { success: true, message: data.choices[0].message.content, stats: result.data, isPro: true };
-  } catch (error: any) { return { success: false, message: "Erro na IA." }; }
+  } catch (error: any) {
+    console.error("Erro em generateRangeReport:", error.message);
+    return { success: false, message: "Erro na IA." };
+  }
 }
 
 // --- 1. IA PROCESSA E DEVOLVE ---
@@ -414,6 +509,10 @@ export async function processCSVWithAI(batch: { date: string, amount: number, de
 
     const userCategories = await db.select().from(categories).where(eq(categories.userId, userId));
     const categoriesList = userCategories.map(c => `{ id: '${c.id}', name: '${c.name}' }`).join(', ');
+
+    // 🔥 NOVO: busca o que o usuário já categorizou/corrigiu antes, pra usar
+    // como fonte mais confiável do que um chute novo da IA.
+    const userRules = await db.select().from(categoryRules).where(eq(categoryRules.userId, userId));
 
     const promptText = `Categorize as seguintes transações. Categorias: ${categoriesList}\nREGRAS: Mantenha date, amount, description originais. Adicione 'type' ('income' p/ positivo, 'expense' p/ negativo) e 'categoryId'. Devolva SÓ o JSON.\nTransações: ${JSON.stringify(batch)}`;
 
@@ -446,10 +545,14 @@ export async function processCSVWithAI(batch: { date: string, amount: number, de
       const amountValue = Math.abs(Number(aiTx.amount !== undefined ? aiTx.amount : originalTx.amount)).toFixed(2);
       const isIncome = Number(aiTx.amount !== undefined ? aiTx.amount : originalTx.amount) >= 0;
 
+      // 🔥 NOVO: se o histórico do usuário já tem uma regra pra uma descrição
+      // parecida, ela vence o chute da IA (mais confiável, veio de uma escolha real sua).
+      const learnedCategoryId = findMatchingRuleCategoryId(originalTx.description, userRules);
+
       processedBatch.push({
         description: String(aiTx.description || originalTx.description || "Importado").substring(0, 100),
-        amount: amountValue, 
-        categoryId: aiTx.categoryId || null, 
+        amount: amountValue,
+        categoryId: learnedCategoryId || aiTx.categoryId || null,
         type: aiTx.type || (isIncome ? 'income' : 'expense'),
         date: formattedDate, 
         isFixed: false, 
@@ -482,6 +585,13 @@ export async function saveBulkTransactions(transactionsList: any[]) {
                 entityType: tx.entityType,
                 aiTags: tx.aiTags
             });
+
+            // 🔥 NOVO: essa é a categoria que o usuário efetivamente CONFIRMOU na
+            // tela de revisão (já pode ter corrigido o chute da IA) — o melhor
+            // momento para aprender de verdade.
+            if (tx.categoryId) {
+                await learnCategoryRule(userId, tx.description, tx.categoryId);
+            }
         }
         revalidatePath("/");
         return { success: true };

@@ -8,14 +8,18 @@ import { BudgetModal } from "@/components/BudgetModal";
 import { ImportReviewModal } from "@/components/ImportReviewModal";
 import { UserButton } from "@clerk/nextjs"; 
 import { DashboardCards } from "@/components/DashboardCards";
-import { DashboardCharts } from "@/components/DashboardCharts"; 
-import { calculateDashboardData } from "@/utils/dashboardCalculations"; 
-import { 
-  Plus, ArrowUpRight, ArrowDownRight, 
+import { DashboardCharts } from "@/components/DashboardCharts";
+import { calculateDashboardData } from "@/utils/dashboardCalculations";
+import {
+  Plus, ArrowUpRight, ArrowDownRight,
   Clock, CheckCircle2, Circle, Copy, Loader2,
-  Briefcase, User, Layers, MessageSquare, X, Palette, Pencil, Trash2, AlertCircle, Crown, FileText, Download, Filter, Calendar as CalendarIcon, ToggleLeft, ToggleRight
+  Briefcase, User, Layers, MessageSquare, X, Palette, Pencil, Trash2, AlertCircle, Crown, FileText, Download, Filter, Calendar as CalendarIcon, ToggleLeft, ToggleRight, CreditCard, Tag
 } from "lucide-react";
 import { PremiumModal } from "@/components/PremiumModal";
+import { OpenBillsPanel } from "@/components/OpenBillsPanel";
+import { ForecastPanel } from "@/components/ForecastPanel";
+import { CreditCardsModal } from "@/components/CreditCardsModal";
+import { CategoryRulesModal } from "@/components/CategoryRulesModal";
 
 // --- CONFIGURAÇÃO DE TEMAS ---
 const THEMES = {
@@ -47,6 +51,12 @@ export default function Dashboard() {
   const [reviewTransactions, setReviewTransactions] = useState<any[]>([]);
   const [isSavingBulk, setIsSavingBulk] = useState(false);
 
+  // 🔥 NOVO: cartões de crédito, regras de categorização e um "carimbo" pra
+  // avisar os painéis de previsão/contas em aberto que algo mudou.
+  const [isCreditCardsModalOpen, setIsCreditCardsModalOpen] = useState(false);
+  const [isCategoryRulesModalOpen, setIsCategoryRulesModalOpen] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
+
   // 🔥 NOVOS ESTADOS DE RANGE DE DATA 🔥
   const [startMonth, setStartMonth] = useState<number>(new Date().getMonth() + 1);
   const [startYear, setStartYear] = useState<number>(new Date().getFullYear());
@@ -63,6 +73,7 @@ export default function Dashboard() {
   async function loadData() {
     const result = await getDashboardData(startMonth, startYear, endMonth, endYear, isolatePeriod);
     setRawData(result);
+    setRefreshKey((k) => k + 1); // avisa os painéis de Contas em Aberto / Previsão para atualizar também
   }
 
   useEffect(() => { loadData(); setSelectedDay(null); }, [startMonth, startYear, endMonth, endYear, isolatePeriod]);
@@ -178,6 +189,8 @@ export default function Dashboard() {
                 <div className="flex items-center gap-3 w-full justify-center md:justify-end">
                     {!isPro && (<button onClick={() => setShowPremium(true)} className="bg-gradient-to-r from-yellow-400 to-orange-500 text-black font-bold px-3 py-2 rounded-full text-xs hover:scale-105 transition-all shadow-lg flex items-center gap-2 animate-pulse whitespace-nowrap"><Crown className="w-4 h-4"/> Seja PRO</button>)}
                     {isPro && (<span className="bg-gradient-to-r from-blue-500 to-purple-600 text-white font-bold px-3 py-1 rounded-full text-[10px] uppercase tracking-wider shadow-lg flex items-center gap-1 whitespace-nowrap"><Crown className="w-3 h-3"/> PRO</span>)}
+                    <button onClick={() => setIsCreditCardsModalOpen(true)} className={`p-2 rounded-full border transition-all shrink-0 ${theme.card}`} title="Meus Cartões"><CreditCard className="w-5 h-5" /></button>
+                    <button onClick={() => setIsCategoryRulesModalOpen(true)} className={`p-2 rounded-full border transition-all shrink-0 ${theme.card}`} title="Regras de Categorização"><Tag className="w-5 h-5" /></button>
                     <div className="flex items-center justify-center bg-white/10 rounded-full p-1 shrink-0" title="Minha Conta"><UserButton afterSignOutUrl="/sign-in" /></div>
                     <div className="relative shrink-0">
                         <button onClick={() => setIsThemeMenuOpen(!isThemeMenuOpen)} className={`p-2 rounded-full border transition-all ${isThemeMenuOpen ? theme.navActive : theme.card}`}><Palette className="w-5 h-5" /></button>
@@ -266,6 +279,10 @@ export default function Dashboard() {
             </div>
           )}
         </div>
+
+        {/* 🔥 NOVO: previsão do mês + contas em aberto (independente do período filtrado) */}
+        <ForecastPanel theme={theme} formatCurrency={formatCurrency} refreshKey={refreshKey} />
+        <OpenBillsPanel theme={theme} formatCurrency={formatCurrency} onChanged={loadData} refreshKey={refreshKey} />
 
         {/* COMPONENTES ISOLADOS */}
         <DashboardCards theme={theme} summary={processedData.summary} selectedDay={selectedDay} formatCurrency={formatCurrency} />
@@ -356,7 +373,9 @@ export default function Dashboard() {
       {budgetModalOpen && selectedCategory && (<BudgetModal category={selectedCategory} onClose={() => { setBudgetModalOpen(false); loadData(); }} />)}
       <PremiumModal isOpen={showPremium} onClose={() => setShowPremium(false)} />
       {isReportModalOpen && (<ReportModal onClose={() => setIsReportModalOpen(false)} userPlan={rawData.planType} onRequestPremium={() => setShowPremium(true)} />)}
-      
+      {isCreditCardsModalOpen && (<CreditCardsModal onClose={() => { setIsCreditCardsModalOpen(false); loadData(); }} />)}
+      {isCategoryRulesModalOpen && (<CategoryRulesModal onClose={() => setIsCategoryRulesModalOpen(false)} categories={rawData.allCategories} />)}
+
       {/* 🔥 NOVO MODAL DE REVISÃO DA IA 🔥 */}
       <ImportReviewModal 
         isOpen={isReviewModalOpen}

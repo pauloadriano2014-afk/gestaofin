@@ -39,3 +39,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# binários que não deveriam estar no repositório (ex: Stripe CLI baixado localmente)
+stripe.exe
+*.exe

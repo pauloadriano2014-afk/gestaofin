@@ -52,6 +52,23 @@ CREATE TABLE IF NOT EXISTS category_rules (
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS paid_at DATE;
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS credit_card_id UUID REFERENCES credit_cards(id);
 
+-- 5) Valor da fatura do cartão declarado na mão (por cartão + mês)
+--    Permite digitar direto "a fatura de agosto foi R$1.234,56" sem precisar
+--    lançar compra por compra. Quando existe um valor aqui pra um
+--    cartão+ciclo, ele SUBSTITUI o total calculado a partir das transações
+--    daquele ciclo (nunca soma os dois).
+CREATE TABLE IF NOT EXISTS credit_card_invoice_overrides (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id TEXT NOT NULL,
+  credit_card_id UUID NOT NULL REFERENCES credit_cards(id),
+  cycle_key TEXT NOT NULL,
+  amount NUMERIC(12, 2) NOT NULL,
+  is_paid BOOLEAN DEFAULT false,
+  paid_at DATE,
+  created_at TIMESTAMP DEFAULT now(),
+  updated_at TIMESTAMP DEFAULT now()
+);
+
 -- ============================================================================
 -- Como rodar:
 --   Opção mais simples: "npx drizzle-kit push" (detecta sozinho comparando

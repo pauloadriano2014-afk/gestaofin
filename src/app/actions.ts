@@ -388,7 +388,10 @@ export async function updateTransaction(id: string, data: any) {
     const userId = await getUser();
     if (!userId) return { success: false };
     await db.update(transactions).set({
-        description: data.description, amount: Math.abs(Number(data.amount)).toString(), date: data.date, categoryId: data.categoryId, type: data.type, isFixed: data.isFixed, entityType: data.entityType,
+        // 🔥 CORRIGIDO: categoryId é uma coluna uuid — mandar "" (categoria
+        // vazia, ex: ao editar uma Transferência) quebrava com erro de UUID
+        // inválido. Agora vira null igual já acontecia ao criar um lançamento.
+        description: data.description, amount: Math.abs(Number(data.amount)).toString(), date: data.date, categoryId: data.categoryId || null, type: data.type, isFixed: data.isFixed, entityType: data.entityType,
         creditCardId: data.creditCardId || null,
       }).where(and(eq(transactions.id, id), eq(transactions.userId, userId)));
 
@@ -404,21 +407,107 @@ export async function updateTransaction(id: string, data: any) {
 // --- SINCRONIZAR CATEGORIAS ---
 async function syncEssentialCategories(userId: string) {
   try {
+    // 🔥 NOVO: "Cartão de Crédito" continua na lista de propósito — cobre o
+    // pagamento de fatura importado direto do extrato do banco (ex: "Pagamento
+    // de boleto efetuado - BANCO BRADESCO FINANCIAMENTOS SA"), quando a compra
+    // não foi lançada compra a compra dentro do KORE. "Compras Variadas" saiu
+    // da lista (ver migração de unificação logo abaixo) e "Moradia" entrou.
     const essential = [
       { name: "Viagens", type: "expense" }, { name: "Assinaturas & Apps", type: "expense" }, { name: "Mercado", type: "expense" },
       { name: "Refeição Livre / Lazer", type: "expense" }, { name: "Suplementos", type: "expense" }, { name: "Vestuário / Academia", type: "expense" },
       { name: "Financiamentos", type: "expense" }, { name: "Reembolsos / Empréstimos", type: "expense" }, { name: "Transporte", type: "expense" },
-      { name: "Saúde", type: "expense" }, { name: "Compras Variadas", type: "expense" }, { name: "Despesas Variadas", type: "expense" },
+      { name: "Saúde e Beleza", type: "expense" }, { name: "Estudos", type: "expense" }, { name: "Moradia", type: "expense" }, { name: "Despesas Variadas", type: "expense" },
       { name: "Impostos e Taxas", type: "expense" }, { name: "Cartão de Crédito", type: "expense" }, { name: "Salário", type: "income" },
       { name: "Investimentos", type: "income" }, { name: "Consultoria", type: "income" }
     ];
 
     const existingCategories = await db.select().from(categories).where(eq(categories.userId, userId));
+
+    // 🔥 NOVO: quem já tinha a categoria "Saúde" migra pro nome novo "Saúde e
+    // Beleza" (agora cobre farmácia, cosméticos, corte de cabelo etc também)
+    // — só troca o nome, mantém o id e todo o histórico já lançado nela.
+    const oldSaude = existingCategories.find((c) => c.name.trim().toLowerCase() === "saúde");
+    if (oldSaude) {
+      await db.update(categories).set({ name: "Saúde e Beleza" }).where(eq(categories.id, oldSaude.id));
+      oldSaude.name = "Saúde e Beleza"; // mantém a lista em memória coerente pro loop abaixo, evitando criar duplicata
+    }
+
     for (const cat of essential) {
       const exists = existingCategories.find((c) => c.name.trim().toLowerCase() === cat.name.trim().toLowerCase());
       if (!exists) { await db.insert(categories).values({ userId: userId, name: cat.name, type: cat.type as "income" | "expense" }); }
     }
+
+    // 🔥 NOVO: unifica "Compras Variadas" dentro de "Despesas Variadas" (eram
+    // duas categorias genéricas fazendo a mesma coisa) — move os lançamentos e
+    // regras de categorização já existentes pra "Despesas Variadas" antes de
+    // apagar a duplicada, pra não perder nada do histórico.
+    const afterSync = await db.select().from(categories).where(eq(categories.userId, userId));
+    const comprasVariadas = afterSync.find((c) => c.name.trim().toLowerCase() === "compras variadas");
+    const despesasVariadas = afterSync.find((c) => c.name.trim().toLowerCase() === "despesas variadas");
+    if (comprasVariadas && despesasVariadas) {
+      await db.update(transactions).set({ categoryId: despesasVariadas.id }).where(eq(transactions.categoryId, comprasVariadas.id));
+      await db.update(categoryRules).set({ categoryId: despesasVariadas.id }).where(eq(categoryRules.categoryId, comprasVariadas.id));
+      await db.delete(categories).where(eq(categories.id, comprasVariadas.id));
+    }
   } catch (error) { console.error("Erro ao sincronizar categorias:", error); }
+}
+
+// --- GERENCIAR CATEGORIAS (tela "Minhas Categorias") ---
+export async function getUserCategories() {
+  const userId = await getUser();
+  if (!userId) return [];
+  await syncEssentialCategories(userId);
+  return db.select().from(categories).where(eq(categories.userId, userId));
+}
+
+export async function createCategory(name: string, type: "income" | "expense") {
+  try {
+    const userId = await getUser();
+    if (!userId) return { success: false, message: "Login necessário." };
+    if (!name?.trim()) return { success: false, message: "Dê um nome pra categoria." };
+
+    const existing = await db.select().from(categories).where(eq(categories.userId, userId));
+    if (existing.some((c) => c.name.trim().toLowerCase() === name.trim().toLowerCase())) {
+      return { success: false, message: "Já existe uma categoria com esse nome." };
+    }
+
+    await db.insert(categories).values({ userId, name: name.trim(), type });
+    revalidatePath("/");
+    return { success: true };
+  } catch (error) { return { success: false, message: "Erro ao criar categoria." }; }
+}
+
+export async function renameCategory(id: string, name: string) {
+  try {
+    const userId = await getUser();
+    if (!userId) return { success: false, message: "Login necessário." };
+    if (!name?.trim()) return { success: false, message: "Dê um nome pra categoria." };
+
+    await db.update(categories).set({ name: name.trim() }).where(and(eq(categories.id, id), eq(categories.userId, userId)));
+    revalidatePath("/");
+    return { success: true };
+  } catch (error) { return { success: false, message: "Erro ao renomear categoria." }; }
+}
+
+// Excluir só é permitido se ninguém estiver usando a categoria — senão o
+// lançamento antigo ficaria "órfão" (categoryId apontando pra nada).
+export async function deleteCategory(id: string) {
+  try {
+    const userId = await getUser();
+    if (!userId) return { success: false, message: "Login necessário." };
+
+    const inUse = await db.select().from(transactions).where(and(eq(transactions.userId, userId), eq(transactions.categoryId, id)));
+    if (inUse.length > 0) {
+      return { success: false, message: `Essa categoria tem ${inUse.length} lançamento(s) vinculado(s). Troque a categoria deles antes de excluir.` };
+    }
+
+    // Regras de categorização automática que apontam pra essa categoria não
+    // têm mais serventia sem ela — remove junto.
+    await db.delete(categoryRules).where(and(eq(categoryRules.userId, userId), eq(categoryRules.categoryId, id)));
+    await db.delete(categories).where(and(eq(categories.id, id), eq(categories.userId, userId)));
+    revalidatePath("/");
+    return { success: true };
+  } catch (error) { return { success: false, message: "Erro ao excluir categoria." }; }
 }
 
 // --- RELATÓRIOS AVANÇADOS ---

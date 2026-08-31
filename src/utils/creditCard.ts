@@ -47,3 +47,22 @@ export function getInvoiceCycleForDate(purchaseDateStr: string, closingDay: numb
 
   return { cycleKey: `${closingYear}-${pad(closingMonth)}`, closingDate, dueDate };
 }
+
+// Mesmo cálculo de closingDate/dueDate acima, mas a partir do "cycleKey"
+// (ex: "2026-08") em vez de uma data de compra — usado quando a fatura foi
+// declarada na mão (sem nenhuma transação lançada), então não existe uma
+// data de compra real pra descobrir o ciclo.
+export function getCycleDatesForCycleKey(cycleKey: string, closingDay: number, dueDay: number): { closingDate: string; dueDate: string } {
+  const [closingYear, closingMonth] = cycleKey.split("-").map(Number);
+  const closingDate = dayInMonth(closingYear, closingMonth, closingDay);
+
+  let dueYear = closingYear;
+  let dueMonth = closingMonth;
+  if (dueDay < closingDay) {
+    const next = addMonthsClamped(`${closingYear}-${pad(closingMonth)}-01`, 1);
+    [dueYear, dueMonth] = next.split("-").map(Number);
+  }
+  const dueDate = dayInMonth(dueYear, dueMonth, dueDay);
+
+  return { closingDate, dueDate };
+}

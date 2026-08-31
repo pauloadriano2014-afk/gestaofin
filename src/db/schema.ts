@@ -24,6 +24,24 @@ export const creditCards = pgTable("credit_cards", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// --- NOVA TABELA: VALOR DECLARADO NA MÃO DA FATURA (por cartão + mês) ---
+// Cobre o caso de quem não lança compra por compra no cartão e só quer
+// digitar direto "a fatura de agosto foi R$1.234,56, vence dia 10" — sem
+// isso, o total da fatura só existia calculado a partir de transações
+// lançadas. Quando existe um valor aqui pra um cartão+ciclo, ele SUBSTITUI
+// o total calculado a partir das transações (evita ficar somando os dois).
+export const creditCardInvoiceOverrides = pgTable("credit_card_invoice_overrides", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: text("user_id").notNull(),
+  creditCardId: uuid("credit_card_id").notNull().references(() => creditCards.id),
+  cycleKey: text("cycle_key").notNull(), // "YYYY-MM" do mês em que a fatura fecha, mesmo formato usado no cálculo automático
+  amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
+  isPaid: boolean("is_paid").default(false),
+  paidAt: date("paid_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 // --- NOVA TABELA: REGRAS DE CATEGORIZAÇÃO (aprendizado + manuais) ---
 export const categoryRules = pgTable("category_rules", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -43,7 +61,13 @@ export const transactions = pgTable("transactions", {
   amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
   date: date("date").defaultNow().notNull(),
   categoryId: uuid("category_id").references(() => categories.id),
-  type: text("type", { enum: ["income", "expense"] }).notNull(),
+  // 🔥 NOVO: "transfer" cobre transferência entre suas próprias contas (ex:
+  // Asaas -> Nubank) ou acerto de contas internas (ex: casal que paga tudo
+  // junto). Não é receita nem despesa de verdade — o dinheiro só mudou de
+  // lugar, seu patrimônio não muda — então esse tipo fica de fora dos
+  // cálculos de receita/despesa/saldo (ver getDashboardData e
+  // calculateDashboardData, que só somam 'income'/'expense').
+  type: text("type", { enum: ["income", "expense", "transfer"] }).notNull(),
   aiTags: text("ai_tags").array(),
 
   isFixed: boolean("is_fixed").default(false),

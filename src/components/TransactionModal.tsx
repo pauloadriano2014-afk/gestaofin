@@ -22,7 +22,7 @@ export function TransactionModal({
   const [description, setDescription] = useState(transaction?.description || '')
   const [amount, setAmount] = useState(transaction?.amount ? Math.abs(Number(transaction.amount)).toString() : '')
   const [categoryId, setCategoryId] = useState(transaction?.categoryId || '')
-  const [type, setType] = useState<"income" | "expense">(transaction?.type || 'expense')
+  const [type, setType] = useState<"income" | "expense" | "transfer">(transaction?.type || 'expense')
   
   const [date, setDate] = useState(() => {
     if (transaction?.date) return transaction.date;
@@ -251,7 +251,19 @@ export function TransactionModal({
               >
                 Entrada
               </button>
+              <button
+                onClick={() => { setType('transfer'); setCategoryId(''); setCreditCardId(''); }}
+                className={`flex-1 py-3 text-sm font-bold rounded-lg transition-all duration-300 ${type === 'transfer' ? 'bg-blue-500/10 text-blue-400 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+              >
+                Transferência
+              </button>
             </div>
+
+            {type === 'transfer' && (
+              <div className="bg-blue-500/5 border border-blue-500/20 rounded-xl p-3 text-xs text-blue-300 leading-relaxed">
+                Pra dinheiro que só mudou de lugar: entre suas próprias contas (ex: Asaas → Nubank) ou acerto de contas com quem mora com você. Não conta como gasto nem receita no seu resumo — é só um registro pra você lembrar que o dinheiro mudou de lugar.
+              </div>
+            )}
 
             <div className="space-y-2">
               <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">O que você fez?</label>
@@ -294,11 +306,11 @@ export function TransactionModal({
                 </div>
               </div>
 
-              <div>
+              <div className={type === 'transfer' ? 'col-span-2' : ''}>
                 <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1 block">Valor Total</label>
                 <div className="relative">
                   <span className="absolute left-3 top-3.5 text-zinc-500 text-sm font-bold">R$</span>
-                  <input 
+                  <input
                     type="number"
                     placeholder="0,00"
                     className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 pl-10 text-white outline-none focus:border-blue-600 transition-all font-mono"
@@ -308,19 +320,21 @@ export function TransactionModal({
                 </div>
               </div>
 
+              {type !== 'transfer' && (
               <div>
                 <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1 block">Categoria</label>
-                <select 
+                <select
                   className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-white outline-none focus:border-blue-600 transition-all appearance-none"
                   value={categoryId}
                   onChange={(e) => setCategoryId(e.target.value)}
                 >
                   <option value="">Selecione...</option>
-                  {uniqueCategories.map((cat: any) => (
+                  {[...uniqueCategories].sort((a: any, b: any) => a.name.localeCompare(b.name, 'pt-BR')).map((cat: any) => (
                     <option key={cat.id} value={cat.id}>{cat.name}</option>
                   ))}
                 </select>
               </div>
+              )}
             </div>
 
             {type === 'expense' && (
@@ -423,4 +437,4 @@ export function TransactionModal({
       </div>
     </div>
   )
-}
+}

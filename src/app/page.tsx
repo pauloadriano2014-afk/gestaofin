@@ -11,9 +11,9 @@ import { DashboardCards } from "@/components/DashboardCards";
 import { DashboardCharts } from "@/components/DashboardCharts";
 import { calculateDashboardData } from "@/utils/dashboardCalculations";
 import {
-  Plus, ArrowUpRight, ArrowDownRight,
+  Plus,
   Clock, CheckCircle2, Circle, Copy, Loader2,
-  Briefcase, User, Layers, MessageSquare, X, Palette, Pencil, Trash2, AlertCircle, Crown, FileText, Download, Filter, Calendar as CalendarIcon, ToggleLeft, ToggleRight, CreditCard, Tag, Tags, ArrowLeftRight
+  Briefcase, User, Layers, MessageSquare, X, Palette, Pencil, Trash2, AlertCircle, Crown, FileText, Download, Filter, Calendar as CalendarIcon, ToggleLeft, ToggleRight, CreditCard, Tag, Tags, Repeat
 } from "lucide-react";
 import { PremiumModal } from "@/components/PremiumModal";
 import { OpenBillsPanel } from "@/components/OpenBillsPanel";
@@ -21,6 +21,7 @@ import { ForecastPanel } from "@/components/ForecastPanel";
 import { CreditCardsModal } from "@/components/CreditCardsModal";
 import { CategoryRulesModal } from "@/components/CategoryRulesModal";
 import { CategoriesModal } from "@/components/CategoriesModal";
+import { FixedBillsModal } from "@/components/FixedBillsModal";
 
 // --- CONFIGURAÇÃO DE TEMAS ---
 const THEMES = {
@@ -118,6 +119,7 @@ export default function Dashboard() {
   const [isCreditCardsModalOpen, setIsCreditCardsModalOpen] = useState(false);
   const [isCategoryRulesModalOpen, setIsCategoryRulesModalOpen] = useState(false);
   const [isCategoriesModalOpen, setIsCategoriesModalOpen] = useState(false);
+  const [isFixedBillsModalOpen, setIsFixedBillsModalOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
 
   // 🔥 NOVOS ESTADOS DE RANGE DE DATA 🔥
@@ -278,7 +280,6 @@ export default function Dashboard() {
   const isPro = rawData.planType !== 'free';
 
   const displayedFixedExpenses = processedData.fixedExpenses.filter((tx: any) => filterCategory === 'all' || tx.categoryId === filterCategory);
-  const displayedVariableTransactions = processedData.variableTransactions.filter((tx: any) => filterCategory === 'all' || tx.categoryId === filterCategory);
   // 🔥 NOVO: categorias em ordem alfabética em todo canto que elas aparecem como lista/seleção.
   const sortedCategories = [...rawData.allCategories].sort((a: any, b: any) => a.name.localeCompare(b.name, 'pt-BR'));
 
@@ -299,6 +300,7 @@ export default function Dashboard() {
                     <button onClick={() => setIsCreditCardsModalOpen(true)} className={`p-2 rounded-full border transition-all shrink-0 ${theme.card}`} title="Meus Cartões"><CreditCard className="w-5 h-5" /></button>
                     <button onClick={() => setIsCategoryRulesModalOpen(true)} className={`p-2 rounded-full border transition-all shrink-0 ${theme.card}`} title="Regras de Categorização"><Tag className="w-5 h-5" /></button>
                     <button onClick={() => setIsCategoriesModalOpen(true)} className={`p-2 rounded-full border transition-all shrink-0 ${theme.card}`} title="Minhas Categorias"><Tags className="w-5 h-5" /></button>
+                    <button onClick={() => setIsFixedBillsModalOpen(true)} className={`p-2 rounded-full border transition-all shrink-0 ${theme.card}`} title="Minhas Contas Fixas"><Repeat className="w-5 h-5" /></button>
                     <div className="flex items-center justify-center bg-white/10 rounded-full p-1 shrink-0" title="Minha Conta"><UserButton afterSignOutUrl="/sign-in" /></div>
                     <div className="relative shrink-0">
                         <button onClick={() => setIsThemeMenuOpen(!isThemeMenuOpen)} className={`p-2 rounded-full border transition-all ${isThemeMenuOpen ? theme.navActive : theme.card}`}><Palette className="w-5 h-5" /></button>
@@ -413,7 +415,7 @@ export default function Dashboard() {
         </div>
 
         {/* 🔥 NOVO: previsão do mês + contas em aberto (independente do período filtrado) */}
-        <ForecastPanel theme={theme} formatCurrency={formatCurrency} refreshKey={refreshKey} />
+        <ForecastPanel theme={theme} formatCurrency={formatCurrency} refreshKey={refreshKey} viewMode={viewMode} />
         <OpenBillsPanel theme={theme} formatCurrency={formatCurrency} onChanged={loadData} refreshKey={refreshKey} />
 
         {/* COMPONENTES ISOLADOS */}
@@ -454,9 +456,11 @@ export default function Dashboard() {
             </div>
         </div>
 
-        {/* LISTAS COM EDIÇÃO E EXCLUSÃO */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pb-8">
-          <div className={`${theme.card} border rounded-2xl overflow-hidden flex flex-col`}>
+        {/* LISTA DE CUSTOS FIXOS — Fluxo Variável foi removido daqui: os cards
+            clicáveis de Receita/Despesa acima já cobrem o mesmo detalhamento,
+            agora organizado por categoria. */}
+        <div className="pb-8">
+          <div className={`${theme.card} border rounded-2xl overflow-hidden flex flex-col max-w-2xl`}>
             <div className={`p-4 border-b flex justify-between items-center ${currentTheme === 'dark' ? 'bg-zinc-950/30 border-zinc-800' : 'bg-gray-50/50 border-gray-100'}`}>
               <h3 className={`font-bold flex items-center gap-2 ${theme.text}`}><Clock className="w-4 h-4 text-orange-500" /> Custos Fixos {filterCategory !== 'all' && <span className="text-[10px] bg-orange-100 text-orange-600 px-2 py-0.5 rounded-full ml-2">Filtrado</span>}</h3>
               {processedData.fixedExpenses.length > 0 && (<button onClick={handleCopyMonth} disabled={copying} className={`text-xs flex items-center gap-1 px-3 py-1.5 rounded-lg transition-all border ${theme.buttonSecondary}`}>{copying ? <Loader2 className="w-3 h-3 animate-spin" /> : <Copy className="w-3 h-3" />} Virar Mês</button>)}
@@ -467,6 +471,11 @@ export default function Dashboard() {
                 const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
                 const isLate = !tx.isPaid && tx.date < todayStr;
                 const isToday = !tx.isPaid && tx.date === todayStr;
+                // 🔥 NOVO: quando a conta tem um valor original registrado (vinda de
+                // um molde de "Minhas Contas Fixas" ou digitado na hora), mostra a
+                // diferença pro valor pago como juro (pagou mais) ou desconto (pagou menos).
+                const hasOriginal = tx.originalAmount !== null && tx.originalAmount !== undefined;
+                const diff = hasOriginal ? Number(tx.amount) - Number(tx.originalAmount) : 0;
                 return (
                   <div key={tx.id} className={`flex justify-between items-center p-3 rounded-xl border transition-colors ${currentTheme === 'dark' ? 'bg-zinc-950 border-zinc-800 hover:border-zinc-700' : 'bg-white border-gray-100 hover:border-blue-200 shadow-sm'}`}>
                     <div className="flex items-center gap-3">
@@ -474,6 +483,11 @@ export default function Dashboard() {
                       <div>
                         <p className={`font-semibold text-sm ${tx.isPaid ? 'text-zinc-500 line-through' : theme.text}`}>{tx.description}</p>
                         <p className={`text-[10px] font-bold uppercase flex items-center gap-1 ${theme.textMuted}`}>{tx.entityType === 'pj' ? <Briefcase className="w-3 h-3 text-blue-500"/> : <User className="w-3 h-3 opacity-50"/>}{isLate ? (<span className="flex items-center gap-1 text-red-500 animate-pulse"><AlertCircle className="w-3 h-3"/> VENCIDO (Dia {tx.date.split('-')[2]})</span>) : isToday ? (<span className="flex items-center gap-1 text-amber-500 font-bold"><Clock className="w-3 h-3"/> VENCE HOJE</span>) : (<span>Dia {tx.date.split('-')[2]}</span>)}</p>
+                        {hasOriginal && Math.abs(diff) > 0.009 && (
+                          <p className={`text-[9px] font-bold pt-0.5 ${diff > 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+                            Original: {formatCurrency(Number(tx.originalAmount))} • {diff > 0 ? 'Juros' : 'Desconto'} de {formatCurrency(Math.abs(diff))}
+                          </p>
+                        )}
                       </div>
                     </div>
                     <div className="flex items-center gap-4">
@@ -484,33 +498,6 @@ export default function Dashboard() {
                 )
               })}
               {displayedFixedExpenses.length === 0 && ( <p className={`text-sm text-center py-8 ${theme.textMuted}`}>Nenhuma conta encontrada.</p> )}
-            </div>
-          </div>
-
-          <div className={`${theme.card} border rounded-2xl overflow-hidden flex flex-col`}>
-            <div className={`p-4 border-b ${currentTheme === 'dark' ? 'bg-zinc-950/30 border-zinc-800' : 'bg-gray-50/50 border-gray-100'}`}>
-                <h3 className={`font-bold flex items-center gap-2 ${theme.text}`}>
-                    <ArrowDownRight className="w-4 h-4 text-blue-500" /> Fluxo Variável
-                    {filterCategory !== 'all' && <span className="text-[10px] bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full ml-2">Filtrado</span>}
-                </h3>
-            </div>
-            <div className={`divide-y ${currentTheme === 'dark' ? 'divide-zinc-800' : 'divide-gray-100'}`}>
-              {displayedVariableTransactions.slice(0, 15).map((tx: any) => (
-                <div key={tx.id} className={`p-3 flex justify-between items-center transition-colors ${theme.cardHover}`}>
-                  <div className="flex items-center gap-3">
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${tx.type === 'income' ? 'bg-emerald-500/10 text-emerald-600' : tx.type === 'transfer' ? 'bg-blue-500/10 text-blue-400' : 'bg-red-500/10 text-red-500'}`}>{tx.type === 'income' ? <ArrowDownRight className="w-4 h-4" /> : tx.type === 'transfer' ? <ArrowLeftRight className="w-4 h-4" /> : <ArrowUpRight className="w-4 h-4" />}</div>
-                    <div>
-                      <p className={`text-sm font-medium line-clamp-1 ${theme.text}`}>{tx.description}</p>
-                      <p className={`text-[10px] font-bold uppercase flex items-center gap-1 ${theme.textMuted}`}>{tx.entityType === 'pj' ? <Briefcase className="w-3 h-3 text-blue-500"/> : <User className="w-3 h-3 opacity-50"/>}{tx.date.split('-').reverse().join('/')} • {tx.type === 'transfer' ? 'Transferência interna' : (rawData.allCategories.find((c: any) => c.id === tx.categoryId)?.name || 'Geral')}</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-4">
-                    <span className={`font-mono text-sm font-bold whitespace-nowrap ${tx.type === 'income' ? 'text-emerald-500' : tx.type === 'transfer' ? 'text-blue-400' : theme.text}`}>{tx.type === 'expense' && '- '}{formatCurrency(Number(tx.amount))}</span >
-                    <div className="flex flex-col gap-1"><button onClick={() => handleEdit(tx)} className="p-1.5 hover:bg-blue-500/10 text-blue-500 rounded transition-colors"><Pencil className="w-3.5 h-3.5"/></button><button onClick={() => handleDelete(tx.id)} className="p-1.5 hover:bg-red-500/10 text-red-500 rounded transition-colors"><Trash2 className="w-3.5 h-3.5"/></button></div>
-                  </div>
-                </div>
-              ))}
-                {displayedVariableTransactions.length === 0 && ( <p className={`text-sm text-center py-8 ${theme.textMuted}`}>Nenhum lançamento encontrado.</p> )}
             </div>
           </div>
         </div>
@@ -524,6 +511,7 @@ export default function Dashboard() {
       {isCreditCardsModalOpen && (<CreditCardsModal onClose={() => { setIsCreditCardsModalOpen(false); loadData(); }} />)}
       {isCategoryRulesModalOpen && (<CategoryRulesModal onClose={() => setIsCategoryRulesModalOpen(false)} categories={rawData.allCategories} />)}
       {isCategoriesModalOpen && (<CategoriesModal onClose={() => { setIsCategoriesModalOpen(false); loadData(); }} />)}
+      {isFixedBillsModalOpen && (<FixedBillsModal categories={rawData.allCategories} onClose={() => { setIsFixedBillsModalOpen(false); loadData(); }} />)}
 
       {/* 🔥 NOVO MODAL DE REVISÃO DA IA 🔥 */}
       <ImportReviewModal 

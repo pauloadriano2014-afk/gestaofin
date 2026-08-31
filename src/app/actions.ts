@@ -1,7 +1,7 @@
 'use server'
 
 import { db } from "@/db";
-import { categories, transactions, userSettings, categoryRules } from "@/db/schema";
+import { categories, transactions, userSettings, categoryRules, fixedBills } from "@/db/schema";
 import { desc, asc, and, sql, eq, lte, gte } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { auth } from "@clerk/nextjs/server";
@@ -304,6 +304,11 @@ export async function createTransaction(data: any) {
         isPaid: isPaidValue,
         entityType: data.entityType || "pf",
         creditCardId: data.creditCardId || null,
+        // 🔥 NOVO: vínculo com o molde de conta fixa + valor original esperado
+        // (pra poder comparar com o valor efetivamente pago e saber se teve
+        // juro ou desconto).
+        fixedBillId: data.fixedBillId || null,
+        originalAmount: data.originalAmount ? Math.abs(Number(data.originalAmount)).toString() : null,
         aiTags: [],
       });
     }
@@ -367,19 +372,33 @@ export async function getOpenFixedBills() {
 }
 
 // --- VIRAR O MÊS ---
+// 🔥 ATUALIZADO: agora tem duas fontes de contas fixas. As antigas (lançadas
+// direto marcando "fixa", sem molde cadastrado) continuam copiando do jeito
+// que sempre funcionou, pra não quebrar nada que já existia. As novas, vindas
+// de um molde em "Minhas Contas Fixas", geram a cobrança do mês seguinte
+// direto a partir do molde (nome, categoria, dia de vencimento e valor
+// original), o que permite ter um valor "de referência" fixo mesmo que o
+// valor pago varie de mês a mês (juro/desconto).
 export async function copyFixedExpenses(currentMonth: number, currentYear: number) {
   try {
     const userId = await getUser();
     if (!userId) return { success: false, message: "Login necessário." };
 
-    const fixedExpenses = await db.select().from(transactions).where(
-        and(eq(transactions.userId, userId), eq(transactions.isFixed, true), eq(transactions.type, 'expense'), sql`EXTRACT(MONTH FROM ${transactions.date}) = ${currentMonth}`, sql`EXTRACT(YEAR FROM ${transactions.date}) = ${currentYear}`)
-      );
-
-    if (fixedExpenses.length === 0) return { success: false, message: "Nenhuma conta fixa." };
-
     let count = 0;
-    for (const expense of fixedExpenses) {
+
+    // PARTE 1 (legado): contas fixas avulsas, sem molde vinculado.
+    const legacyFixedExpenses = await db.select().from(transactions).where(
+      and(
+        eq(transactions.userId, userId),
+        eq(transactions.isFixed, true),
+        eq(transactions.type, 'expense'),
+        sql`${transactions.fixedBillId} IS NULL`,
+        sql`EXTRACT(MONTH FROM ${transactions.date}) = ${currentMonth}`,
+        sql`EXTRACT(YEAR FROM ${transactions.date}) = ${currentYear}`
+      )
+    );
+
+    for (const expense of legacyFixedExpenses) {
       // 🔥 CORRIGIDO: mesmo problema do parcelamento — uma conta fixa no dia 31
       // (ex: aluguel) virava uma data inválida como "2026-02-31" ao copiar
       // para fevereiro. Agora gruda no último dia válido do mês seguinte.
@@ -388,14 +407,134 @@ export async function copyFixedExpenses(currentMonth: number, currentYear: numbe
 
       if (existing.length === 0) {
         await db.insert(transactions).values({
-          userId: userId, description: expense.description, amount: Math.abs(Number(expense.amount)).toString(), categoryId: expense.categoryId, type: expense.type, date: nextDateStr, isFixed: true, isPaid: false, entityType: expense.entityType, aiTags: expense.aiTags
+          userId: userId, description: expense.description, amount: Math.abs(Number(expense.amount)).toString(),
+          originalAmount: expense.originalAmount ?? expense.amount,
+          categoryId: expense.categoryId, type: expense.type, date: nextDateStr, isFixed: true, isPaid: false,
+          entityType: expense.entityType, aiTags: expense.aiTags,
         });
         count++;
       }
     }
+
+    // PARTE 2 (novo): moldes cadastrados em "Minhas Contas Fixas".
+    const templates = await db.select().from(fixedBills).where(and(eq(fixedBills.userId, userId), eq(fixedBills.archived, false)));
+
+    if (templates.length > 0) {
+      const refDateStr = `${currentYear}-${String(currentMonth).padStart(2, '0')}-01`;
+      const nextRefDateStr = addMonthsClamped(refDateStr, 1);
+      const [nextYearStr, nextMonthStr] = nextRefDateStr.split('-');
+      const nextMonth = Number(nextMonthStr);
+      const nextYear = Number(nextYearStr);
+      const lastDayNextMonth = new Date(nextYear, nextMonth, 0).getDate();
+
+      for (const tpl of templates) {
+        const dueDay = Math.min(tpl.dueDay, lastDayNextMonth);
+        const dueDateStr = `${nextYear}-${String(nextMonth).padStart(2, '0')}-${String(dueDay).padStart(2, '0')}`;
+        const existingTpl = await db.select().from(transactions).where(
+          and(
+            eq(transactions.userId, userId),
+            eq(transactions.fixedBillId, tpl.id),
+            sql`EXTRACT(MONTH FROM ${transactions.date}) = ${nextMonth}`,
+            sql`EXTRACT(YEAR FROM ${transactions.date}) = ${nextYear}`
+          )
+        );
+        if (existingTpl.length === 0) {
+          await db.insert(transactions).values({
+            userId: userId, description: tpl.name, amount: tpl.originalAmount, originalAmount: tpl.originalAmount,
+            categoryId: tpl.categoryId, type: 'expense', date: dueDateStr, isFixed: true, isPaid: false,
+            entityType: tpl.entityType || 'pf', creditCardId: tpl.creditCardId, fixedBillId: tpl.id, aiTags: [],
+          });
+          count++;
+        }
+      }
+    }
+
+    if (count === 0) return { success: false, message: "Nenhuma conta fixa nova pra copiar (ou o mês seguinte já foi virado)." };
     revalidatePath("/");
     return { success: true, message: `${count} contas copiadas!` };
-  } catch (error) { return { success: false, message: "Erro ao processar." }; }
+  } catch (error) {
+    console.error("Erro ao virar o mês:", error);
+    return { success: false, message: "Erro ao processar." };
+  }
+}
+
+// --- CONTAS FIXAS: MOLDES ("Minhas Contas Fixas") ---
+// O molde guarda o "de referência" de cada conta fixa (nome, categoria, dia
+// de vencimento, valor original) separado das transações que ele gera mês a
+// mês — assim dá pra comparar valor original x valor pago em cada ocorrência.
+export async function getFixedBills() {
+  try {
+    const userId = await getUser();
+    if (!userId) return [];
+    return await db.select().from(fixedBills).where(eq(fixedBills.userId, userId));
+  } catch (error) {
+    console.error("Erro ao buscar contas fixas:", error);
+    return [];
+  }
+}
+
+export async function createFixedBill(data: { name: string; categoryId?: string | null; originalAmount: string | number; dueDay: number; entityType?: string; creditCardId?: string | null }) {
+  try {
+    const userId = await getUser();
+    if (!userId) return { success: false, message: "Login necessário." };
+    if (!data.name?.trim()) return { success: false, message: "Digite um nome pra conta fixa." };
+    if (!data.originalAmount || Number(data.originalAmount) <= 0) return { success: false, message: "Informe o valor original." };
+    if (!data.dueDay || data.dueDay < 1 || data.dueDay > 31) return { success: false, message: "Dia de vencimento inválido (1 a 31)." };
+
+    await db.insert(fixedBills).values({
+      userId,
+      name: data.name.trim(),
+      categoryId: data.categoryId || null,
+      originalAmount: Math.abs(Number(data.originalAmount)).toString(),
+      dueDay: data.dueDay,
+      entityType: data.entityType || "pf",
+      creditCardId: data.creditCardId || null,
+    });
+    revalidatePath("/");
+    return { success: true };
+  } catch (error) {
+    console.error("Erro ao criar conta fixa:", error);
+    return { success: false, message: "Erro ao criar conta fixa." };
+  }
+}
+
+export async function updateFixedBill(id: string, data: { name: string; categoryId?: string | null; originalAmount: string | number; dueDay: number; entityType?: string; creditCardId?: string | null }) {
+  try {
+    const userId = await getUser();
+    if (!userId) return { success: false, message: "Login necessário." };
+    if (!data.name?.trim()) return { success: false, message: "Digite um nome pra conta fixa." };
+    if (!data.originalAmount || Number(data.originalAmount) <= 0) return { success: false, message: "Informe o valor original." };
+    if (!data.dueDay || data.dueDay < 1 || data.dueDay > 31) return { success: false, message: "Dia de vencimento inválido (1 a 31)." };
+
+    await db.update(fixedBills).set({
+      name: data.name.trim(),
+      categoryId: data.categoryId || null,
+      originalAmount: Math.abs(Number(data.originalAmount)).toString(),
+      dueDay: data.dueDay,
+      entityType: data.entityType || "pf",
+      creditCardId: data.creditCardId || null,
+    }).where(and(eq(fixedBills.id, id), eq(fixedBills.userId, userId)));
+    revalidatePath("/");
+    return { success: true };
+  } catch (error) {
+    console.error("Erro ao editar conta fixa:", error);
+    return { success: false, message: "Erro ao editar conta fixa." };
+  }
+}
+
+// "Excluir" só arquiva — as transações já geradas continuam apontando pro
+// molde, então apagar de verdade quebraria o histórico.
+export async function setFixedBillArchived(id: string, archived: boolean) {
+  try {
+    const userId = await getUser();
+    if (!userId) return { success: false };
+    await db.update(fixedBills).set({ archived }).where(and(eq(fixedBills.id, id), eq(fixedBills.userId, userId)));
+    revalidatePath("/");
+    return { success: true };
+  } catch (error) {
+    console.error("Erro ao arquivar conta fixa:", error);
+    return { success: false };
+  }
 }
 
 // --- ATUALIZAR ORÇAMENTO ---
@@ -431,6 +570,9 @@ export async function updateTransaction(id: string, data: any) {
         // inválido. Agora vira null igual já acontecia ao criar um lançamento.
         description: data.description, amount: Math.abs(Number(data.amount)).toString(), date: data.date, categoryId: data.categoryId || null, type: data.type, isFixed: data.isFixed, entityType: data.entityType,
         creditCardId: data.creditCardId || null,
+        // 🔥 NOVO: mesmo vínculo/valor original de createTransaction, agora também editável.
+        fixedBillId: data.fixedBillId || null,
+        originalAmount: data.originalAmount ? Math.abs(Number(data.originalAmount)).toString() : null,
       }).where(and(eq(transactions.id, id), eq(transactions.userId, userId)));
 
     if (data.categoryId) {

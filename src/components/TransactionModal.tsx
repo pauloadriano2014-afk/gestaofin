@@ -1,8 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { X, Sparkles, Loader2, Mic, MicOff, Calendar, CheckCircle2, CreditCard, User, Building2, Trash2, Wallet } from 'lucide-react'
-import { createTransaction, updateTransaction, deleteTransaction } from '@/app/actions'
+import { X, Sparkles, Loader2, Mic, MicOff, Calendar, CheckCircle2, CreditCard, User, Building2, Trash2, Wallet, Repeat, TrendingUp, TrendingDown } from 'lucide-react'
+import { createTransaction, updateTransaction, deleteTransaction, getFixedBills } from '@/app/actions'
 import { getUserCreditCards } from '@/app/creditCardActions'
 import { getInvoiceCycleForDate } from '@/utils/creditCard'
 
@@ -45,9 +45,33 @@ export function TransactionModal({
   const [creditCardId, setCreditCardId] = useState<string>(transaction?.creditCardId || '')
   const [userCreditCards, setUserCreditCards] = useState<any[]>([])
 
+  // 🔥 NOVO: vínculo com um molde de "Minhas Contas Fixas" + valor original
+  // esperado dessa ocorrência (pra comparar com o valor pago e saber se teve
+  // juro ou desconto).
+  const [fixedBillId, setFixedBillId] = useState<string>(transaction?.fixedBillId || '')
+  const [originalAmount, setOriginalAmount] = useState<string>(transaction?.originalAmount ? Math.abs(Number(transaction.originalAmount)).toString() : '')
+  const [userFixedBills, setUserFixedBills] = useState<any[]>([])
+
   useEffect(() => {
     getUserCreditCards().then(setUserCreditCards).catch(() => setUserCreditCards([]))
+    getFixedBills().then(setUserFixedBills).catch(() => setUserFixedBills([]))
   }, [])
+
+  function handleSelectFixedBill(id: string) {
+    setFixedBillId(id)
+    if (!id) return
+    const tpl = userFixedBills.find((b: any) => b.id === id)
+    if (!tpl) return
+    setOriginalAmount(Math.abs(Number(tpl.originalAmount)).toString())
+    if (tpl.categoryId) setCategoryId(tpl.categoryId)
+    if (!description.trim()) setDescription(tpl.name)
+    // Só sugere o valor pago igual ao original em lançamento novo — editando
+    // um lançamento existente, o valor pago já digitado não deve ser mexido.
+    if (!transaction && !amount) setAmount(Math.abs(Number(tpl.originalAmount)).toString())
+  }
+
+  const activeFixedBills = userFixedBills.filter((b: any) => !b.archived)
+  const amountDiff = originalAmount && amount ? Number(amount) - Number(originalAmount) : 0
 
   const selectedCard = userCreditCards.find((c) => c.id === creditCardId)
 
@@ -185,6 +209,8 @@ export function TransactionModal({
       installments: Number(installments),
       entityType,
       creditCardId: type === 'expense' ? (creditCardId || null) : null,
+      fixedBillId: isFixed && !creditCardId ? (fixedBillId || null) : null,
+      originalAmount: isFixed && !creditCardId ? (originalAmount || null) : null,
     };
 
     if (transaction?.id) {
@@ -382,6 +408,51 @@ export function TransactionModal({
                   </div>
                   <span className="text-[10px] text-zinc-500 uppercase tracking-wider">(Aluguel, Luz...)</span>
                 </div>
+                )}
+
+                {!creditCardId && isFixed && (
+                  <div className="space-y-3 pl-6 border-l-2 border-blue-500/20 animate-in slide-in-from-top-2">
+                    <div>
+                      <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1 block flex items-center gap-1">
+                        <Repeat className="w-3 h-3" /> É uma conta fixa cadastrada?
+                      </label>
+                      <select
+                        className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-white outline-none focus:border-blue-600 transition-all appearance-none text-sm"
+                        value={fixedBillId}
+                        onChange={(e) => handleSelectFixedBill(e.target.value)}
+                      >
+                        <option value="">Nenhuma / avulsa</option>
+                        {activeFixedBills.map((b: any) => (
+                          <option key={b.id} value={b.id}>{b.name} (venc. dia {b.dueDay})</option>
+                        ))}
+                      </select>
+                      {activeFixedBills.length === 0 && (
+                        <p className="text-[10px] text-zinc-600 pt-1">Nenhuma conta fixa cadastrada ainda — cadastre em &quot;Minhas Contas Fixas&quot; no topo da tela pra poder vincular aqui.</p>
+                      )}
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1 block">Valor original (o que era pra pagar)</label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-3.5 text-zinc-500 text-sm font-bold">R$</span>
+                        <input
+                          type="number"
+                          placeholder="0,00"
+                          className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 pl-10 text-white outline-none focus:border-blue-600 transition-all font-mono text-sm"
+                          value={originalAmount}
+                          onChange={(e) => setOriginalAmount(e.target.value)}
+                        />
+                      </div>
+                    </div>
+
+                    {originalAmount && amount && amountDiff !== 0 && (
+                      <p className={`text-xs font-bold flex items-center gap-1 ${amountDiff > 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+                        {amountDiff > 0 ? <TrendingUp className="w-3.5 h-3.5" /> : <TrendingDown className="w-3.5 h-3.5" />}
+                        {amountDiff > 0 ? 'Juros: ' : 'Desconto: '}
+                        {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Math.abs(amountDiff))}
+                      </p>
+                    )}
+                  </div>
                 )}
 
                 {!creditCardId && (

@@ -6,12 +6,12 @@ import { getFinancialForecast } from '@/app/forecastActions'
 
 // "Vou conseguir pagar tudo esse mês?" — soma contas fixas em aberto +
 // faturas de cartão (abertas + atrasadas) e compara com a receita esperada.
-export function ForecastPanel({ theme, formatCurrency, refreshKey }: any) {
+export function ForecastPanel({ theme, formatCurrency, refreshKey, viewMode = 'all' }: any) {
   const [forecast, setForecast] = useState<any>(null)
 
   useEffect(() => {
-    getFinancialForecast().then((res) => { if (res.success) setForecast(res) })
-  }, [refreshKey])
+    getFinancialForecast(viewMode).then((res) => { if (res.success) setForecast(res) })
+  }, [refreshKey, viewMode])
 
   if (!forecast) return null
 
@@ -24,7 +24,7 @@ export function ForecastPanel({ theme, formatCurrency, refreshKey }: any) {
         Previsão do Mês
       </h3>
       <p className={`text-xs mb-4 ${theme.textMuted}`}>
-        Receita esperada menos contas fixas em aberto e faturas de cartão (abertas + atrasadas).
+        Receita operacional esperada (exclui resgates, reembolsos e cartão) menos contas fixas em aberto e faturas de cartão (abertas + atrasadas).
         {forecast.incomeSource === 'media_3_meses' && ' Receita estimada pela média dos últimos 3 meses, já que nada foi lançado neste mês ainda.'}
       </p>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">

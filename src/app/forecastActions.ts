@@ -1,7 +1,7 @@
 'use server'
 
 import { db } from "@/db";
-import { transactions } from "@/db/schema";
+import { transactions, categories } from "@/db/schema";
 import { and, eq, gte, lte } from "drizzle-orm";
 import { getUser } from "./actions";
 import { getCreditCardsOverview } from "./creditCardActions";
@@ -11,10 +11,28 @@ import { todayDateStr, addDays, addMonthsClamped } from "@/utils/dates";
 // Junta o que ainda falta pagar (contas fixas em aberto + faturas de cartão
 // abertas/atrasadas) e compara com a receita esperada, pra responder
 // "vou conseguir pagar tudo esse mês?".
-export async function getFinancialForecast() {
+//
+// 🔥 CORRIGIDO: a "receita esperada" estava somando TODA entrada do tipo
+// income, inclusive resgate de investimento e reembolso — coisas que não são
+// renda recorrente e distorciam muito o número (às vezes pra mais, às vezes
+// pra menos, dependendo do mês). Agora ela usa a mesma definição de "Receita
+// Operacional" já usada no resto do dashboard (exclui Investimentos, Cartão
+// de Crédito e Reembolsos) e respeita o filtro PF/PJ/Tudo selecionado na
+// tela, pra bater com o que você já está vendo.
+export async function getFinancialForecast(viewMode: string = "all") {
   try {
     const userId = await getUser();
     if (!userId) return { success: false as const };
+
+    const userCategories = await db.select().from(categories).where(eq(categories.userId, userId));
+    const catInvestimentosId = userCategories.find((c) => c.name.toLowerCase().includes("investimento"))?.id;
+    const catCartaoId = userCategories.find((c) => c.name.toLowerCase().includes("cartão de crédito"))?.id;
+    const catReembolsoId = userCategories.find((c) => c.name.toLowerCase().includes("reembolso"))?.id;
+    const isOperacional = (t: { categoryId: string | null; entityType: string | null }) =>
+      t.categoryId !== catInvestimentosId &&
+      t.categoryId !== catCartaoId &&
+      t.categoryId !== catReembolsoId &&
+      (viewMode === "all" || t.entityType === viewMode);
 
     const today = todayDateStr();
     const [y, m] = today.split("-").map(Number);
@@ -24,15 +42,15 @@ export async function getFinancialForecast() {
 
     // 1. Contas fixas ainda não pagas com vencimento até o fim do mês corrente
     // (isso já inclui qualquer coisa atrasada de meses anteriores).
-    const unpaidFixed = await db.select().from(transactions).where(
-      and(
-        eq(transactions.userId, userId),
-        eq(transactions.isFixed, true),
-        eq(transactions.type, "expense"),
-        eq(transactions.isPaid, false),
-        lte(transactions.date, endOfMonth)
-      )
-    );
+    const fixedConditions = [
+      eq(transactions.userId, userId),
+      eq(transactions.isFixed, true),
+      eq(transactions.type, "expense"),
+      eq(transactions.isPaid, false),
+      lte(transactions.date, endOfMonth),
+    ];
+    if (viewMode !== "all") fixedConditions.push(eq(transactions.entityType, viewMode));
+    const unpaidFixed = await db.select().from(transactions).where(and(...fixedConditions));
     const fixedBillsTotal = unpaidFixed.reduce((sum, t) => sum + Math.abs(Number(t.amount)), 0);
 
     // 2. Faturas de cartão em aberto (ciclo atual ainda não fechado) + fechadas
@@ -43,9 +61,10 @@ export async function getFinancialForecast() {
       0
     );
 
-    // 3. Receita esperada: usa a receita já lançada neste mês; se ainda não
-    // tiver nada lançado (comum no início do mês, antes do salário cair),
-    // cai para a média dos últimos 3 meses fechados como estimativa.
+    // 3. Receita esperada: usa a receita OPERACIONAL (salário, consultoria etc
+    // — exclui resgate de investimento, reembolso e cartão) já lançada neste
+    // mês; se ainda não tiver nada lançado (comum no início do mês, antes do
+    // salário cair), cai para a média dos últimos 3 meses fechados.
     const currentMonthIncomeTx = await db.select().from(transactions).where(
       and(
         eq(transactions.userId, userId),
@@ -54,7 +73,7 @@ export async function getFinancialForecast() {
         lte(transactions.date, endOfMonth)
       )
     );
-    let expectedIncome = currentMonthIncomeTx.reduce((sum, t) => sum + Math.abs(Number(t.amount)), 0);
+    let expectedIncome = currentMonthIncomeTx.filter(isOperacional).reduce((sum, t) => sum + Math.abs(Number(t.amount)), 0);
     let incomeSource: "mes_atual" | "media_3_meses" = "mes_atual";
 
     if (expectedIncome === 0) {
@@ -68,7 +87,7 @@ export async function getFinancialForecast() {
           lte(transactions.date, dayBeforeThisMonth)
         )
       );
-      const pastTotal = pastIncomeTx.reduce((sum, t) => sum + Math.abs(Number(t.amount)), 0);
+      const pastTotal = pastIncomeTx.filter(isOperacional).reduce((sum, t) => sum + Math.abs(Number(t.amount)), 0);
       expectedIncome = pastTotal / 3;
       incomeSource = "media_3_meses";
     }

@@ -54,6 +54,26 @@ export const categoryRules = pgTable("category_rules", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+// --- NOVA TABELA: MOLDES DE CONTAS FIXAS ---
+// O "molde" de cada conta fixa (Aluguel, Internet, Financiamento da faculdade
+// etc): nome, categoria, dia de vencimento e valor original esperado. O
+// "Virar Mês" gera a cobrança do mês seguinte a partir daqui, e cada
+// transação gerada aponta de volta pro molde (transactions.fixedBillId) —
+// isso permite comparar valor original x valor pago mês a mês (juros/desconto)
+// sem perder o valor "de referência" da conta.
+export const fixedBills = pgTable("fixed_bills", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: text("user_id").notNull(),
+  name: text("name").notNull(),
+  categoryId: uuid("category_id").references(() => categories.id),
+  originalAmount: numeric("original_amount", { precision: 12, scale: 2 }).notNull(),
+  dueDay: integer("due_day").notNull(), // dia do mês em que costuma vencer (1-31)
+  entityType: text("entity_type").default("pf"), // 'pf' | 'pj'
+  creditCardId: uuid("credit_card_id").references(() => creditCards.id), // opcional: se essa conta fixa é debitada no cartão
+  archived: boolean("archived").default(false), // "excluir" só arquiva, pra não quebrar o histórico de transações já vinculadas
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 export const transactions = pgTable("transactions", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: text("user_id").notNull(),
@@ -74,6 +94,14 @@ export const transactions = pgTable("transactions", {
   isPaid: boolean("is_paid").default(true),
   // Data exata em que a conta foi dada baixa (independente de isPaid, que já existia).
   paidAt: date("paid_at"),
+
+  // 🔥 NOVO: vínculo com o molde da conta fixa (ver tabela fixedBills) +
+  // valor original esperado dessa ocorrência específica. "amount" continua
+  // sendo o valor efetivamente pago; a diferença entre os dois é juro (pagou
+  // mais) ou desconto (pagou menos). Ambos ficam nulos pra qualquer
+  // transação que não seja uma conta fixa vinculada a um molde.
+  fixedBillId: uuid("fixed_bill_id").references(() => fixedBills.id),
+  originalAmount: numeric("original_amount", { precision: 12, scale: 2 }),
 
   // Se a despesa foi feita num cartão de crédito, aponta pra ele. Nulo = dinheiro/débito/pix.
   creditCardId: uuid("credit_card_id").references(() => creditCards.id),

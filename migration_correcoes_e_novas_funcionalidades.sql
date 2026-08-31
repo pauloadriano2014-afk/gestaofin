@@ -69,6 +69,28 @@ CREATE TABLE IF NOT EXISTS credit_card_invoice_overrides (
   updated_at TIMESTAMP DEFAULT now()
 );
 
+-- 6) "Minhas Contas Fixas": molde de cada conta fixa (nome, categoria, dia de
+--    vencimento e valor original) separado das transações que ele gera todo
+--    mês. Permite comparar valor original x valor pago (juro/desconto).
+CREATE TABLE IF NOT EXISTS fixed_bills (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  category_id UUID REFERENCES categories(id),
+  original_amount NUMERIC(12, 2) NOT NULL,
+  due_day INTEGER NOT NULL,
+  entity_type TEXT DEFAULT 'pf',
+  credit_card_id UUID REFERENCES credit_cards(id),
+  archived BOOLEAN DEFAULT false,
+  created_at TIMESTAMP DEFAULT now()
+);
+
+-- 7) Vínculo de cada transação com o molde da conta fixa + valor original
+--    esperado daquela ocorrência específica (amount continua sendo o valor
+--    efetivamente pago).
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS fixed_bill_id UUID REFERENCES fixed_bills(id);
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS original_amount NUMERIC(12, 2);
+
 -- ============================================================================
 -- Como rodar:
 --   Opção mais simples: "npx drizzle-kit push" (detecta sozinho comparando

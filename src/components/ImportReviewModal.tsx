@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { X, CheckCircle2, ArrowUpRight, ArrowDownRight, Briefcase, User, Loader2 } from "lucide-react";
+import { X, CheckCircle2, ArrowUpRight, ArrowDownRight, Briefcase, User, Loader2, Trash2 } from "lucide-react";
 
 export function ImportReviewModal({ isOpen, onClose, initialTransactions, categories, onConfirm, isSaving }: any) {
   const [transactions, setTransactions] = useState<any[]>([]);
@@ -18,6 +18,14 @@ export function ImportReviewModal({ isOpen, onClose, initialTransactions, catego
     const updated = [...transactions];
     updated[index] = { ...updated[index], [field]: value };
     setTransactions(updated);
+  };
+
+  // 🔥 NOVO: dá pra remover uma linha antes de confirmar — útil pra descartar
+  // itens duplicados (ex: "Valor pendente do mês anterior" que já apareceu
+  // como itens soltos na fatura anterior, ou "Pagamento recebido" que é só
+  // a quitação desse saldo, não uma despesa/receita nova).
+  const handleRemove = (index: number) => {
+    setTransactions((prev) => prev.filter((_, i) => i !== index));
   };
 
   const formatCurrency = (val: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
@@ -96,29 +104,42 @@ export function ImportReviewModal({ isOpen, onClose, initialTransactions, catego
                       <Briefcase className="w-3 h-3" /> PJ
                     </button>
                   </div>
-                  
+
+                  <button
+                    type="button"
+                    onClick={() => handleRemove(idx)}
+                    title="Remover este item (não importar)"
+                    className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-colors shrink-0"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+
                 </div>
               </div>
             ))}
+
+            {transactions.length === 0 && (
+              <p className="text-sm text-gray-500 dark:text-zinc-400 text-center py-10">Todos os itens foram removidos. Cancele ou volte a escolher o arquivo se não era essa a intenção.</p>
+            )}
           </div>
         </div>
 
         {/* FOOTER / AÇÕES */}
         <div className="p-4 border-t border-gray-100 dark:border-zinc-800 bg-gray-50 dark:bg-zinc-900/50 flex justify-end gap-3">
-          <button 
-            onClick={onClose} 
+          <button
+            onClick={onClose}
             disabled={isSaving}
             className="px-5 py-2.5 text-sm font-bold text-gray-600 dark:text-zinc-300 hover:bg-gray-200 dark:hover:bg-zinc-800 rounded-full transition-colors"
           >
             Cancelar
           </button>
-          <button 
+          <button
             onClick={() => onConfirm(transactions)}
-            disabled={isSaving}
+            disabled={isSaving || transactions.length === 0}
             className="px-6 py-2.5 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-full shadow-lg transition-all flex items-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
           >
             {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-            {isSaving ? "Salvando..." : "Confirmar e Salvar Tudo"}
+            {isSaving ? "Salvando..." : `Confirmar e Salvar (${transactions.length})`}
           </button>
         </div>
 

@@ -31,7 +31,10 @@ export function ImportReviewModal({ isOpen, onClose, initialTransactions, catego
   const formatCurrency = (val: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+    // 🔥 FIX: esse modal agora também abre por cima do "Importar Fatura de
+    // Cartão" (que usa z-[9999]) — precisa de um z-index maior que o dele,
+    // senão fica escondido atrás e os cliques vão pro modal de trás.
+    <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
       <div className="bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800 rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95">
         
         {/* HEADER DO MODAL */}

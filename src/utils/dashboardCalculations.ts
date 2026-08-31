@@ -62,18 +62,25 @@ export function calculateDashboardData(rawData: any, viewMode: string, selectedD
     if (viewMode === 'pf') finalBalance = rawData.summary?.globalBalancePF || 0;
     if (viewMode === 'pj') finalBalance = rawData.summary?.globalBalancePJ || 0;
 
-    return { 
-        summary: { 
-            balance: finalBalance, 
-            income, 
-            expense, 
+    return {
+        summary: {
+            balance: finalBalance,
+            income,
+            expense,
             invested,
             grossIncome, // Enviando pro Front
             grossExpense // Enviando pro Front
-        }, 
-        fixedExpenses, 
-        variableTransactions, 
-        categoryStats, 
-        dailyData 
+        },
+        fixedExpenses,
+        variableTransactions,
+        categoryStats,
+        dailyData,
+        // 🔥 NOVO: itens que compõem "Receita Operacional", "Despesas de Fato" e
+        // "Aportes/Investido" — pra poder clicar no card e ver a lista que soma
+        // até o valor mostrado (Saldo Principal é global, então tem sua própria
+        // busca sob demanda no servidor — ver getBalanceBreakdown em actions.ts).
+        incomeTxs: txsOperacionais.filter((t: any) => t.type === 'income'),
+        expenseTxs: txsOperacionais.filter((t: any) => t.type === 'expense'),
+        investedTxs: txsInvestimentos.filter((t: any) => t.type === 'income' || t.type === 'expense'),
     };
 }

@@ -145,11 +145,49 @@ export async function getDashboardData(startMonth: number, startYear: number, en
 
   } catch (error) {
     console.error("Erro crítico no dashboard:", error);
-    return { 
-        allCategories: [], fixedExpenses: [], variableTransactions: [], transactions: [], 
-        summary: { balance: 0, globalBalance: 0, globalBalancePF: 0, globalBalancePJ: 0, income: 0, expense: 0 }, categoryStats: [], pieData: [], dailyData: [], 
-        planType: 'free' 
+    return {
+        allCategories: [], fixedExpenses: [], variableTransactions: [], transactions: [],
+        summary: { balance: 0, globalBalance: 0, globalBalancePF: 0, globalBalancePJ: 0, income: 0, expense: 0 }, categoryStats: [], pieData: [], dailyData: [],
+        planType: 'free'
     };
+  }
+}
+
+// --- DETALHAMENTO DO "SALDO PRINCIPAL" ---
+// O card de Saldo Principal mostra um número GLOBAL (todas as transações até
+// o fim do período selecionado, ou só o período quando "Isolar Saldo" está
+// ligado) — diferente de Receita/Despesa Operacional, que já vêm filtradas
+// no próprio rawData.transactions do período. Por isso o saldo precisa da
+// sua própria busca, replicando exatamente a mesma regra usada em
+// getDashboardData pra bater com o valor mostrado.
+export async function getBalanceBreakdown(startMonth: number, startYear: number, endMonth: number, endYear: number, isolatePeriod: boolean, viewMode: string) {
+  try {
+    const userId = await getUser();
+    if (!userId) return [];
+
+    const lastDayOfEndMonth = new Date(endYear, endMonth, 0).getDate();
+    const endDateStr = `${endYear}-${String(endMonth).padStart(2, '0')}-${String(lastDayOfEndMonth).padStart(2, '0')}`;
+
+    let rows;
+    if (isolatePeriod) {
+      const startDateStr = `${startYear}-${String(startMonth).padStart(2, '0')}-01`;
+      rows = await db.select().from(transactions).where(
+        and(eq(transactions.userId, userId), gte(transactions.date, startDateStr), lte(transactions.date, endDateStr))
+      );
+    } else {
+      rows = await db.select().from(transactions).where(
+        and(eq(transactions.userId, userId), lte(transactions.date, endDateStr))
+      );
+    }
+
+    const filtered = (viewMode === 'all' ? rows : rows.filter((t) => t.entityType === viewMode))
+      .filter((t) => t.type === 'income' || t.type === 'expense') // transferência não entra no saldo
+      .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+
+    return filtered;
+  } catch (error) {
+    console.error("Erro ao detalhar saldo:", error);
+    return [];
   }
 }
 

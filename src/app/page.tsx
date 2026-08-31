@@ -417,7 +417,22 @@ export default function Dashboard() {
         <OpenBillsPanel theme={theme} formatCurrency={formatCurrency} onChanged={loadData} refreshKey={refreshKey} />
 
         {/* COMPONENTES ISOLADOS */}
-        <DashboardCards theme={theme} summary={processedData.summary} selectedDay={selectedDay} formatCurrency={formatCurrency} />
+        <DashboardCards
+          theme={theme}
+          summary={processedData.summary}
+          selectedDay={selectedDay}
+          formatCurrency={formatCurrency}
+          incomeTxs={processedData.incomeTxs}
+          expenseTxs={processedData.expenseTxs}
+          investedTxs={processedData.investedTxs}
+          categories={rawData.allCategories}
+          startMonth={startMonth}
+          startYear={startYear}
+          endMonth={endMonth}
+          endYear={endYear}
+          isolatePeriod={isolatePeriod}
+          viewMode={viewMode}
+        />
         <DashboardCharts theme={theme} processedData={processedData} currentTheme={currentTheme} formatCurrency={formatCurrency} setSelectedCategory={setSelectedCategory} setBudgetModalOpen={setBudgetModalOpen} />
 
         {/* BARRA DE FILTRO DE CATEGORIAS */}

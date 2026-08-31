@@ -1,5 +1,5 @@
 import { TrendingUp, Target, AlertTriangle, PieChart as PieChartIcon } from "lucide-react";
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip as RechartsTooltip, PieChart, Pie, Cell, Legend } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip as RechartsTooltip, PieChart, Pie, Cell, Legend } from 'recharts';
 
 // Paleta de cores premium para as categorias no gráfico de rosca
 const COLORS = ['#3b82f6', '#ef4444', '#f59e0b', '#10b981', '#8b5cf6', '#ec4899', '#14b8a6', '#f43f5e', '#6366f1', '#0ea5e9'];
@@ -12,32 +12,30 @@ export function DashboardCharts({ theme, processedData, currentTheme, formatCurr
   return (
     <div className="flex flex-col gap-6">
       
-      {/* 1. GRÁFICO DE ÁREA (Agora em tela cheia para melhor visualização) */}
+      {/* 1. GRÁFICO DE BARRAS POR SEMANA (antes era uma linha por dia, que
+          ficava "dente de serra" — um gasto pontual num dia isolado virava um
+          pico difícil de interpretar. Agrupado por semana fica mais fácil de
+          ler a tendência de entrada x saída.) */}
       <div className={`w-full ${theme.card} p-6 rounded-2xl border flex flex-col h-[350px] lg:h-[400px]`}>
         <h3 className={`text-sm font-bold mb-6 flex items-center gap-2 ${theme.textMuted}`}>
-          <TrendingUp className="w-4 h-4" /> Fluxo de Caixa Limpo (Sem Cartão/Inv)
+          <TrendingUp className="w-4 h-4" /> Fluxo de Caixa por Semana (Sem Cartão/Inv)
         </h3>
         <div className="flex-1 w-full">
-          {processedData.dailyData.length > 0 ? (
+          {processedData.weeklyData.length > 0 ? (
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={processedData.dailyData}>
-                <defs>
-                  <linearGradient id="colorEntrada" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.2}/>
-                    <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
-                  </linearGradient>
-                  <linearGradient id="colorSaida" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#ef4444" stopOpacity={0.2}/>
-                    <stop offset="95%" stopColor="#ef4444" stopOpacity={0}/>
-                  </linearGradient>
-                </defs>
+              <BarChart data={processedData.weeklyData} barGap={4}>
                 <CartesianGrid strokeDasharray="3 3" stroke={currentTheme === 'dark' ? '#27272a' : '#e2e8f0'} vertical={false} />
-                <XAxis dataKey="day" stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} />
+                <XAxis dataKey="week" stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} />
                 <YAxis stroke="#94a3b8" fontSize={10} tickFormatter={(val) => `R$${val}`} tickLine={false} axisLine={false} width={60} />
-                <RechartsTooltip contentStyle={{ backgroundColor: currentTheme === 'dark' ? '#18181b' : '#fff', border: 'none', borderRadius: '8px', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }} />
-                <Area type="monotone" dataKey="entrada" name="Entrada" stroke="#10b981" fillOpacity={1} fill="url(#colorEntrada)" strokeWidth={2} />
-                <Area type="monotone" dataKey="saida" name="Saída" stroke="#ef4444" fillOpacity={1} fill="url(#colorSaida)" strokeWidth={2} />
-              </AreaChart>
+                <RechartsTooltip
+                  formatter={(value: any) => formatCurrency(Number(value) || 0)}
+                  contentStyle={{ backgroundColor: currentTheme === 'dark' ? '#18181b' : '#fff', border: 'none', borderRadius: '8px', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', color: currentTheme === 'dark' ? '#fff' : '#000' }}
+                  itemStyle={{ color: currentTheme === 'dark' ? '#fff' : '#000' }}
+                />
+                <Legend wrapperStyle={{ fontSize: '11px' }} />
+                <Bar dataKey="entrada" name="Entrada" fill="#10b981" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="saida" name="Saída" fill="#ef4444" radius={[4, 4, 0, 0]} />
+              </BarChart>
             </ResponsiveContainer>
           ) : ( <div className={`h-full flex items-center justify-center text-sm ${theme.textMuted}`}>Sem dados suficientes.</div> )}
         </div>

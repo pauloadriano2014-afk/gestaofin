@@ -185,7 +185,7 @@ export function CreditCardsModal({ onClose }: { onClose: () => void }) {
         ) : (
           <div className="space-y-4">
             {cards.length === 0 && (
-              <p className="text-sm text-zinc-500 text-center py-6">Nenhum cartão cadastrado ainda.</p>
+              <p className="text-sm text-zinc-500 text-center py-6">Nenhum cartão cadastrado ainda. Para cadastrar o primeiro, use o botão &quot;Importar Fatura&quot; — dá pra criar o cartão direto por lá.</p>
             )}
 
             {cards.map((card) => (
@@ -339,7 +339,13 @@ export function CreditCardsModal({ onClose }: { onClose: () => void }) {
               </div>
             ))}
 
-            {showForm ? (
+            {/* 🔥 REMOVIDO: o botão "Adicionar Cartão" saiu daqui de propósito —
+                agora existe um único lugar pra cadastrar um cartão novo, direto
+                na tela "Importar Fatura" (evita ter dois fluxos fazendo a mesma
+                coisa, que era uma fonte de confusão). Esse formulário continua
+                existindo só pra EDITAR um cartão já cadastrado (botão de lápis
+                acima, em cada card). */}
+            {showForm && (
               <div className="bg-zinc-950 border border-blue-500/30 rounded-xl p-4 space-y-3">
                 <input
                   placeholder="Apelido (ex: Nubank)"
@@ -359,15 +365,11 @@ export function CreditCardsModal({ onClose }: { onClose: () => void }) {
                 </div>
                 <div className="flex gap-2">
                   <button onClick={handleSave} disabled={saving} className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2">
-                    {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : (editingId ? 'Salvar Alterações' : 'Adicionar Cartão')}
+                    {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Salvar Alterações'}
                   </button>
                   <button onClick={resetForm} className="px-4 py-3 rounded-xl bg-zinc-800 text-zinc-300 font-bold hover:bg-zinc-700 transition-all">Cancelar</button>
                 </div>
               </div>
-            ) : (
-              <button onClick={() => setShowForm(true)} className="w-full border border-dashed border-zinc-700 hover:border-blue-500 text-zinc-400 hover:text-blue-400 rounded-xl p-4 flex items-center justify-center gap-2 font-bold text-sm transition-all">
-                <Plus className="w-4 h-4" /> Adicionar Cartão
-              </button>
             )}
           </div>
         )}

@@ -57,7 +57,33 @@ export function calculateDashboardData(rawData: any, viewMode: string, selectedD
             saida: dailyMap[date].saida
         };
     });
-  
+
+    // 🔥 NOVO: agrupado por semana (segunda a domingo) em vez de por dia — o
+    // gráfico diário ficava "dente de serra" demais (um gasto pontual num dia
+    // criava um pico isolado, difícil de enxergar tendência). Agrupar por
+    // semana suaviza isso e facilita comparar entrada x saída.
+    const weeklyMap: Record<string, { entrada: number; saida: number }> = {};
+    txsOperacionais.forEach((t: any) => {
+        const d = new Date(`${t.date}T00:00:00`);
+        const dayOfWeek = d.getDay(); // 0 = domingo ... 6 = sábado
+        const diffToMonday = (dayOfWeek + 6) % 7; // dias desde a última segunda-feira
+        const monday = new Date(d);
+        monday.setDate(d.getDate() - diffToMonday);
+        const key = `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, '0')}-${String(monday.getDate()).padStart(2, '0')}`;
+        if (!weeklyMap[key]) weeklyMap[key] = { entrada: 0, saida: 0 };
+        if (t.type === 'income') weeklyMap[key].entrada += Math.abs(Number(t.amount));
+        if (t.type === 'expense') weeklyMap[key].saida += Math.abs(Number(t.amount));
+    });
+
+    const weeklyData = Object.keys(weeklyMap).sort().map((key) => {
+        const [, m, d] = key.split('-');
+        return {
+            week: `Sem. ${d}/${m}`,
+            entrada: weeklyMap[key].entrada,
+            saida: weeklyMap[key].saida,
+        };
+    });
+
     let finalBalance = rawData.summary?.globalBalance || 0;
     if (viewMode === 'pf') finalBalance = rawData.summary?.globalBalancePF || 0;
     if (viewMode === 'pj') finalBalance = rawData.summary?.globalBalancePJ || 0;
@@ -75,6 +101,12 @@ export function calculateDashboardData(rawData: any, viewMode: string, selectedD
         variableTransactions,
         categoryStats,
         dailyData,
+        weeklyData,
+        // 🔥 NOVO: todos os lançamentos do período/viewMode/dia selecionado, sem
+        // nenhum filtro de categoria excluída nem de isFixed — usado pelo filtro
+        // de categoria da tela ("Extrato Detalhado") pra mostrar TODOS os itens
+        // de uma categoria (antes só filtrava a lista de Custos Fixos).
+        allTxs: txs,
         // 🔥 NOVO: itens que compõem "Receita Operacional", "Despesas de Fato" e
         // "Aportes/Investido" — pra poder clicar no card e ver a lista que soma
         // até o valor mostrado (Saldo Principal é global, então tem sua própria

@@ -17,7 +17,6 @@ import {
 } from "lucide-react";
 import { PremiumModal } from "@/components/PremiumModal";
 import { OpenBillsPanel } from "@/components/OpenBillsPanel";
-import { ForecastPanel } from "@/components/ForecastPanel";
 import { CreditCardsModal } from "@/components/CreditCardsModal";
 import { CategoryRulesModal } from "@/components/CategoryRulesModal";
 import { CategoriesModal } from "@/components/CategoriesModal";
@@ -292,6 +291,15 @@ export default function Dashboard() {
   // 🔥 NOVO: categorias em ordem alfabética em todo canto que elas aparecem como lista/seleção.
   const sortedCategories = [...rawData.allCategories].sort((a: any, b: any) => a.name.localeCompare(b.name, 'pt-BR'));
 
+  // 🔥 NOVO: antes, escolher uma categoria no filtro só reduzia a lista de
+  // "Custos Fixos" — quem quisesse ver TODOS os lançamentos daquela categoria
+  // (fixos e variáveis, pagos e pendentes) não tinha como. Agora, com uma
+  // categoria selecionada, mostra essa lista completa ao lado.
+  const selectedCategoryObj = filterCategory !== 'all' ? sortedCategories.find((c: any) => c.id === filterCategory) : null;
+  const categoryFilteredTxs = filterCategory === 'all'
+    ? []
+    : (processedData.allTxs || []).filter((tx: any) => tx.categoryId === filterCategory).sort((a: any, b: any) => (a.date < b.date ? 1 : -1));
+
   return (
     <main className={`min-h-screen w-full ${theme.bg} ${theme.text} pt-4 md:pt-8 font-sans transition-colors duration-500 overflow-x-hidden`}>
       <div className="max-w-7xl mx-auto space-y-6 px-4 md:px-0">
@@ -303,7 +311,7 @@ export default function Dashboard() {
             </div>
 
             <div className="flex flex-col md:flex-row items-center gap-3 w-full md:w-auto justify-end">
-                <div className="flex items-center gap-3 w-full justify-center md:justify-end">
+                <div className="flex items-center flex-wrap gap-3 w-full justify-center md:justify-end">
                     {!isPro && (<button onClick={() => setShowPremium(true)} className="bg-gradient-to-r from-yellow-400 to-orange-500 text-black font-bold px-3 py-2 rounded-full text-xs hover:scale-105 transition-all shadow-lg flex items-center gap-2 animate-pulse whitespace-nowrap"><Crown className="w-4 h-4"/> Seja PRO</button>)}
                     {isPro && (<span className="bg-gradient-to-r from-blue-500 to-purple-600 text-white font-bold px-3 py-1 rounded-full text-[10px] uppercase tracking-wider shadow-lg flex items-center gap-1 whitespace-nowrap"><Crown className="w-3 h-3"/> PRO</span>)}
                     <button onClick={() => setIsCreditCardsModalOpen(true)} className={`p-2 rounded-full border transition-all shrink-0 ${theme.card}`} title="Meus Cartões"><CreditCard className="w-5 h-5" /></button>
@@ -424,8 +432,10 @@ export default function Dashboard() {
           )}
         </div>
 
-        {/* 🔥 NOVO: previsão do mês + contas em aberto (independente do período filtrado) */}
-        <ForecastPanel theme={theme} formatCurrency={formatCurrency} refreshKey={refreshKey} viewMode={viewMode} />
+        {/* 🔥 "Previsão do Mês" foi removida daqui a pedido do usuário (deixava a
+            tela confusa) — o painel de Contas em Aberto abaixo já cobre o que
+            interessa: o que ainda falta pagar/receber, respeitando o período
+            selecionado acima. */}
         <OpenBillsPanel theme={theme} formatCurrency={formatCurrency} onChanged={loadData} refreshKey={refreshKey} startMonth={startMonth} startYear={startYear} endMonth={endMonth} endYear={endYear} />
 
         {/* COMPONENTES ISOLADOS */}
@@ -470,47 +480,88 @@ export default function Dashboard() {
 
         {/* LISTA DE CUSTOS FIXOS — Fluxo Variável foi removido daqui: os cards
             clicáveis de Receita/Despesa acima já cobrem o mesmo detalhamento,
-            agora organizado por categoria. */}
+            agora organizado por categoria. Quando uma categoria é escolhida no
+            filtro acima, aparece também, ao lado, a lista com TODOS os
+            lançamentos dessa categoria (fixos e variáveis, pagos e
+            pendentes) — antes o filtro só reduzia a lista de Custos Fixos. */}
         <div className="pb-8">
-          <div className={`${theme.card} border rounded-2xl overflow-hidden flex flex-col max-w-2xl`}>
-            <div className={`p-4 border-b flex justify-between items-center ${currentTheme === 'dark' ? 'bg-zinc-950/30 border-zinc-800' : 'bg-gray-50/50 border-gray-100'}`}>
-              <h3 className={`font-bold flex items-center gap-2 ${theme.text}`}><Clock className="w-4 h-4 text-orange-500" /> Custos Fixos {filterCategory !== 'all' && <span className="text-[10px] bg-orange-100 text-orange-600 px-2 py-0.5 rounded-full ml-2">Filtrado</span>}</h3>
-              {processedData.fixedExpenses.length > 0 && (<button onClick={handleCopyMonth} disabled={copying} className={`text-xs flex items-center gap-1 px-3 py-1.5 rounded-lg transition-all border ${theme.buttonSecondary}`}>{copying ? <Loader2 className="w-3 h-3 animate-spin" /> : <Copy className="w-3 h-3" />} Virar Mês</button>)}
-            </div>
-            <div className="p-4 space-y-3">
-              {displayedFixedExpenses.map((tx: any) => {
-                const today = new Date();
-                const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
-                const isLate = !tx.isPaid && tx.date < todayStr;
-                const isToday = !tx.isPaid && tx.date === todayStr;
-                // 🔥 NOVO: quando a conta tem um valor original registrado (vinda de
-                // um molde de "Minhas Contas Fixas" ou digitado na hora), mostra a
-                // diferença pro valor pago como juro (pagou mais) ou desconto (pagou menos).
-                const hasOriginal = tx.originalAmount !== null && tx.originalAmount !== undefined;
-                const diff = hasOriginal ? Number(tx.amount) - Number(tx.originalAmount) : 0;
-                return (
-                  <div key={tx.id} className={`flex justify-between items-center p-3 rounded-xl border transition-colors ${currentTheme === 'dark' ? 'bg-zinc-950 border-zinc-800 hover:border-zinc-700' : 'bg-white border-gray-100 hover:border-blue-200 shadow-sm'}`}>
-                    <div className="flex items-center gap-3">
-                      <button onClick={() => handleTogglePay(tx.id, tx.isPaid)} className={`p-2 rounded-full transition-all ${tx.isPaid ? 'text-emerald-600 bg-emerald-500/10' : 'text-slate-400 bg-slate-100/50 hover:text-orange-500'}`}>{tx.isPaid ? <CheckCircle2 className="w-5 h-5" /> : <Circle className="w-5 h-5" />}</button>
-                      <div>
-                        <p className={`font-semibold text-sm ${tx.isPaid ? 'text-zinc-500 line-through' : theme.text}`}>{tx.description}</p>
-                        <p className={`text-[10px] font-bold uppercase flex items-center gap-1 ${theme.textMuted}`}>{tx.entityType === 'pj' ? <Briefcase className="w-3 h-3 text-blue-500"/> : <User className="w-3 h-3 opacity-50"/>}{isLate ? (<span className="flex items-center gap-1 text-red-500 animate-pulse"><AlertCircle className="w-3 h-3"/> VENCIDO (Dia {tx.date.split('-')[2]})</span>) : isToday ? (<span className="flex items-center gap-1 text-amber-500 font-bold"><Clock className="w-3 h-3"/> VENCE HOJE</span>) : (<span>Dia {tx.date.split('-')[2]}</span>)}</p>
-                        {hasOriginal && Math.abs(diff) > 0.009 && (
-                          <p className={`text-[9px] font-bold pt-0.5 ${diff > 0 ? 'text-red-400' : 'text-emerald-400'}`}>
-                            Original: {formatCurrency(Number(tx.originalAmount))} • {diff > 0 ? 'Juros' : 'Desconto'} de {formatCurrency(Math.abs(diff))}
-                          </p>
-                        )}
+          <div className={`grid grid-cols-1 gap-6 ${filterCategory !== 'all' ? 'lg:grid-cols-2' : ''}`}>
+            <div className={`${theme.card} border rounded-2xl overflow-hidden flex flex-col ${filterCategory === 'all' ? 'max-w-2xl' : ''} min-w-0`}>
+              <div className={`p-4 border-b flex justify-between items-center gap-2 ${currentTheme === 'dark' ? 'bg-zinc-950/30 border-zinc-800' : 'bg-gray-50/50 border-gray-100'}`}>
+                <h3 className={`font-bold flex items-center gap-2 min-w-0 ${theme.text}`}><Clock className="w-4 h-4 text-orange-500 shrink-0" /> <span className="truncate">Custos Fixos</span> {filterCategory !== 'all' && <span className="text-[10px] bg-orange-100 text-orange-600 px-2 py-0.5 rounded-full ml-2 shrink-0">Filtrado</span>}</h3>
+                {processedData.fixedExpenses.length > 0 && (<button onClick={handleCopyMonth} disabled={copying} className={`text-xs flex items-center gap-1 px-3 py-1.5 rounded-lg transition-all border shrink-0 ${theme.buttonSecondary}`}>{copying ? <Loader2 className="w-3 h-3 animate-spin" /> : <Copy className="w-3 h-3" />} Virar Mês</button>)}
+              </div>
+              <div className="p-4 space-y-3">
+                {displayedFixedExpenses.map((tx: any) => {
+                  const today = new Date();
+                  const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+                  const isLate = !tx.isPaid && tx.date < todayStr;
+                  const isToday = !tx.isPaid && tx.date === todayStr;
+                  // 🔥 NOVO: quando a conta tem um valor original registrado (vinda de
+                  // um molde de "Minhas Contas Fixas" ou digitado na hora), mostra a
+                  // diferença pro valor pago como juro (pagou mais) ou desconto (pagou menos).
+                  const hasOriginal = tx.originalAmount !== null && tx.originalAmount !== undefined;
+                  const diff = hasOriginal ? Number(tx.amount) - Number(tx.originalAmount) : 0;
+                  return (
+                    <div key={tx.id} className={`flex justify-between items-center gap-2 p-3 rounded-xl border transition-colors ${currentTheme === 'dark' ? 'bg-zinc-950 border-zinc-800 hover:border-zinc-700' : 'bg-white border-gray-100 hover:border-blue-200 shadow-sm'}`}>
+                      <div className="flex items-center gap-3 min-w-0">
+                        <button onClick={() => handleTogglePay(tx.id, tx.isPaid)} className={`p-2 rounded-full transition-all shrink-0 ${tx.isPaid ? 'text-emerald-600 bg-emerald-500/10' : 'text-slate-400 bg-slate-100/50 hover:text-orange-500'}`}>{tx.isPaid ? <CheckCircle2 className="w-5 h-5" /> : <Circle className="w-5 h-5" />}</button>
+                        <div className="min-w-0">
+                          <p className={`font-semibold text-sm truncate ${tx.isPaid ? 'text-zinc-500 line-through' : theme.text}`}>{tx.description}</p>
+                          <p className={`text-[10px] font-bold uppercase flex items-center gap-1 flex-wrap ${theme.textMuted}`}>{tx.entityType === 'pj' ? <Briefcase className="w-3 h-3 text-blue-500 shrink-0"/> : <User className="w-3 h-3 opacity-50 shrink-0"/>}{isLate ? (<span className="flex items-center gap-1 text-red-500 animate-pulse"><AlertCircle className="w-3 h-3"/> VENCIDO (Dia {tx.date.split('-')[2]})</span>) : isToday ? (<span className="flex items-center gap-1 text-amber-500 font-bold"><Clock className="w-3 h-3"/> VENCE HOJE</span>) : (<span>Dia {tx.date.split('-')[2]}</span>)}</p>
+                          {hasOriginal && Math.abs(diff) > 0.009 && (
+                            <p className={`text-[9px] font-bold pt-0.5 ${diff > 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+                              Original: {formatCurrency(Number(tx.originalAmount))} • {diff > 0 ? 'Juros' : 'Desconto'} de {formatCurrency(Math.abs(diff))}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-4 shrink-0">
+                        <div className="text-right"><p className={`font-bold font-mono text-sm ${theme.text}`}>{formatCurrency(Number(tx.amount))}</p><span className={`text-[9px] font-bold uppercase tracking-wider ${tx.isPaid ? 'text-emerald-600' : isLate ? 'text-red-500' : 'text-orange-500'}`}>{tx.isPaid ? 'PAGO' : 'PENDENTE'}</span></div>
+                        <div className="flex flex-col gap-1"><button onClick={() => handleEdit(tx)} className="p-1.5 hover:bg-blue-500/10 text-blue-500 rounded transition-colors"><Pencil className="w-3.5 h-3.5"/></button><button onClick={() => handleDelete(tx.id)} className="p-1.5 hover:bg-red-500/10 text-red-500 rounded transition-colors"><Trash2 className="w-3.5 h-3.5"/></button></div>
                       </div>
                     </div>
-                    <div className="flex items-center gap-4">
-                      <div className="text-right"><p className={`font-bold font-mono text-sm ${theme.text}`}>{formatCurrency(Number(tx.amount))}</p><span className={`text-[9px] font-bold uppercase tracking-wider ${tx.isPaid ? 'text-emerald-600' : isLate ? 'text-red-500' : 'text-orange-500'}`}>{tx.isPaid ? 'PAGO' : 'PENDENTE'}</span></div>
-                      <div className="flex flex-col gap-1"><button onClick={() => handleEdit(tx)} className="p-1.5 hover:bg-blue-500/10 text-blue-500 rounded transition-colors"><Pencil className="w-3.5 h-3.5"/></button><button onClick={() => handleDelete(tx.id)} className="p-1.5 hover:bg-red-500/10 text-red-500 rounded transition-colors"><Trash2 className="w-3.5 h-3.5"/></button></div>
-                    </div>
-                  </div>
-                )
-              })}
-              {displayedFixedExpenses.length === 0 && ( <p className={`text-sm text-center py-8 ${theme.textMuted}`}>Nenhuma conta encontrada.</p> )}
+                  )
+                })}
+                {displayedFixedExpenses.length === 0 && ( <p className={`text-sm text-center py-8 ${theme.textMuted}`}>Nenhuma conta encontrada.</p> )}
+              </div>
             </div>
+
+            {/* 🔥 NOVO: com uma categoria selecionada no filtro acima, mostra
+                TODOS os lançamentos dela (não só os Custos Fixos) — inclui
+                receitas, despesas variáveis e fixas, pagas e pendentes. */}
+            {filterCategory !== 'all' && (
+              <div className={`${theme.card} border rounded-2xl overflow-hidden flex flex-col min-w-0`}>
+                <div className={`p-4 border-b flex justify-between items-center gap-2 ${currentTheme === 'dark' ? 'bg-zinc-950/30 border-zinc-800' : 'bg-gray-50/50 border-gray-100'}`}>
+                  <h3 className={`font-bold flex items-center gap-2 min-w-0 ${theme.text}`}><Tags className="w-4 h-4 text-blue-500 shrink-0" /> <span className="truncate">Todos os Lançamentos — {selectedCategoryObj?.name || ''}</span></h3>
+                </div>
+                <div className="p-4 space-y-3 max-h-[480px] overflow-y-auto custom-scrollbar">
+                  {categoryFilteredTxs.map((tx: any) => {
+                    const isExpense = tx.type === 'expense';
+                    return (
+                      <div key={tx.id} className={`flex justify-between items-center gap-2 p-3 rounded-xl border transition-colors ${currentTheme === 'dark' ? 'bg-zinc-950 border-zinc-800 hover:border-zinc-700' : 'bg-white border-gray-100 hover:border-blue-200 shadow-sm'}`}>
+                        <div className="flex items-center gap-3 min-w-0">
+                          <button onClick={() => handleTogglePay(tx.id, tx.isPaid)} className={`p-2 rounded-full transition-all shrink-0 ${tx.isPaid ? 'text-emerald-600 bg-emerald-500/10' : 'text-slate-400 bg-slate-100/50 hover:text-orange-500'}`}>{tx.isPaid ? <CheckCircle2 className="w-5 h-5" /> : <Circle className="w-5 h-5" />}</button>
+                          <div className="min-w-0">
+                            <p className={`font-semibold text-sm truncate ${tx.isPaid ? 'text-zinc-500 line-through' : theme.text}`}>{tx.description}</p>
+                            <p className={`text-[10px] font-bold uppercase flex items-center gap-1 flex-wrap ${theme.textMuted}`}>
+                              {tx.entityType === 'pj' ? <Briefcase className="w-3 h-3 text-blue-500 shrink-0"/> : <User className="w-3 h-3 opacity-50 shrink-0"/>}
+                              <span>Dia {tx.date.split('-')[2]}/{tx.date.split('-')[1]}</span>
+                              {tx.isFixed && <span className="opacity-50">• Fixo</span>}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-4 shrink-0">
+                          <div className="text-right"><p className={`font-bold font-mono text-sm ${isExpense ? 'text-red-500' : 'text-emerald-500'}`}>{isExpense ? '-' : '+'}{formatCurrency(Math.abs(Number(tx.amount)))}</p><span className={`text-[9px] font-bold uppercase tracking-wider ${tx.isPaid ? 'text-emerald-600' : 'text-orange-500'}`}>{tx.isPaid ? 'PAGO' : 'PENDENTE'}</span></div>
+                          <div className="flex flex-col gap-1"><button onClick={() => handleEdit(tx)} className="p-1.5 hover:bg-blue-500/10 text-blue-500 rounded transition-colors"><Pencil className="w-3.5 h-3.5"/></button><button onClick={() => handleDelete(tx.id)} className="p-1.5 hover:bg-red-500/10 text-red-500 rounded transition-colors"><Trash2 className="w-3.5 h-3.5"/></button></div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {categoryFilteredTxs.length === 0 && ( <p className={`text-sm text-center py-8 ${theme.textMuted}`}>Nenhum lançamento nessa categoria no período.</p> )}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>

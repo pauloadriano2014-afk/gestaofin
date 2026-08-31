@@ -426,7 +426,7 @@ export default function Dashboard() {
 
         {/* 🔥 NOVO: previsão do mês + contas em aberto (independente do período filtrado) */}
         <ForecastPanel theme={theme} formatCurrency={formatCurrency} refreshKey={refreshKey} viewMode={viewMode} />
-        <OpenBillsPanel theme={theme} formatCurrency={formatCurrency} onChanged={loadData} refreshKey={refreshKey} />
+        <OpenBillsPanel theme={theme} formatCurrency={formatCurrency} onChanged={loadData} refreshKey={refreshKey} startMonth={startMonth} startYear={startYear} endMonth={endMonth} endYear={endYear} />
 
         {/* COMPONENTES ISOLADOS */}
         <DashboardCards

@@ -5,21 +5,22 @@ import { AlertCircle, Circle } from 'lucide-react'
 import { getOpenFixedBills, toggleTransactionStatus } from '@/app/actions'
 import { todayDateStr } from '@/utils/dates'
 
-// Painel independente do filtro de mês do topo: mostra contas fixas vencidas
-// (de qualquer época) ou perto de vencer, pra elas nunca passarem
-// despercebidas só porque você está olhando outro período no dashboard.
-export function OpenBillsPanel({ theme, formatCurrency, onChanged, refreshKey }: any) {
+// 🔥 CORRIGIDO: antes esse painel ignorava de propósito o filtro de mês do
+// topo (mostrava vencidas + o que vencia nos próximos 15 dias, não importava
+// o período escolhido) — o usuário achou confuso ver contas de um mês nem
+// selecionado. Agora respeita o mesmo range de mês/ano do filtro principal.
+export function OpenBillsPanel({ theme, formatCurrency, onChanged, refreshKey, startMonth, startYear, endMonth, endYear }: any) {
   const [bills, setBills] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
 
   async function load() {
     setLoading(true)
-    const result = await getOpenFixedBills()
+    const result = await getOpenFixedBills(startMonth, startYear, endMonth, endYear)
     setBills(result)
     setLoading(false)
   }
 
-  useEffect(() => { load() }, [refreshKey])
+  useEffect(() => { load() }, [refreshKey, startMonth, startYear, endMonth, endYear])
 
   async function handleTogglePay(id: string, currentStatus: boolean) {
     await toggleTransactionStatus(id, currentStatus)
@@ -35,7 +36,7 @@ export function OpenBillsPanel({ theme, formatCurrency, onChanged, refreshKey }:
     <div className={`${theme.card} border rounded-2xl p-4`}>
       <h3 className={`font-bold flex items-center gap-2 mb-3 ${theme.text}`}>
         <AlertCircle className="w-4 h-4 text-red-500" /> Contas em Aberto
-        <span className={`text-[10px] font-normal normal-case ${theme.textMuted}`}>(de qualquer mês, não só o filtrado acima)</span>
+        <span className={`text-[10px] font-normal normal-case ${theme.textMuted}`}>(do período selecionado acima)</span>
       </h3>
       <div className="space-y-2">
         {bills.map((tx: any) => {

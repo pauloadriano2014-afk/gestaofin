@@ -9,7 +9,7 @@ import { isPlanPro } from "@/utils/plan";
 import { addMonthsClamped, splitAmountIntoInstallments } from "@/utils/dates";
 import { findMatchingRuleCategoryId } from "@/utils/categoryRules";
 import { learnCategoryRule } from "./categoryRuleActions";
-import { todayDateStr, addDays } from "@/utils/dates";
+import { todayDateStr } from "@/utils/dates";
 
 // --- LISTA VIP (BLOQUEIO SAAS ATIVADO) ---
 const VIP_USERS = [
@@ -286,6 +286,13 @@ export async function createTransaction(data: any) {
       baseDate = `${year}-${month}-${day}`;
     }
 
+    // 🔥 NOVO: se esse lançamento novo já nasce vinculado a uma conta fixa
+    // cadastrada, remove antes qualquer ocorrência automática duplicada do
+    // mesmo molde no mesmo mês — evita contar a despesa duas vezes.
+    if (data.fixedBillId) {
+      await absorbFixedBillOccurrence(userId, data.fixedBillId, baseDate);
+    }
+
     for (let i = 0; i < installments; i++) {
       // 🔥 CORRIGIDO: somar meses direto no dia (ex: dia 31 + 1 mês) podia
       // gerar datas de calendário inválidas como "2026-02-31". Agora a data
@@ -352,22 +359,32 @@ export async function toggleTransactionStatus(id: string, currentStatus: boolean
 // uma conta atrasada passava despercebida. Isso busca TODAS as contas fixas
 // não pagas (vencidas, de qualquer época, + as que vencem nos próximos 15
 // dias), sem depender do período escolhido na tela.
-export async function getOpenFixedBills() {
+// 🔥 CORRIGIDO: antes esse painel ignorava de propósito o filtro de mês do
+// topo (mostrava vencidas + o que vencia nos próximos 15 dias, não importa o
+// período escolhido) — o usuário achou confuso ver contas de um mês que nem
+// estava selecionado. Agora recebe o mesmo range de mês/ano do filtro
+// principal e só mostra o que cai dentro dele.
+export async function getOpenFixedBills(startMonth?: number, startYear?: number, endMonth?: number, endYear?: number) {
   try {
     const userId = await getUser();
     if (!userId) return [];
 
-    const windowEnd = addDays(todayDateStr(), 15);
+    const conditions = [
+      eq(transactions.userId, userId),
+      eq(transactions.isFixed, true),
+      eq(transactions.type, 'expense'),
+      eq(transactions.isPaid, false),
+    ];
 
-    const bills = await db.select().from(transactions).where(
-      and(
-        eq(transactions.userId, userId),
-        eq(transactions.isFixed, true),
-        eq(transactions.type, 'expense'),
-        eq(transactions.isPaid, false),
-        lte(transactions.date, windowEnd)
-      )
-    ).orderBy(asc(transactions.date));
+    if (startMonth && startYear) {
+      conditions.push(gte(transactions.date, `${startYear}-${String(startMonth).padStart(2, '0')}-01`));
+    }
+    if (endMonth && endYear) {
+      const lastDayOfEndMonth = new Date(endYear, endMonth, 0).getDate();
+      conditions.push(lte(transactions.date, `${endYear}-${String(endMonth).padStart(2, '0')}-${String(lastDayOfEndMonth).padStart(2, '0')}`));
+    }
+
+    const bills = await db.select().from(transactions).where(and(...conditions)).orderBy(asc(transactions.date));
 
     return bills;
   } catch (error) {
@@ -514,6 +531,40 @@ async function ensureFixedBillOccurrencesForRange(userId: string, startMonth: nu
   }
 }
 
+// 🔥 CORRIGIDO: bug de duplicidade. Quando o usuário vinculava um lançamento
+// JÁ EXISTENTE (ex: o pagamento importado do extrato do banco) a uma conta
+// fixa cadastrada, isso só marcava aquele lançamento com o fixedBillId — a
+// ocorrência que o ensureFixedBillOccurrences já tinha criado automaticamente
+// pro mesmo molde no mesmo mês continuava lá, intacta, contando a despesa
+// duas vezes ("Carro" + "Pagamento de boleto..." separados, cada um com o
+// valor cheio). Essa função remove qualquer OUTRA transação do mesmo molde
+// no mesmo mês/ano assim que uma passa a apontar pra ele — o lançamento
+// editado/criado vira o único registro daquela conta fixa naquele mês.
+async function absorbFixedBillOccurrence(userId: string, fixedBillId: string, referenceDate: string, excludeId?: string) {
+  try {
+    const [yearStr, monthStr] = (referenceDate || "").split('-');
+    const month = Number(monthStr);
+    const year = Number(yearStr);
+    if (!month || !year) return;
+
+    const candidates = await db.select().from(transactions).where(
+      and(
+        eq(transactions.userId, userId),
+        eq(transactions.fixedBillId, fixedBillId),
+        sql`EXTRACT(MONTH FROM ${transactions.date}) = ${month}`,
+        sql`EXTRACT(YEAR FROM ${transactions.date}) = ${year}`
+      )
+    );
+
+    for (const dup of candidates) {
+      if (excludeId && dup.id === excludeId) continue;
+      await db.delete(transactions).where(eq(transactions.id, dup.id));
+    }
+  } catch (error) {
+    console.error("Erro ao absorver ocorrência duplicada de conta fixa:", error);
+  }
+}
+
 // --- CONTAS FIXAS: MOLDES ("Minhas Contas Fixas") ---
 // O molde guarda o "de referência" de cada conta fixa (nome, categoria, dia
 // de vencimento, valor original) separado das transações que ele gera mês a
@@ -639,6 +690,17 @@ export async function updateTransaction(id: string, data: any) {
   try {
     const userId = await getUser();
     if (!userId) return { success: false };
+
+    // 🔥 NOVO: mesma proteção contra duplicidade do createTransaction — se
+    // essa edição está vinculando (ou já mantendo vinculado) o lançamento a
+    // uma conta fixa cadastrada, remove qualquer OUTRA ocorrência do mesmo
+    // molde no mesmo mês (ex: a que foi gerada automaticamente e ficou
+    // esquecida quando você linkou um lançamento diferente, como o pagamento
+    // importado do banco, à mesma conta fixa).
+    if (data.fixedBillId) {
+      await absorbFixedBillOccurrence(userId, data.fixedBillId, data.date, id);
+    }
+
     await db.update(transactions).set({
         // 🔥 CORRIGIDO: categoryId é uma coluna uuid — mandar "" (categoria
         // vazia, ex: ao editar uma Transferência) quebrava com erro de UUID

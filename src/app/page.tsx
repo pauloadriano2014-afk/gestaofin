@@ -13,7 +13,7 @@ import { calculateDashboardData } from "@/utils/dashboardCalculations";
 import {
   Plus,
   Clock, CheckCircle2, Circle, Copy, Loader2,
-  Briefcase, User, Layers, MessageSquare, X, Palette, Pencil, Trash2, AlertCircle, Crown, FileText, Download, Filter, Calendar as CalendarIcon, ToggleLeft, ToggleRight, CreditCard, Tag, Tags, Repeat
+  Briefcase, User, Layers, MessageSquare, X, Palette, Pencil, Trash2, AlertCircle, Crown, FileText, Download, Filter, Calendar as CalendarIcon, ToggleLeft, ToggleRight, CreditCard, Tag, Tags, Repeat, Upload
 } from "lucide-react";
 import { PremiumModal } from "@/components/PremiumModal";
 import { OpenBillsPanel } from "@/components/OpenBillsPanel";
@@ -22,6 +22,7 @@ import { CreditCardsModal } from "@/components/CreditCardsModal";
 import { CategoryRulesModal } from "@/components/CategoryRulesModal";
 import { CategoriesModal } from "@/components/CategoriesModal";
 import { FixedBillsModal } from "@/components/FixedBillsModal";
+import { CardInvoiceImportModal } from "@/components/CardInvoiceImportModal";
 
 // --- CONFIGURAÇÃO DE TEMAS ---
 const THEMES = {
@@ -120,6 +121,7 @@ export default function Dashboard() {
   const [isCategoryRulesModalOpen, setIsCategoryRulesModalOpen] = useState(false);
   const [isCategoriesModalOpen, setIsCategoriesModalOpen] = useState(false);
   const [isFixedBillsModalOpen, setIsFixedBillsModalOpen] = useState(false);
+  const [isCardInvoiceModalOpen, setIsCardInvoiceModalOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
 
   // 🔥 NOVOS ESTADOS DE RANGE DE DATA 🔥
@@ -389,6 +391,7 @@ export default function Dashboard() {
                   {uploadStatus ? uploadStatus : "Importar CSV"}
                   <input type="file" accept=".csv" className="hidden" onChange={handleFileUpload} disabled={!!uploadStatus} />
                 </label>
+                <button onClick={() => setIsCardInvoiceModalOpen(true)} className={`flex-1 md:flex-none ${theme.buttonSecondary} active:scale-95 px-6 py-4 md:py-3 rounded-full font-bold text-sm shadow-sm flex items-center justify-center gap-2 transition-all border`} title="Importar itens de uma fatura de cartão (.csv, .ofx ou .pdf)"><Upload className="w-5 h-5" /> Importar Fatura</button>
                 <button onClick={() => { setEditingTransaction(null); setIsModalOpen(true); }} className={`flex-1 md:flex-none ${theme.button} active:scale-95 px-6 py-4 md:py-3 rounded-full font-bold text-sm shadow-lg flex items-center justify-center gap-2 transition-all`}><Plus className="w-5 h-5" /> Lançar</button>
             </div>
           </div>
@@ -427,6 +430,8 @@ export default function Dashboard() {
           incomeTxs={processedData.incomeTxs}
           expenseTxs={processedData.expenseTxs}
           investedTxs={processedData.investedTxs}
+          grossIncomeTxs={processedData.grossIncomeTxs}
+          grossExpenseTxs={processedData.grossExpenseTxs}
           categories={rawData.allCategories}
           startMonth={startMonth}
           startYear={startYear}
@@ -512,6 +517,7 @@ export default function Dashboard() {
       {isCategoryRulesModalOpen && (<CategoryRulesModal onClose={() => setIsCategoryRulesModalOpen(false)} categories={rawData.allCategories} />)}
       {isCategoriesModalOpen && (<CategoriesModal onClose={() => { setIsCategoriesModalOpen(false); loadData(); }} />)}
       {isFixedBillsModalOpen && (<FixedBillsModal categories={rawData.allCategories} onClose={() => { setIsFixedBillsModalOpen(false); loadData(); }} />)}
+      {isCardInvoiceModalOpen && (<CardInvoiceImportModal categories={rawData.allCategories} onClose={() => { setIsCardInvoiceModalOpen(false); loadData(); }} />)}
 
       {/* 🔥 NOVO MODAL DE REVISÃO DA IA 🔥 */}
       <ImportReviewModal 

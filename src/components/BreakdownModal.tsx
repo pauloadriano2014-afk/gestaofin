@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { X, Loader2, ArrowDownRight, ArrowUpRight, Briefcase, User, Calculator, Tag } from 'lucide-react'
+import { X, Loader2, ArrowDownRight, ArrowUpRight, Briefcase, User, Calculator, Tag, ToggleLeft, ToggleRight } from 'lucide-react'
 
 // 🔥 NOVO: modal genérico que "prova" um dos 4 cards do topo do dashboard —
 // mostra a lista de lançamentos que somados chegam no valor exibido no card,
@@ -13,6 +13,7 @@ export function BreakdownModal({
   description,
   mode,
   transactions,
+  grossTransactions,
   categories,
   formatCurrency,
   loading,
@@ -23,6 +24,11 @@ export function BreakdownModal({
   description: string
   mode: 'income' | 'expense' | 'balance' | 'invested'
   transactions: any[]
+  // 🔥 NOVO: versão "bruta" opcional (inclui Cartão de Crédito, Investimentos
+  // e Reembolsos) — só faz sentido pros modos income/expense, já que balance
+  // e invested já não excluem essas categorias. Quando presente, mostra um
+  // toggle "incluir cartão/investimentos/reembolsos" no topo do modal.
+  grossTransactions?: any[]
   categories: any[]
   formatCurrency: (v: number) => string
   loading?: boolean
@@ -30,9 +36,13 @@ export function BreakdownModal({
   onEditTransaction?: (tx: any) => void
 }) {
   const [activeCategory, setActiveCategory] = useState<string | null>(null)
+  const [includeGross, setIncludeGross] = useState(false)
 
-  const incomeSum = transactions.filter((t) => t.type === 'income').reduce((s, t) => s + Math.abs(Number(t.amount)), 0)
-  const expenseSum = transactions.filter((t) => t.type === 'expense').reduce((s, t) => s + Math.abs(Number(t.amount)), 0)
+  const hasGrossToggle = !!grossTransactions && (mode === 'income' || mode === 'expense') && grossTransactions.length !== transactions.length
+  const transactionsToShow = includeGross && grossTransactions ? grossTransactions : transactions
+
+  const incomeSum = transactionsToShow.filter((t) => t.type === 'income').reduce((s, t) => s + Math.abs(Number(t.amount)), 0)
+  const expenseSum = transactionsToShow.filter((t) => t.type === 'expense').reduce((s, t) => s + Math.abs(Number(t.amount)), 0)
 
   const categoryName = (id: string | null) => categories.find((c: any) => c.id === id)?.name || 'Sem categoria'
 
@@ -42,7 +52,7 @@ export function BreakdownModal({
   const categoryBreakdown = useMemo(() => {
     if (mode === 'invested') return []
     const map = new Map<string, { id: string; income: number; expense: number; count: number }>()
-    transactions.forEach((t: any) => {
+    transactionsToShow.forEach((t: any) => {
       const id = t.categoryId || 'none'
       if (!map.has(id)) map.set(id, { id, income: 0, expense: 0, count: 0 })
       const entry = map.get(id)!
@@ -66,11 +76,11 @@ export function BreakdownModal({
       .filter((e) => e.value > 0)
       .sort((a, b) => b.value - a.value)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [transactions, categories, mode])
+  }, [transactionsToShow, categories, mode])
 
   const visibleTransactions = activeCategory
-    ? transactions.filter((t: any) => (t.categoryId || 'none') === activeCategory)
-    : transactions
+    ? transactionsToShow.filter((t: any) => (t.categoryId || 'none') === activeCategory)
+    : transactionsToShow
 
   return (
     <div className="fixed inset-0 bg-black/90 backdrop-blur-sm flex items-center justify-center p-4 z-[9999]">
@@ -85,7 +95,18 @@ export function BreakdownModal({
           </button>
         </div>
 
-        <p className="text-xs text-zinc-500 mb-4">{description}</p>
+        <p className="text-xs text-zinc-500 mb-2">{description}</p>
+
+        {hasGrossToggle && (
+          <button
+            type="button"
+            onClick={() => setIncludeGross(!includeGross)}
+            className="w-full flex items-center justify-between gap-2 bg-zinc-950 border border-zinc-800 rounded-xl p-2.5 mb-4 text-left hover:border-zinc-700 transition-colors"
+          >
+            <span className="text-[11px] font-medium text-zinc-400">Incluir cartão de crédito, investimentos e reembolsos</span>
+            {includeGross ? <ToggleRight className="w-5 h-5 text-blue-500 shrink-0" /> : <ToggleLeft className="w-5 h-5 text-zinc-600 shrink-0" />}
+          </button>
+        )}
 
         {loading ? (
           <div className="py-10 flex justify-center"><Loader2 className="w-6 h-6 animate-spin text-zinc-500" /></div>
@@ -113,7 +134,7 @@ export function BreakdownModal({
               {mode === 'expense' && (
                 <div className="flex justify-between text-sm"><span className="text-zinc-300 font-bold">Total</span><span className="font-mono font-bold text-red-500">{formatCurrency(expenseSum)}</span></div>
               )}
-              <p className="text-[10px] text-zinc-600 pt-0.5">{transactions.length} lançamento{transactions.length === 1 ? '' : 's'}</p>
+              <p className="text-[10px] text-zinc-600 pt-0.5">{transactionsToShow.length} lançamento{transactionsToShow.length === 1 ? '' : 's'}</p>
             </div>
 
             {/* 🔥 NOVO: POR CATEGORIA (antes da lista detalhada) */}

@@ -18,6 +18,8 @@ export function DashboardCards({
   incomeTxs = [],
   expenseTxs = [],
   investedTxs = [],
+  grossIncomeTxs = [],
+  grossExpenseTxs = [],
   categories = [],
   startMonth,
   startYear,
@@ -142,6 +144,7 @@ export function DashboardCards({
           description="Lançamentos de entrada do período (exclui investimentos, cartão de crédito e reembolsos)."
           mode="income"
           transactions={incomeTxs}
+          grossTransactions={grossIncomeTxs}
           categories={categories}
           formatCurrency={formatCurrency}
           onClose={() => setOpenModal(null)}
@@ -155,6 +158,7 @@ export function DashboardCards({
           description="Lançamentos de saída do período (exclui investimentos, cartão de crédito e reembolsos)."
           mode="expense"
           transactions={expenseTxs}
+          grossTransactions={grossExpenseTxs}
           categories={categories}
           formatCurrency={formatCurrency}
           onClose={() => setOpenModal(null)}

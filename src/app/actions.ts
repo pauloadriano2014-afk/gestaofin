@@ -43,6 +43,11 @@ export async function getDashboardData(startMonth: number, startYear: number, en
     }
 
     await syncEssentialCategories(userId);
+    // 🔥 NOVO: garante que os moldes de "Minhas Contas Fixas" já tenham a
+    // cobrança gerada pro(s) mês(es) que você está olhando, sem precisar
+    // clicar em "Virar Mês" toda vez que cadastra uma conta nova. Só gera pra
+    // mês atual/futuro — nunca inventa uma pendência num mês que já passou.
+    await ensureFixedBillOccurrencesForRange(userId, startMonth, startYear, endMonth, endYear);
 
     // --- LÓGICA DE PRODUÇÃO (SAAS MODE) ---
     const isVip = VIP_USERS.includes(userId);
@@ -458,6 +463,57 @@ export async function copyFixedExpenses(currentMonth: number, currentYear: numbe
   }
 }
 
+// --- AUTOCURA: garante a cobrança do molde no(s) mês(es) que você está vendo ---
+// Sem isso, cadastrar uma conta fixa nova em "Minhas Contas Fixas" não gerava
+// nenhuma transação sozinho — só apareceria no "Custos Fixos" depois de
+// clicar em "Virar Mês" (que, além disso, sempre mira o mês SEGUINTE, nunca
+// o mês atual). Essas funções (não exportadas, só uso interno) rodam junto
+// com getDashboardData e criam a ocorrência que falta pro mês que você está
+// olhando — nunca pra um mês que já passou, pra não inventar pendência em
+// período fechado.
+async function ensureFixedBillOccurrences(userId: string, month: number, year: number) {
+  const templates = await db.select().from(fixedBills).where(and(eq(fixedBills.userId, userId), eq(fixedBills.archived, false)));
+  if (templates.length === 0) return;
+
+  const lastDay = new Date(year, month, 0).getDate();
+  for (const tpl of templates) {
+    const dueDay = Math.min(tpl.dueDay, lastDay);
+    const dueDateStr = `${year}-${String(month).padStart(2, '0')}-${String(dueDay).padStart(2, '0')}`;
+    const existing = await db.select().from(transactions).where(
+      and(
+        eq(transactions.userId, userId),
+        eq(transactions.fixedBillId, tpl.id),
+        sql`EXTRACT(MONTH FROM ${transactions.date}) = ${month}`,
+        sql`EXTRACT(YEAR FROM ${transactions.date}) = ${year}`
+      )
+    );
+    if (existing.length === 0) {
+      await db.insert(transactions).values({
+        userId, description: tpl.name, amount: tpl.originalAmount, originalAmount: tpl.originalAmount,
+        categoryId: tpl.categoryId, type: 'expense', date: dueDateStr, isFixed: true, isPaid: false,
+        entityType: tpl.entityType || 'pf', creditCardId: tpl.creditCardId, fixedBillId: tpl.id, aiTags: [],
+      });
+    }
+  }
+}
+
+async function ensureFixedBillOccurrencesForRange(userId: string, startMonth: number, startYear: number, endMonth: number, endYear: number) {
+  const today = todayDateStr();
+  const [todayYear, todayMonth] = today.split('-').map(Number);
+
+  let m = startMonth;
+  let y = startYear;
+  let guard = 0; // proteção contra range absurdo/invertido
+  while ((y < endYear || (y === endYear && m <= endMonth)) && guard < 36) {
+    if (y > todayYear || (y === todayYear && m >= todayMonth)) {
+      await ensureFixedBillOccurrences(userId, m, y);
+    }
+    m++;
+    if (m > 12) { m = 1; y++; }
+    guard++;
+  }
+}
+
 // --- CONTAS FIXAS: MOLDES ("Minhas Contas Fixas") ---
 // O molde guarda o "de referência" de cada conta fixa (nome, categoria, dia
 // de vencimento, valor original) separado das transações que ele gera mês a
@@ -868,4 +924,167 @@ export async function saveBulkTransactions(transactionsList: any[]) {
         console.error("Erro no saveBulk:", error);
         return { success: false };
     }
+}
+
+// --- IMPORTAÇÃO DE FATURA DE CARTÃO (CSV / OFX / PDF) ---
+// 🔥 NOVO: pra registrar as compras do cartão item a item sem digitar uma
+// por uma. A convenção de sinal é o OPOSTO do extrato bancário: numa
+// fatura, positivo = compra normal (despesa) e negativo = estorno ou
+// pagamento recebido (não conta como receita de verdade, só reduz a
+// fatura — por isso "income" aqui é só pra não quebrar a soma, mas essas
+// linhas não entram em "Receita Operacional" por não terem uma categoria
+// de receita real). Todo item nasce vinculado ao cartão escolhido e com
+// isPaid=false, igual já acontece com compra avulsa no cartão — quem dá
+// baixa é a fatura inteira, na tela de Cartões.
+export async function processCardInvoiceWithAI(batch: { date: string; amount: number; description: string }[]) {
+  try {
+    const userId = await getUser();
+    if (!userId) return { success: false, message: "Login necessário." };
+
+    const userCategories = await db.select().from(categories).where(eq(categories.userId, userId));
+    const categoriesList = userCategories.map(c => `{ id: '${c.id}', name: '${c.name}' }`).join(', ');
+    const userRules = await db.select().from(categoryRules).where(eq(categoryRules.userId, userId));
+
+    const promptText = `Categorize os itens da fatura de um cartão de crédito abaixo. Categorias disponíveis: ${categoriesList}\nREGRAS: Mantenha date, amount, description originais. Adicione 'type' ('expense' p/ valores positivos — compra normal — e 'income' p/ valores negativos — estorno ou pagamento) e 'categoryId'. Devolva SÓ o JSON (array).\nItens: ${JSON.stringify(batch)}`;
+
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${process.env.OPENAI_API_KEY}` },
+      body: JSON.stringify({ model: "gpt-4o-mini", messages: [{ role: "system", content: "Responda APENAS com um Array JSON." }, { role: "user", content: promptText }], temperature: 0.1 })
+    });
+
+    if (!response.ok) throw new Error("Falha na API");
+    const data = await response.json();
+
+    let enrichedTransactions = [];
+    try {
+      const content = data.choices[0].message.content;
+      enrichedTransactions = JSON.parse(content.replace(/```json/g, '').replace(/```/g, '').trim());
+    } catch (e) { console.error("Erro ao interpretar resposta da IA (fatura):", e); return { success: false }; }
+
+    const processedBatch = [];
+    for (let i = 0; i < batch.length; i++) {
+      const originalTx = batch[i];
+      const aiTx: any = enrichedTransactions[i] || {};
+      const dateToUse = aiTx.date || originalTx.date || "";
+      let formattedDate = new Date().toISOString().split('T')[0];
+      if (dateToUse.includes('/')) {
+        const [day, month, year] = dateToUse.split('/');
+        formattedDate = `${year}-${month}-${day}`;
+      } else if (dateToUse.includes('-')) { formattedDate = dateToUse; }
+
+      const rawAmount = Number(aiTx.amount !== undefined ? aiTx.amount : originalTx.amount);
+      const amountValue = Math.abs(rawAmount).toFixed(2);
+      // 🔥 Sinal invertido em relação ao extrato bancário: positivo = despesa.
+      const isExpense = rawAmount >= 0;
+
+      const learnedCategoryId = findMatchingRuleCategoryId(originalTx.description, userRules);
+
+      processedBatch.push({
+        description: String(aiTx.description || originalTx.description || "Item da fatura").substring(0, 100),
+        amount: amountValue,
+        categoryId: learnedCategoryId || aiTx.categoryId || null,
+        type: aiTx.type || (isExpense ? 'expense' : 'income'),
+        date: formattedDate,
+        isFixed: false,
+        isPaid: false,
+        entityType: "pf",
+        aiTags: ["importado_fatura_cartao"],
+      });
+    }
+
+    return { success: true, data: processedBatch };
+  } catch (error) {
+    console.error("Erro em processCardInvoiceWithAI:", error);
+    return { success: false };
+  }
+}
+
+export async function saveBulkCardInvoiceTransactions(transactionsList: any[], creditCardId: string) {
+  try {
+    const userId = await getUser();
+    if (!userId) return { success: false, message: "Login necessário." };
+    if (!creditCardId) return { success: false, message: "Selecione o cartão." };
+
+    for (const tx of transactionsList) {
+      await db.insert(transactions).values({
+        userId: userId,
+        description: tx.description,
+        amount: tx.amount,
+        categoryId: tx.categoryId || null,
+        type: tx.type,
+        date: tx.date,
+        isFixed: false,
+        isPaid: false,
+        entityType: tx.entityType || "pf",
+        creditCardId: creditCardId,
+        aiTags: tx.aiTags,
+      });
+
+      if (tx.categoryId) {
+        await learnCategoryRule(userId, tx.description, tx.categoryId);
+      }
+    }
+    revalidatePath("/");
+    return { success: true };
+  } catch (error) {
+    console.error("Erro no saveBulkCardInvoiceTransactions:", error);
+    return { success: false };
+  }
+}
+
+// --- PDF DA FATURA ---
+// O layout de PDF de fatura varia demais de banco pra banco pra usar um
+// parser de posição fixa — em vez disso, extrai o texto do PDF e pede pra
+// IA estruturar em {date, amount, description}[], que depois passa pelo
+// MESMO processCardInvoiceWithAI usado pro CSV/OFX (um pipeline só pros 3 formatos).
+export async function parsePdfInvoiceText(base64: string) {
+  try {
+    const userId = await getUser();
+    if (!userId) return { success: false, message: "Login necessário." };
+
+    let pdfParse: any;
+    try {
+      // 🔥 Import dinâmico: só quebra em runtime se o usuário tentar importar
+      // um PDF sem ter rodado "npm install" depois do pdf-parse entrar no
+      // package.json — CSV e OFX continuam funcionando normalmente.
+      pdfParse = (await import("pdf-parse")).default;
+    } catch {
+      return { success: false, message: "Faltou instalar uma dependência pra ler PDF. Rode 'npm install' na pasta do projeto e tente de novo." };
+    }
+
+    const buffer = Buffer.from(base64, "base64");
+    const parsed = await pdfParse(buffer);
+    const rawText = (parsed.text || "").substring(0, 12000); // limite de segurança pro prompt
+
+    if (!rawText.trim()) return { success: false, message: "Não consegui ler texto desse PDF (pode ser uma fatura escaneada como imagem)." };
+
+    const promptText = `Extraia os itens de compra de uma fatura de cartão de crédito a partir do texto abaixo (extraído de um PDF, pode ter ruído de layout). Devolva SÓ um Array JSON, cada item com: date (formato YYYY-MM-DD, deduza o ano pelo contexto da fatura se não estiver explícito no item), amount (número positivo pra compra normal, negativo pra estorno/pagamento), description. Ignore linhas de resumo, total da fatura, limite disponível, cabeçalho/rodapé.\n\nTexto da fatura:\n${rawText}`;
+
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${process.env.OPENAI_API_KEY}` },
+      body: JSON.stringify({ model: "gpt-4o-mini", messages: [{ role: "system", content: "Responda APENAS com um Array JSON." }, { role: "user", content: promptText }], temperature: 0.1 })
+    });
+
+    if (!response.ok) return { success: false, message: "Falha ao consultar a IA." };
+    const data = await response.json();
+
+    let items: any[] = [];
+    try {
+      const content = data.choices[0].message.content;
+      items = JSON.parse(content.replace(/```json/g, '').replace(/```/g, '').trim());
+    } catch (e) {
+      console.error("Erro ao interpretar itens extraídos do PDF:", e);
+      return { success: false, message: "Não consegui interpretar os itens dessa fatura." };
+    }
+
+    const rows = items
+      .filter((it) => it && it.date && it.amount !== undefined && it.description)
+      .map((it) => ({ date: String(it.date), amount: Number(it.amount), description: String(it.description).substring(0, 200) }))
+      .filter((it) => !Number.isNaN(it.amount));
+
+    return { success: true, data: rows };
+  } catch (error) {
+    console.error("Erro em parsePdfInvoiceText:", error);
+    return { success: false, message: "Erro ao processar o PDF." };
+  }
 }

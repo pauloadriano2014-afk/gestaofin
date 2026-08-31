@@ -82,5 +82,12 @@ export function calculateDashboardData(rawData: any, viewMode: string, selectedD
         incomeTxs: txsOperacionais.filter((t: any) => t.type === 'income'),
         expenseTxs: txsOperacionais.filter((t: any) => t.type === 'expense'),
         investedTxs: txsInvestimentos.filter((t: any) => t.type === 'income' || t.type === 'expense'),
+        // 🔥 NOVO: versão "bruta" (sem excluir Investimentos/Cartão de Crédito/
+        // Reembolsos) das mesmas listas — é o que soma pro "Bruto: R$X" que já
+        // aparecia embaixo dos cards. Usado pelo toggle "incluir cartão,
+        // investimentos e reembolsos" dentro do detalhamento, já que a lista
+        // "Fluxo Variável" que mostrava isso foi removida da tela.
+        grossIncomeTxs: txs.filter((t: any) => t.type === 'income'),
+        grossExpenseTxs: txs.filter((t: any) => t.type === 'expense'),
     };
 }

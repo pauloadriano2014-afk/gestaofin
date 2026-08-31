@@ -1,22 +1,32 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { X, Upload, Loader2, CreditCard, FileText } from 'lucide-react'
-import { getUserCreditCards } from '@/app/creditCardActions'
+import { X, Upload, Loader2, CreditCard, FileText, Plus } from 'lucide-react'
+import { getUserCreditCards, createCreditCard } from '@/app/creditCardActions'
 import { processCardInvoiceWithAI, saveBulkCardInvoiceTransactions, parsePdfInvoiceText } from '@/app/actions'
 import { parseCardInvoiceCsv, parseOfx } from '@/utils/importParsers'
 import { ImportReviewModal } from '@/components/ImportReviewModal'
 
 const BATCH_SIZE = 15
+const NEW_CARD_VALUE = '__new__'
 
 // 🔥 NOVO: importar os itens da fatura de um cartão de uma vez (CSV, OFX ou
 // PDF) em vez de lançar compra por compra. Cada item nasce vinculado ao
 // cartão escolhido e categorizado pela IA (reaproveitando a mesma tela de
 // revisão do importador de extrato bancário).
+//
+// 🔥 NOVO: não exige mais passar por "Meus Cartões" antes — dá pra cadastrar
+// um cartão novo direto aqui (nome, dia de fechamento e vencimento) e seguir
+// pra importação sem sair da tela, num fluxo só.
 export function CardInvoiceImportModal({ categories, onClose }: { categories: any[]; onClose: () => void }) {
   const [cards, setCards] = useState<any[]>([])
   const [loadingCards, setLoadingCards] = useState(true)
   const [selectedCardId, setSelectedCardId] = useState('')
+
+  const [newCardName, setNewCardName] = useState('')
+  const [newCardClosingDay, setNewCardClosingDay] = useState('')
+  const [newCardDueDay, setNewCardDueDay] = useState('')
+  const [isSavingCard, setIsSavingCard] = useState(false)
 
   const [uploadStatus, setUploadStatus] = useState('')
   const [isReviewOpen, setIsReviewOpen] = useState(false)
@@ -27,9 +37,37 @@ export function CardInvoiceImportModal({ categories, onClose }: { categories: an
     getUserCreditCards().then((res) => {
       setCards(res)
       if (res.length === 1) setSelectedCardId(res[0].id)
+      else if (res.length === 0) setSelectedCardId(NEW_CARD_VALUE)
       setLoadingCards(false)
     }).catch(() => setLoadingCards(false))
   }, [])
+
+  async function handleCreateCard() {
+    if (!newCardName.trim() || !newCardClosingDay || !newCardDueDay) return
+    setIsSavingCard(true)
+    const res = await createCreditCard({
+      name: newCardName.trim(),
+      closingDay: Number(newCardClosingDay),
+      dueDay: Number(newCardDueDay),
+    })
+
+    if (!res.success) {
+      setIsSavingCard(false)
+      alert(res.message || 'Erro ao cadastrar o cartão.')
+      return
+    }
+
+    const previousIds = new Set(cards.map((c: any) => c.id))
+    const updated = await getUserCreditCards()
+    setCards(updated)
+    setIsSavingCard(false)
+
+    const created = updated.find((c: any) => !previousIds.has(c.id))
+    setSelectedCardId(created ? created.id : '')
+    setNewCardName('')
+    setNewCardClosingDay('')
+    setNewCardDueDay('')
+  }
 
   async function processRawRows(rawRows: { date: string; amount: number; description: string }[]) {
     if (rawRows.length === 0) {
@@ -64,8 +102,8 @@ export function CardInvoiceImportModal({ categories, onClose }: { categories: an
   function handleFileChange(event: any) {
     const file = event.target.files?.[0]
     if (!file) return
-    if (!selectedCardId) {
-      alert('Selecione primeiro a qual cartão essa fatura pertence.')
+    if (!selectedCardId || selectedCardId === NEW_CARD_VALUE) {
+      alert('Selecione (ou cadastre) primeiro a qual cartão essa fatura pertence.')
       event.target.value = null
       return
     }
@@ -149,8 +187,6 @@ export function CardInvoiceImportModal({ categories, onClose }: { categories: an
 
           {loadingCards ? (
             <div className="py-10 flex justify-center"><Loader2 className="w-6 h-6 animate-spin text-zinc-500" /></div>
-          ) : cards.length === 0 ? (
-            <p className="text-sm text-zinc-500 py-4 text-center">Você ainda não cadastrou nenhum cartão. Cadastre um em &quot;Meus Cartões&quot; antes de importar a fatura.</p>
           ) : (
             <div className="space-y-4">
               <div>
@@ -162,12 +198,59 @@ export function CardInvoiceImportModal({ categories, onClose }: { categories: an
                   value={selectedCardId}
                   onChange={(e) => setSelectedCardId(e.target.value)}
                 >
-                  <option value="">Selecione...</option>
+                  {cards.length === 0 && <option value="">Selecione...</option>}
                   {cards.map((c: any) => (
                     <option key={c.id} value={c.id}>{c.name}</option>
                   ))}
+                  <option value={NEW_CARD_VALUE}>+ Cadastrar novo cartão</option>
                 </select>
               </div>
+
+              {selectedCardId === NEW_CARD_VALUE && (
+                <div className="space-y-2 border border-dashed border-blue-500/40 rounded-xl p-3 bg-blue-500/5">
+                  <p className="text-[10px] text-zinc-500 mb-1">
+                    {cards.length === 0
+                      ? 'Ainda não tem nenhum cartão cadastrado — cadastre aqui mesmo, sem precisar ir em "Meus Cartões".'
+                      : 'Cadastre o novo cartão aqui mesmo.'}
+                  </p>
+                  <input
+                    type="text"
+                    placeholder="Nome do cartão (ex: Nubank)"
+                    className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-sm text-white outline-none focus:border-blue-600 transition-all"
+                    value={newCardName}
+                    onChange={(e) => setNewCardName(e.target.value)}
+                  />
+                  <div className="grid grid-cols-2 gap-2">
+                    <input
+                      type="number"
+                      min={1}
+                      max={31}
+                      placeholder="Dia fechamento"
+                      className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-sm text-white outline-none focus:border-blue-600 transition-all"
+                      value={newCardClosingDay}
+                      onChange={(e) => setNewCardClosingDay(e.target.value)}
+                    />
+                    <input
+                      type="number"
+                      min={1}
+                      max={31}
+                      placeholder="Dia vencimento"
+                      className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-sm text-white outline-none focus:border-blue-600 transition-all"
+                      value={newCardDueDay}
+                      onChange={(e) => setNewCardDueDay(e.target.value)}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleCreateCard}
+                    disabled={isSavingCard || !newCardName.trim() || !newCardClosingDay || !newCardDueDay}
+                    className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-bold rounded-lg p-2.5 flex items-center justify-center gap-2 transition-all"
+                  >
+                    {isSavingCard ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                    Cadastrar cartão
+                  </button>
+                </div>
+              )}
 
               {uploadStatus ? (
                 <div className="border border-dashed border-blue-500/40 rounded-xl p-6 flex flex-col items-center justify-center gap-2 text-center">
@@ -175,11 +258,11 @@ export function CardInvoiceImportModal({ categories, onClose }: { categories: an
                   <p className="text-sm text-blue-400 font-medium">{uploadStatus}</p>
                 </div>
               ) : (
-                <label className={`border border-dashed rounded-xl p-6 flex flex-col items-center justify-center gap-2 text-center transition-all cursor-pointer ${selectedCardId ? 'border-zinc-700 hover:border-blue-500 text-zinc-400 hover:text-blue-400' : 'border-zinc-800 text-zinc-600 cursor-not-allowed'}`}>
+                <label className={`border border-dashed rounded-xl p-6 flex flex-col items-center justify-center gap-2 text-center transition-all cursor-pointer ${selectedCard ? 'border-zinc-700 hover:border-blue-500 text-zinc-400 hover:text-blue-400' : 'border-zinc-800 text-zinc-600 cursor-not-allowed'}`}>
                   <FileText className="w-6 h-6" />
                   <p className="text-sm font-bold">Clique pra escolher o arquivo da fatura</p>
                   <p className="text-[10px] text-zinc-600">.csv, .ofx ou .pdf</p>
-                  <input type="file" accept=".csv,.ofx,.pdf" className="hidden" onChange={handleFileChange} disabled={!selectedCardId} />
+                  <input type="file" accept=".csv,.ofx,.pdf" className="hidden" onChange={handleFileChange} disabled={!selectedCard} />
                 </label>
               )}
 

@@ -18,7 +18,7 @@ const NEW_CARD_VALUE = '__new__'
 // 🔥 NOVO: não exige mais passar por "Meus Cartões" antes — dá pra cadastrar
 // um cartão novo direto aqui (nome, dia de fechamento e vencimento) e seguir
 // pra importação sem sair da tela, num fluxo só.
-export function CardInvoiceImportModal({ categories, onClose }: { categories: any[]; onClose: () => void }) {
+export function CardInvoiceImportModal({ categories, onClose, pendingFixedBills = [] }: { categories: any[]; onClose: () => void; pendingFixedBills?: any[] }) {
   const [cards, setCards] = useState<any[]>([])
   const [loadingCards, setLoadingCards] = useState(true)
   const [selectedCardId, setSelectedCardId] = useState('')
@@ -281,6 +281,7 @@ export function CardInvoiceImportModal({ categories, onClose }: { categories: an
         categories={categories}
         onConfirm={handleConfirmImport}
         isSaving={isSaving}
+        pendingFixedBills={pendingFixedBills}
       />
     </>
   )

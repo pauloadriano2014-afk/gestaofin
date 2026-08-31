@@ -593,6 +593,25 @@ export async function setFixedBillArchived(id: string, archived: boolean) {
   }
 }
 
+// --- CONTAS FIXAS PENDENTES (pra vincular na importação) ---
+// 🔥 NOVO: lista as ocorrências de conta fixa já geradas (por
+// ensureFixedBillOccurrences) mas ainda não pagas. Usado na tela de revisão
+// de importação (extrato bancário ou fatura de cartão) pra deixar o usuário
+// vincular um item importado a uma delas — em vez de criar um lançamento
+// novo e duplicar a despesa.
+export async function getPendingFixedBillOccurrences() {
+  try {
+    const userId = await getUser();
+    if (!userId) return [];
+    return await db.select().from(transactions).where(
+      and(eq(transactions.userId, userId), sql`${transactions.fixedBillId} IS NOT NULL`, eq(transactions.isPaid, false))
+    );
+  } catch (error) {
+    console.error("Erro ao buscar contas fixas pendentes:", error);
+    return [];
+  }
+}
+
 // --- ATUALIZAR ORÇAMENTO ---
 export async function updateCategoryBudget(categoryId: string, budget: string) {
   try {
@@ -898,6 +917,24 @@ export async function saveBulkTransactions(transactionsList: any[]) {
         if (!userId) return { success: false, message: "Login necessário." };
 
         for (const tx of transactionsList) {
+            // 🔥 NOVO: se na revisão o usuário vinculou esse item importado a uma
+            // ocorrência de conta fixa pendente, dá baixa nela (usando o valor
+            // real importado, o que já calcula juros/desconto automaticamente)
+            // em vez de criar um lançamento novo — evita duplicar a despesa.
+            if (tx.linkedFixedBillTxId) {
+                const existing = (await db.select().from(transactions).where(
+                    and(eq(transactions.id, tx.linkedFixedBillTxId), eq(transactions.userId, userId))
+                ))[0];
+                if (existing) {
+                    await db.update(transactions).set({
+                        amount: tx.amount,
+                        isPaid: true,
+                        paidAt: tx.date,
+                    }).where(eq(transactions.id, tx.linkedFixedBillTxId));
+                    continue;
+                }
+            }
+
             await db.insert(transactions).values({
                 userId: userId,
                 description: tx.description,
@@ -1006,6 +1043,23 @@ export async function saveBulkCardInvoiceTransactions(transactionsList: any[], c
     if (!creditCardId) return { success: false, message: "Selecione o cartão." };
 
     for (const tx of transactionsList) {
+      // 🔥 NOVO: mesmo tratamento do extrato bancário — se o item foi
+      // vinculado a uma conta fixa pendente, dá baixa nela em vez de criar
+      // um lançamento novo (evita duplicar).
+      if (tx.linkedFixedBillTxId) {
+        const existing = (await db.select().from(transactions).where(
+          and(eq(transactions.id, tx.linkedFixedBillTxId), eq(transactions.userId, userId))
+        ))[0];
+        if (existing) {
+          await db.update(transactions).set({
+            amount: tx.amount,
+            isPaid: true,
+            paidAt: tx.date,
+          }).where(eq(transactions.id, tx.linkedFixedBillTxId));
+          continue;
+        }
+      }
+
       await db.insert(transactions).values({
         userId: userId,
         description: tx.description,

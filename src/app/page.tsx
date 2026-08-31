@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef } from "react";
 import { ReportModal } from "@/components/ReportModal"; 
-import { getDashboardData, toggleTransactionStatus, copyFixedExpenses, generateMonthlyReport, deleteTransaction, processCSVWithAI, saveBulkTransactions } from "./actions"; 
+import { getDashboardData, toggleTransactionStatus, copyFixedExpenses, generateMonthlyReport, deleteTransaction, processCSVWithAI, saveBulkTransactions, getPendingFixedBillOccurrences } from "./actions";
 import { TransactionModal } from "@/components/TransactionModal";
 import { BudgetModal } from "@/components/BudgetModal";
 import { ImportReviewModal } from "@/components/ImportReviewModal";
@@ -114,6 +114,9 @@ export default function Dashboard() {
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
   const [reviewTransactions, setReviewTransactions] = useState<any[]>([]);
   const [isSavingBulk, setIsSavingBulk] = useState(false);
+  // 🔥 NOVO: ocorrências de conta fixa pendentes (ainda não pagas), pra dar
+  // baixa nelas direto na tela de revisão de importação em vez de duplicar.
+  const [pendingFixedBills, setPendingFixedBills] = useState<any[]>([]);
 
   // 🔥 NOVO: cartões de crédito, regras de categorização e um "carimbo" pra
   // avisar os painéis de previsão/contas em aberto que algo mudou.
@@ -146,8 +149,12 @@ export default function Dashboard() {
 
   // Carrega sempre que o range ou a chavinha mudar
   async function loadData() {
-    const result = await getDashboardData(startMonth, startYear, endMonth, endYear, isolatePeriod);
+    const [result, pending] = await Promise.all([
+      getDashboardData(startMonth, startYear, endMonth, endYear, isolatePeriod),
+      getPendingFixedBillOccurrences(),
+    ]);
     setRawData(result);
+    setPendingFixedBills(pending);
     setRefreshKey((k) => k + 1); // avisa os painéis de Contas em Aberto / Previsão para atualizar também
   }
 
@@ -517,16 +524,17 @@ export default function Dashboard() {
       {isCategoryRulesModalOpen && (<CategoryRulesModal onClose={() => setIsCategoryRulesModalOpen(false)} categories={rawData.allCategories} />)}
       {isCategoriesModalOpen && (<CategoriesModal onClose={() => { setIsCategoriesModalOpen(false); loadData(); }} />)}
       {isFixedBillsModalOpen && (<FixedBillsModal categories={rawData.allCategories} onClose={() => { setIsFixedBillsModalOpen(false); loadData(); }} />)}
-      {isCardInvoiceModalOpen && (<CardInvoiceImportModal categories={rawData.allCategories} onClose={() => { setIsCardInvoiceModalOpen(false); loadData(); }} />)}
+      {isCardInvoiceModalOpen && (<CardInvoiceImportModal categories={rawData.allCategories} pendingFixedBills={pendingFixedBills} onClose={() => { setIsCardInvoiceModalOpen(false); loadData(); }} />)}
 
       {/* 🔥 NOVO MODAL DE REVISÃO DA IA 🔥 */}
-      <ImportReviewModal 
+      <ImportReviewModal
         isOpen={isReviewModalOpen}
         onClose={() => setIsReviewModalOpen(false)}
         initialTransactions={reviewTransactions}
         categories={rawData.allCategories}
         onConfirm={handleConfirmImport}
         isSaving={isSavingBulk}
+        pendingFixedBills={pendingFixedBills}
       />
     </main>
   );

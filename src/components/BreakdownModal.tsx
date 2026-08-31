@@ -1,10 +1,13 @@
 'use client'
 
-import { X, Loader2, ArrowDownRight, ArrowUpRight, Briefcase, User, Calculator } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { X, Loader2, ArrowDownRight, ArrowUpRight, Briefcase, User, Calculator, Tag } from 'lucide-react'
 
 // 🔥 NOVO: modal genérico que "prova" um dos 4 cards do topo do dashboard —
 // mostra a lista de lançamentos que somados chegam no valor exibido no card,
-// pra você poder clicar e conferir de onde veio aquele número.
+// pra você poder clicar e conferir de onde veio aquele número. Agora também
+// mostra o valor por categoria (antes da lista item a item), e dá pra clicar
+// numa categoria pra filtrar só os lançamentos dela na lista de baixo.
 export function BreakdownModal({
   title,
   description,
@@ -14,6 +17,7 @@ export function BreakdownModal({
   formatCurrency,
   loading,
   onClose,
+  onEditTransaction,
 }: {
   title: string
   description: string
@@ -23,11 +27,50 @@ export function BreakdownModal({
   formatCurrency: (v: number) => string
   loading?: boolean
   onClose: () => void
+  onEditTransaction?: (tx: any) => void
 }) {
+  const [activeCategory, setActiveCategory] = useState<string | null>(null)
+
   const incomeSum = transactions.filter((t) => t.type === 'income').reduce((s, t) => s + Math.abs(Number(t.amount)), 0)
   const expenseSum = transactions.filter((t) => t.type === 'expense').reduce((s, t) => s + Math.abs(Number(t.amount)), 0)
 
   const categoryName = (id: string | null) => categories.find((c: any) => c.id === id)?.name || 'Sem categoria'
+
+  // 🔥 NOVO: agrupa os lançamentos por categoria pra mostrar o total de cada
+  // uma antes da lista detalhada (não faz sentido no modo "invested", que é
+  // sempre uma única categoria — Investimentos).
+  const categoryBreakdown = useMemo(() => {
+    if (mode === 'invested') return []
+    const map = new Map<string, { id: string; income: number; expense: number; count: number }>()
+    transactions.forEach((t: any) => {
+      const id = t.categoryId || 'none'
+      if (!map.has(id)) map.set(id, { id, income: 0, expense: 0, count: 0 })
+      const entry = map.get(id)!
+      if (t.type === 'income') entry.income += Math.abs(Number(t.amount))
+      else entry.expense += Math.abs(Number(t.amount))
+      entry.count += 1
+    })
+    const totalForPercent = mode === 'income' ? incomeSum : mode === 'expense' ? expenseSum : incomeSum + expenseSum
+    return Array.from(map.values())
+      .map((e) => {
+        const net = e.income - e.expense
+        const value = mode === 'income' ? e.income : mode === 'expense' ? e.expense : Math.abs(net)
+        return {
+          ...e,
+          name: e.id === 'none' ? 'Sem categoria' : categoryName(e.id),
+          net,
+          value,
+          percent: totalForPercent > 0 ? (value / totalForPercent) * 100 : 0,
+        }
+      })
+      .filter((e) => e.value > 0)
+      .sort((a, b) => b.value - a.value)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [transactions, categories, mode])
+
+  const visibleTransactions = activeCategory
+    ? transactions.filter((t: any) => (t.categoryId || 'none') === activeCategory)
+    : transactions
 
   return (
     <div className="fixed inset-0 bg-black/90 backdrop-blur-sm flex items-center justify-center p-4 z-[9999]">
@@ -73,13 +116,55 @@ export function BreakdownModal({
               <p className="text-[10px] text-zinc-600 pt-0.5">{transactions.length} lançamento{transactions.length === 1 ? '' : 's'}</p>
             </div>
 
+            {/* 🔥 NOVO: POR CATEGORIA (antes da lista detalhada) */}
+            {categoryBreakdown.length > 0 && (
+              <div className="mb-4">
+                <h3 className="text-xs font-bold text-zinc-400 uppercase flex items-center gap-1.5 mb-2">
+                  <Tag className="w-3.5 h-3.5" /> Por categoria
+                  {activeCategory && (
+                    <button onClick={() => setActiveCategory(null)} className="ml-auto normal-case font-medium text-blue-400 hover:text-blue-300 text-[11px]">
+                      limpar filtro
+                    </button>
+                  )}
+                </h3>
+                <div className="space-y-1.5">
+                  {categoryBreakdown.map((c) => {
+                    const isActive = activeCategory === c.id
+                    const barColor = mode === 'balance' ? (c.net >= 0 ? 'bg-emerald-500' : 'bg-red-500') : mode === 'income' ? 'bg-emerald-500' : 'bg-red-500'
+                    const valueColor = mode === 'balance' ? (c.net >= 0 ? 'text-emerald-500' : 'text-red-500') : mode === 'income' ? 'text-emerald-500' : 'text-red-500'
+                    return (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => setActiveCategory(isActive ? null : c.id)}
+                        className={`w-full text-left rounded-lg p-2.5 border transition-colors ${isActive ? 'bg-blue-500/10 border-blue-500/40' : 'bg-zinc-950 border-zinc-800 hover:border-zinc-700'}`}
+                      >
+                        <div className="flex items-center justify-between gap-2 mb-1">
+                          <span className="text-xs font-semibold text-zinc-200 truncate">{c.name} <span className="text-zinc-600 font-normal">({c.count})</span></span>
+                          <span className={`font-mono text-xs font-bold whitespace-nowrap ${valueColor}`}>{mode === 'balance' && c.net < 0 ? '- ' : ''}{formatCurrency(Math.abs(mode === 'balance' ? c.net : c.value))}</span>
+                        </div>
+                        <div className="h-1 bg-zinc-800 rounded-full overflow-hidden">
+                          <div className={`h-full rounded-full ${barColor}`} style={{ width: `${Math.min(100, c.percent)}%` }} />
+                        </div>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
             {/* LISTA DE LANÇAMENTOS */}
             <div className="space-y-2">
-              {transactions.map((tx: any) => {
+              {visibleTransactions.map((tx: any) => {
                 const isIncome = tx.type === 'income'
                 const label = mode === 'invested' ? (isIncome ? 'Resgate' : 'Aporte') : categoryName(tx.categoryId)
                 return (
-                  <div key={tx.id} className="flex items-center justify-between gap-3 bg-zinc-950 border border-zinc-800 rounded-xl p-3">
+                  <div
+                    key={tx.id}
+                    onClick={onEditTransaction ? () => onEditTransaction(tx) : undefined}
+                    className={`flex items-center justify-between gap-3 bg-zinc-950 border border-zinc-800 rounded-xl p-3 ${onEditTransaction ? 'cursor-pointer hover:border-blue-500/40 transition-colors' : ''}`}
+                    title={onEditTransaction ? 'Clique para editar este lançamento' : undefined}
+                  >
                     <div className="flex items-center gap-3 min-w-0">
                       <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${isIncome ? 'bg-emerald-500/10 text-emerald-600' : 'bg-red-500/10 text-red-500'}`}>
                         {isIncome ? <ArrowDownRight className="w-4 h-4" /> : <ArrowUpRight className="w-4 h-4" />}
@@ -96,7 +181,7 @@ export function BreakdownModal({
                   </div>
                 )
               })}
-              {transactions.length === 0 && <p className="text-sm text-zinc-500 text-center py-8">Nenhum lançamento nesse total.</p>}
+              {visibleTransactions.length === 0 && <p className="text-sm text-zinc-500 text-center py-8">Nenhum lançamento nesse total.</p>}
             </div>
           </>
         )}

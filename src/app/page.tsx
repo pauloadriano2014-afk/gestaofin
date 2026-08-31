@@ -432,6 +432,7 @@ export default function Dashboard() {
           endYear={endYear}
           isolatePeriod={isolatePeriod}
           viewMode={viewMode}
+          onEditTransaction={handleEdit}
         />
         <DashboardCharts theme={theme} processedData={processedData} currentTheme={currentTheme} formatCurrency={formatCurrency} setSelectedCategory={setSelectedCategory} setBudgetModalOpen={setBudgetModalOpen} />
 

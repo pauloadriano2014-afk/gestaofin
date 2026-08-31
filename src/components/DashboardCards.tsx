@@ -25,6 +25,7 @@ export function DashboardCards({
   endYear,
   isolatePeriod,
   viewMode,
+  onEditTransaction,
 }: any) {
   const [openModal, setOpenModal] = useState<null | 'income' | 'expense' | 'balance' | 'invested'>(null);
   const [balanceTxs, setBalanceTxs] = useState<any[]>([]);
@@ -36,6 +37,13 @@ export function DashboardCards({
     const rows = await getBalanceBreakdown(startMonth, startYear, endMonth, endYear, isolatePeriod, viewMode);
     setBalanceTxs(rows);
     setLoadingBalance(false);
+  };
+
+  // 🔥 NOVO: clicar num lançamento dentro do modal de detalhamento fecha o
+  // modal e abre a edição dele (mesmo fluxo de editar usado no resto da tela).
+  const handleEditFromBreakdown = (tx: any) => {
+    setOpenModal(null);
+    onEditTransaction?.(tx);
   };
 
   return (
@@ -124,6 +132,7 @@ export function DashboardCards({
           formatCurrency={formatCurrency}
           loading={loadingBalance}
           onClose={() => setOpenModal(null)}
+          onEditTransaction={onEditTransaction ? handleEditFromBreakdown : undefined}
         />
       )}
 
@@ -136,6 +145,7 @@ export function DashboardCards({
           categories={categories}
           formatCurrency={formatCurrency}
           onClose={() => setOpenModal(null)}
+          onEditTransaction={onEditTransaction ? handleEditFromBreakdown : undefined}
         />
       )}
 
@@ -148,6 +158,7 @@ export function DashboardCards({
           categories={categories}
           formatCurrency={formatCurrency}
           onClose={() => setOpenModal(null)}
+          onEditTransaction={onEditTransaction ? handleEditFromBreakdown : undefined}
         />
       )}
 
@@ -160,6 +171,7 @@ export function DashboardCards({
           categories={categories}
           formatCurrency={formatCurrency}
           onClose={() => setOpenModal(null)}
+          onEditTransaction={onEditTransaction ? handleEditFromBreakdown : undefined}
         />
       )}
     </>

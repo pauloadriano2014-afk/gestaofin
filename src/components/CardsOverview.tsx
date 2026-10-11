@@ -2,6 +2,7 @@
 
 import { CreditCard, CheckCircle2, ListChecks, Settings2 } from 'lucide-react'
 import { accentFor } from '@/utils/ownerAccent'
+import { groupCardsByOwner } from '@/utils/cardGroups'
 
 const diffDays = (fromStr: string, toStr: string) => {
   const [fy, fm, fd] = fromStr.split('-').map(Number)
@@ -49,9 +50,26 @@ export function CardsOverview({ theme, formatCurrency, cards, owners, todayStr, 
     )
   }
 
+  // Um bloco por dono (Paulo, Adri, Empresa...); com um dono só, sem cabeçalho.
+  const groups = groupCardsByOwner(cards, owners)
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-      {cards.map((card: any) => {
+    <div className="space-y-6">
+      {groups.map((group) => (
+        <section key={group.ownerId ?? 'none'} className="space-y-3">
+          {groups.length > 1 && (
+            <div className="flex items-center justify-between gap-3">
+              <h3 className={`flex items-center gap-2 text-sm font-bold uppercase tracking-wider ${theme.text}`}>
+                <span className={`w-2.5 h-2.5 rounded-full ${group.ownerId ? accentFor(group.ownerId, owners).dot : 'bg-slate-400'}`} />
+                {group.ownerName} <span className={`font-normal normal-case ${theme.textMuted}`}>· {group.cards.length} {group.cards.length === 1 ? 'cartão' : 'cartões'}</span>
+              </h3>
+              <p className={`text-[11px] text-right ${theme.textMuted}`}>
+                Em aberto {formatCurrency(group.cards.reduce((sum: number, c: any) => sum + (c.openCycle?.total || 0), 0))}
+                {' · '}A pagar <span className="text-red-500">{formatCurrency(group.cards.reduce((sum: number, c: any) => sum + (c.closedUnpaidTotal || 0), 0))}</span>
+              </p>
+            </div>
+          )}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      {group.cards.map((card: any) => {
         const open = card.openCycle
         const closesIn = open ? diffDays(todayStr, open.closingDate) : null
         return (
@@ -110,6 +128,9 @@ export function CardsOverview({ theme, formatCurrency, cards, owners, todayStr, 
           </div>
         )
       })}
+          </div>
+        </section>
+      ))}
     </div>
   )
 }

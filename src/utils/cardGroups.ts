@@ -60,3 +60,24 @@ export function groupCardItems(
   }
   return entries.sort((a, b) => (a.sortDate < b.sortDate ? 1 : a.sortDate > b.sortDate ? -1 : 0));
 }
+
+// ---------------------------------------------------------------------------
+// CARTÕES AGRUPADOS POR DONO (Paulo, Adri, Empresa...)
+// ---------------------------------------------------------------------------
+
+export interface CardOwnerGroup<T> { ownerId: string | null; ownerName: string; kind: string | null; cards: T[] }
+
+// Um grupo por dono, na ordem em que os donos foram cadastrados; só entram donos
+// que têm cartão. Cartões sem dono (ou de dono que não existe mais) ficam no fim.
+export function groupCardsByOwner<T extends { ownerId?: string | null }>(
+  cards: T[],
+  owners: { id: string; name: string; kind: string }[]
+): CardOwnerGroup<T>[] {
+  const known = new Set(owners.map((o) => o.id));
+  const groups: CardOwnerGroup<T>[] = owners
+    .map((o) => ({ ownerId: o.id as string | null, ownerName: o.name, kind: o.kind as string | null, cards: cards.filter((c) => c.ownerId === o.id) }))
+    .filter((g) => g.cards.length > 0);
+  const orphans = cards.filter((c) => !c.ownerId || !known.has(c.ownerId));
+  if (orphans.length > 0) groups.push({ ownerId: null, ownerName: "Sem dono", kind: null, cards: orphans });
+  return groups;
+}

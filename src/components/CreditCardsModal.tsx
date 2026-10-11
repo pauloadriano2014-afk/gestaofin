@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react'
 import { getOwnersAndAccounts } from '@/app/ownerActions'
 import { InvoiceItemsModal } from './InvoiceItemsModal'
+import { groupCardsByOwner } from '@/utils/cardGroups'
+import { accentFor } from '@/utils/ownerAccent'
 import { X, CreditCard, Loader2, Plus, Pencil, Archive, CheckCircle2, Check } from 'lucide-react'
 import {
   getCreditCardsOverview,
@@ -30,6 +32,8 @@ export function CreditCardsModal({ onClose }: { onClose: () => void }) {
   const [closingDay, setClosingDay] = useState('')
   const [dueDay, setDueDay] = useState('')
   const [owners, setOwners] = useState<any[]>([])
+  // Filtro por dono: 'all' mostra todos, agrupados por dono
+  const [ownerFilter, setOwnerFilter] = useState<string>('all')
   const [viewingInvoice, setViewingInvoice] = useState<{ cardId: string; cycleKey: string } | null>(null)
   const [ownerId, setOwnerId] = useState('')
   const [showForm, setShowForm] = useState(false)
@@ -198,7 +202,40 @@ export function CreditCardsModal({ onClose }: { onClose: () => void }) {
               <p className="text-sm text-zinc-500 text-center py-6">Nenhum cartão cadastrado ainda. Para cadastrar o primeiro, use o botão &quot;Importar Fatura&quot; — dá pra criar o cartão direto por lá.</p>
             )}
 
-            {cards.map((card) => (
+            {(() => {
+              const groups = groupCardsByOwner(cards, owners)
+              const visibleGroups = ownerFilter === 'all' ? groups : groups.filter((g) => (g.ownerId ?? 'none') === ownerFilter)
+              return (
+                <>
+                  {groups.length > 1 && (
+                    <div className="flex gap-2 overflow-x-auto pb-1">
+                      {[{ id: 'all', label: 'Todos', count: cards.length, dot: '' }, ...groups.map((g) => ({ id: g.ownerId ?? 'none', label: g.ownerName, count: g.cards.length, dot: g.ownerId ? accentFor(g.ownerId, owners).dot : 'bg-slate-400' }))].map((chip) => (
+                        <button
+                          key={chip.id}
+                          onClick={() => setOwnerFilter(chip.id)}
+                          className={`shrink-0 flex items-center gap-2 px-4 py-2 text-sm font-bold rounded-full border transition-all ${ownerFilter === chip.id ? 'bg-blue-600 border-blue-600 text-white' : 'bg-zinc-950 border-zinc-800 text-zinc-300 hover:border-zinc-600'}`}
+                        >
+                          {chip.dot && <span className={`w-2 h-2 rounded-full ${chip.dot}`} />}
+                          {chip.label} <span className="opacity-70 text-xs">({chip.count})</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {visibleGroups.map((group) => (
+                    <div key={group.ownerId ?? 'none'} className="space-y-4">
+                      {(ownerFilter === 'all' && groups.length > 1) && (
+                        <div className="flex items-center justify-between gap-3 pt-2">
+                          <h3 className="flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-zinc-300">
+                            <span className={`w-2.5 h-2.5 rounded-full ${group.ownerId ? accentFor(group.ownerId, owners).dot : 'bg-slate-400'}`} />
+                            {group.ownerName} <span className="text-zinc-500 font-normal normal-case">· {group.cards.length} {group.cards.length === 1 ? 'cartão' : 'cartões'}</span>
+                          </h3>
+                          <p className="text-[11px] text-zinc-500 text-right">
+                            Em aberto {formatCurrency(group.cards.reduce((sum: number, c: any) => sum + (c.openCycle?.total || 0), 0))}
+                            {' · '}A pagar <span className="text-red-400">{formatCurrency(group.cards.reduce((sum: number, c: any) => sum + (c.closedUnpaidTotal || 0), 0))}</span>
+                          </p>
+                        </div>
+                      )}
+                      {group.cards.map((card: any) => (
               <div key={card.id} className="bg-zinc-950 border border-zinc-800 rounded-xl p-4 space-y-3">
                 <div className="flex justify-between items-start">
                   <div>
@@ -355,7 +392,12 @@ export function CreditCardsModal({ onClose }: { onClose: () => void }) {
                   </button>
                 )}
               </div>
-            ))}
+                      ))}
+                    </div>
+                  ))}
+                </>
+              )
+            })()}
 
             {/* 🔥 REMOVIDO: o botão "Adicionar Cartão" saiu daqui de propósito —
                 agora existe um único lugar pra cadastrar um cartão novo, direto

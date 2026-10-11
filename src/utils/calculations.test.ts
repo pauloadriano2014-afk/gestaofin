@@ -616,3 +616,16 @@ test("tira-dúvidas: quando o saldo vem do servidor (por data de pagamento), a e
   assert.equal(e.aPagar, -120);
   assert.equal(e.saldoPrevisto, 4086.43);
 });
+
+import { groupCardsByOwner } from "./cardGroups";
+
+test("cartões: agrupados por dono, na ordem dos donos, com os sem dono no fim", () => {
+  const owners = [{ id: "p", name: "Paulo", kind: "pf" }, { id: "a", name: "Adri", kind: "pf" }, { id: "e", name: "Empresa", kind: "pj" }];
+  const cards = [
+    { id: "1", ownerId: "e" }, { id: "2", ownerId: "p" }, { id: "3", ownerId: "p" }, { id: "4", ownerId: "a" }, { id: "5", ownerId: null }, { id: "6", ownerId: "apagado" },
+  ];
+  const g = groupCardsByOwner(cards, owners);
+  assert.deepEqual(g.map((x) => [x.ownerName, x.cards.map((c) => c.id)]), [["Paulo", ["2", "3"]], ["Adri", ["4"]], ["Empresa", ["1"]], ["Sem dono", ["5", "6"]]]);
+  // dono sem cartão não aparece
+  assert.equal(groupCardsByOwner([{ id: "1", ownerId: "p" }], owners).length, 1);
+});

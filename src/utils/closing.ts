@@ -54,7 +54,7 @@ export function monthChecklist(raw: any, viewMode: string, cards: any[] = []): {
     id: "donos",
     ok: semDono.length === 0,
     title: "Todos com dono",
-    detail: semDono.length === 0 ? "Todos os lançamentos têm dono." : `${semDono.length} lançamento(s) sem dono: somem das visões de Paulo, Adri e Empresa.`,
+    detail: semDono.length === 0 ? "Todos os lançamentos têm dono." : `${semDono.length} lançamento(s) sem dono: somem das visões de cada nome.`,
     target: { section: "lancamentos", quick: "sem-dono" },
   });
 

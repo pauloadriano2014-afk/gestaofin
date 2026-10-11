@@ -2,7 +2,7 @@
 
 import { db } from "@/db";
 import { categories, transactions, userSettings, categoryRules, fixedBills, accounts, creditCards } from "@/db/schema";
-import { ensureOwners, resolveOwnership } from "@/db/owners";
+import { getOwners, resolveOwnership, ownerSetupNeeded } from "@/db/owners";
 import { matchesView } from "@/utils/owners";
 import { inferKindFromName, buildKindSets, type CategoryKind } from "@/utils/categoryKinds";
 import { sumBalance } from "@/utils/balance";
@@ -45,11 +45,10 @@ export async function getDashboardData(startMonth: number, startYear: number, en
     const lastDayOfEndMonth = new Date(endYear, endMonth, 0).getDate();
     const endDateStr = `${endYear}-${String(endMonth).padStart(2, '0')}-${String(lastDayOfEndMonth).padStart(2, '0')}`;
 
-    // Donos (Paulo / Adri / Empresa) primeiro: na primeira vez cria os donos
-    // padrão e atribui os lançamentos/contas fixas antigos (PF -> Paulo, PJ ->
-    // Empresa). Precisa terminar ANTES de gerar as contas fixas do mês, que
-    // herdam o dono do molde.
-    const ownerList = await ensureOwners(userId);
+    // Donos da conta (pessoas e empresas que a própria pessoa escolheu).
+    // Nada é criado aqui: quem ainda não escolheu a organização vê a tela de
+    // escolha (needsOwnerSetup) na primeira vez.
+    const ownerList = await getOwners(userId);
 
     // DESEMPENHO: antes estas etapas rodavam uma depois da outra (cada uma é
     // uma ida e volta ao banco). Elas não dependem entre si, então rodam juntas:
@@ -58,9 +57,10 @@ export async function getDashboardData(startMonth: number, startYear: number, en
     //    precisar clicar em "Virar Mês" (só mês atual/futuro, nunca passado);
     //  - contas cadastradas;
     //  - plano: regra única em db/planAccess (contas master nunca perdem o PRO).
-    const [accountList, isPro] = await Promise.all([
+    const [accountList, isPro, needsOwnerSetup] = await Promise.all([
       db.select().from(accounts).where(and(eq(accounts.userId, userId), eq(accounts.archived, false))),
       resolveIsPro(userId),
+      ownerSetupNeeded(userId),
       syncEssentialCategories(userId),
       ensureFixedBillOccurrencesForRange(userId, startMonth, startYear, endMonth, endYear),
     ]);
@@ -118,6 +118,7 @@ export async function getDashboardData(startMonth: number, startYear: number, en
       variableTransactions, 
       transactions: currentTransactions, 
       owners: ownerList,
+      needsOwnerSetup,
       accounts: accountList,
       summary: { balance, income, expense, globalBalance, globalBalancePF, globalBalancePJ, balanceByOwner },
       categoryStats, 

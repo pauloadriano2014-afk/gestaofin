@@ -5,14 +5,15 @@ import { owners, accounts } from "@/db/schema";
 import { and, asc, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { getUser } from "./actions";
-import { ensureOwners } from "@/db/owners";
+import { getOwners, loadOwnerSetupState, applyOwnerSetup, keepOwnersAsIs } from "@/db/owners";
+import type { OwnerSpec } from "@/utils/ownerSetup";
 
-// --- DONOS (Paulo, Adri, Empresa...) E CONTAS ---
+// --- DONOS (pessoas e empresas da conta) E CONTAS ---
 
 export async function getOwnersAndAccounts() {
   const userId = await getUser();
   if (!userId) return { owners: [], accounts: [] };
-  const ownerList = await ensureOwners(userId);
+  const ownerList = await getOwners(userId);
   const accountList = await db.select().from(accounts)
     .where(and(eq(accounts.userId, userId), eq(accounts.archived, false)))
     .orderBy(asc(accounts.name));
@@ -24,7 +25,7 @@ export async function createOwner(data: { name: string; kind: "pf" | "pj" }) {
     const userId = await getUser();
     if (!userId) return { success: false, message: "Login necessário." };
     if (!data.name?.trim()) return { success: false, message: "Dê um nome." };
-    const existing = await ensureOwners(userId);
+    const existing = await getOwners(userId);
     await db.insert(owners).values({
       userId,
       name: data.name.trim(),
@@ -61,7 +62,7 @@ export async function createAccount(data: {
     const userId = await getUser();
     if (!userId) return { success: false, message: "Login necessário." };
     if (!data.name?.trim()) return { success: false, message: "Dê um nome pra conta." };
-    const ownerList = await ensureOwners(userId);
+    const ownerList = await getOwners(userId);
     if (!ownerList.some((o) => o.id === data.ownerId)) return { success: false, message: "Escolha o dono da conta." };
     await db.insert(accounts).values({
       userId,
@@ -83,7 +84,7 @@ export async function updateAccount(id: string, data: { name: string; ownerId: s
     const userId = await getUser();
     if (!userId) return { success: false, message: "Login necessário." };
     if (!data.name?.trim()) return { success: false, message: "Dê um nome pra conta." };
-    const ownerList = await ensureOwners(userId);
+    const ownerList = await getOwners(userId);
     if (!ownerList.some((o) => o.id === data.ownerId)) return { success: false, message: "Escolha o dono da conta." };
     await db.update(accounts).set({
       name: data.name.trim(),
@@ -107,5 +108,44 @@ export async function setAccountArchived(id: string, archived: boolean) {
     return { success: true };
   } catch (error) {
     return { success: false, message: "Erro ao arquivar conta." };
+  }
+}
+
+// --- ORGANIZAÇÃO DA CONTA (só eu, casal, família, empresa, nomes livres) ---
+
+// Estado atual pra tela de escolha: quem já existe (e se tem dados) e quantos
+// lançamentos antigos ainda estão sem dono.
+export async function getOwnerSetup() {
+  const userId = await getUser();
+  if (!userId) return { owners: [], legacy: { pf: 0, pj: 0 } };
+  const { existing, legacy } = await loadOwnerSetupState(userId);
+  return { owners: existing, legacy };
+}
+
+export async function saveOwnerSetup(desired: OwnerSpec[]) {
+  try {
+    const userId = await getUser();
+    if (!userId) return { success: false, message: "Login necessário." };
+    const res = await applyOwnerSetup(userId, desired);
+    if (res.success) revalidatePath("/");
+    return res;
+  } catch (error) {
+    console.error("Erro ao salvar a organização da conta:", error);
+    return { success: false, message: "Não foi possível salvar. Tente de novo." };
+  }
+}
+
+// "Manter como está": só para quem já tem donos e não quer mudar nada.
+export async function confirmCurrentOwners() {
+  try {
+    const userId = await getUser();
+    if (!userId) return { success: false, message: "Login necessário." };
+    const owners = await getOwners(userId);
+    if (owners.length === 0) return { success: false, message: "Escolha uma organização." };
+    await keepOwnersAsIs(userId);
+    revalidatePath("/");
+    return { success: true };
+  } catch (error) {
+    return { success: false, message: "Não foi possível salvar." };
   }
 }

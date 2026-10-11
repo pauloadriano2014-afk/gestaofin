@@ -29,6 +29,8 @@ import { ReportsView } from "@/components/views/ReportsView";
 import { MonthCloseChecklist } from "@/components/MonthCloseChecklist";
 import { InvoiceItemsModal } from "@/components/InvoiceItemsModal";
 import { accentFor } from "@/utils/ownerAccent";
+import { buildViewOptions } from "@/utils/owners";
+import { OwnerSetupModal } from "@/components/OwnerSetupModal";
 import { monthChecklist } from "@/utils/closing";
 import { EMPTY_FILTERS, type TxFilters } from "@/utils/txFilters";
 import { todayDateStr } from "@/utils/dates";
@@ -147,6 +149,7 @@ export default function Dashboard() {
   const [isCategoriesModalOpen, setIsCategoriesModalOpen] = useState(false);
   const [isFixedBillsModalOpen, setIsFixedBillsModalOpen] = useState(false);
   const [isOwnersModalOpen, setIsOwnersModalOpen] = useState(false);
+  const [isOwnerSetupOpen, setIsOwnerSetupOpen] = useState(false);
   const [isCardInvoiceModalOpen, setIsCardInvoiceModalOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
 
@@ -309,15 +312,11 @@ export default function Dashboard() {
       }
   }
 
-  // Visões da barra do topo: Tudo, o conjunto das pessoas físicas ("Casal", só
-  // aparece com 2+ pessoas) e cada dono separado (Paulo, Adri, Empresa...).
+  // Visões da barra do topo: Tudo, os grupos (Casal/Família/Empresas, só quando
+  // fazem sentido) e cada dono, com os nomes que a própria pessoa escolheu.
   const owners: any[] = rawData.owners || [];
   const ownerNameById = (id?: string | null) => owners.find((o) => o.id === id)?.name || '';
-  const viewOptions: { id: string; label: string; kind: 'all' | 'pf' | 'pj' }[] = [
-    { id: 'all', label: 'Tudo', kind: 'all' },
-    ...(owners.filter((o) => o.kind === 'pf').length >= 2 ? [{ id: 'pf', label: 'Casal', kind: 'pf' as const }] : []),
-    ...owners.map((o) => ({ id: o.id as string, label: o.name as string, kind: o.kind as 'pf' | 'pj' })),
-  ];
+  const viewOptions = buildViewOptions(owners);
 
   const processedData = useMemo(() => {
     return calculateDashboardData(rawData, viewMode, selectedDay);
@@ -381,7 +380,7 @@ export default function Dashboard() {
   }
 
   const cadastros = [
-    { label: 'Pessoas e Contas', hint: 'Paulo, Adri, Empresa, bancos', icon: Users, run: () => setIsOwnersModalOpen(true) },
+    { label: 'Pessoas e Contas', hint: 'Quem tem gastos (pessoas e empresas) e bancos', icon: Users, run: () => setIsOwnersModalOpen(true) },
     { label: 'Meus Cartões', hint: 'Faturas, fechamento e vencimento', icon: CreditCard, run: () => setIsCreditCardsModalOpen(true) },
     { label: 'Contas Fixas', hint: 'Aluguel, internet, assinaturas', icon: Repeat, run: () => setIsFixedBillsModalOpen(true) },
     { label: 'Categorias', hint: 'Metas e como cada uma entra nas contas', icon: Tags, run: () => setIsCategoriesModalOpen(true) },
@@ -512,7 +511,14 @@ export default function Dashboard() {
       {isCategoriesModalOpen && (<CategoriesModal onClose={() => { setIsCategoriesModalOpen(false); loadData(); }} />)}
       <HelpAssistant theme={theme} rawData={rawData} viewMode={viewMode} isolatePeriod={isolatePeriod} formatCurrency={formatCurrency} viewLabel={viewLabel} open={helpOpen} onOpenChange={(v: boolean) => { setHelpOpen(v); if (!v) setHelpFocus(null); }} focusId={helpFocus} />
       {viewingInvoice && (<InvoiceItemsModal cardId={viewingInvoice.cardId} cycleKey={viewingInvoice.cycleKey} onClose={() => setViewingInvoice(null)} onChanged={loadData} />)}
-      {isOwnersModalOpen && (<OwnersAccountsModal onClose={() => { setIsOwnersModalOpen(false); loadData(); }} />)}
+      {isOwnersModalOpen && (<OwnersAccountsModal onClose={() => { setIsOwnersModalOpen(false); loadData(); }} onReorganize={() => { setIsOwnersModalOpen(false); setIsOwnerSetupOpen(true); }} />)}
+      {/* Escolha da organização (só eu, casal, família, empresa...): abre sozinha na primeira vez, sem botão de fechar. */}
+      {(rawData.needsOwnerSetup || isOwnerSetupOpen) && (
+        <OwnerSetupModal
+          onClose={rawData.needsOwnerSetup ? undefined : () => setIsOwnerSetupOpen(false)}
+          onDone={() => { setIsOwnerSetupOpen(false); setViewMode('all'); loadData(); }}
+        />
+      )}
       {isFixedBillsModalOpen && (<FixedBillsModal categories={rawData.allCategories} onClose={() => { setIsFixedBillsModalOpen(false); loadData(); }} />)}
       {isCardInvoiceModalOpen && (<CardInvoiceImportModal categories={rawData.allCategories} pendingFixedBills={pendingFixedBills} onClose={() => { setIsCardInvoiceModalOpen(false); loadData(); }} />)}
 

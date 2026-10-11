@@ -75,10 +75,10 @@ export const HELP_ENTRIES: HelpEntry[] = [
   },
   {
     id: "casal",
-    question: "O que é a visão Casal? E Paulo, Adri e Empresa?",
+    question: "O que são as visões do topo (Tudo, Casal/Família, cada nome)?",
     answer:
-      "Cada lançamento, cartão, conta e conta fixa tem um dono. Paulo, Adri e Empresa mostram só o que é de cada um; Casal soma os donos pessoa física (Paulo + Adri); Tudo soma todos. Você cria e renomeia donos em Cadastros > Pessoas e Contas.",
-    keywords: "casal paulo adri empresa dono visao pf pj separar",
+      "Cada lançamento, cartão, conta e conta fixa tem um dono, que pode ser uma pessoa ou uma empresa, com os nomes que você escolheu. Cada nome mostra só o que é dele; o grupo (Casal com duas pessoas, Família com três ou mais) soma as pessoas físicas; Tudo soma todos. Para mudar os nomes ou o modelo, use Cadastros > Pessoas e Contas > Reorganizar.",
+    keywords: "casal familia empresa dono nome visao pf pj separar grupo organizar reorganizar",
   },
   {
     id: "mover-fatura",
@@ -119,7 +119,7 @@ export const HELP_ENTRIES: HelpEntry[] = [
     id: "contas-em-aberto",
     question: "O que aparece em Contas em Aberto?",
     answer:
-      "Contas fixas ainda não pagas do período selecionado e da visão selecionada (Tudo, Casal, Paulo, Adri ou Empresa). As vencidas ficam em vermelho. O painel pode ser recolhido clicando no título.",
+      "Contas fixas ainda não pagas do período selecionado e da visão selecionada (Tudo, o grupo de pessoas ou um nome específico). As vencidas ficam em vermelho. O painel pode ser recolhido clicando no título.",
     keywords: "contas aberto vencidas pendentes nao pagas painel",
   },
   {
@@ -215,7 +215,7 @@ export function explainNumbers(raw: any, viewMode: string, isolatePeriod: boolea
   if (semCategoria.length > 0) alertas.push(`${semCategoria.length} lançamento(s) sem categoria (${money(total(semCategoria))}). Eles contam como gasto/receita normal; categorize para o app tratar certo.`);
 
   const semDono = txs.filter((t: any) => !t.ownerId);
-  if (semDono.length > 0) alertas.push(`${semDono.length} lançamento(s) sem dono. Eles aparecem em Tudo, mas somem das visões de Paulo, Adri e Empresa.`);
+  if (semDono.length > 0) alertas.push(`${semDono.length} lançamento(s) sem dono. Eles aparecem em Tudo, mas somem das visões de cada nome.`);
 
   const seen = new Map<string, number>();
   for (const t of txs) {

@@ -5,7 +5,7 @@ import { creditCards, transactions, creditCardInvoiceOverrides } from "@/db/sche
 import { and, eq, inArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { getUser } from "./actions";
-import { ensureOwners, resolveOwnership } from "@/db/owners";
+import { getOwners, resolveOwnership } from "@/db/owners";
 import { getInvoiceCycleForDate, getCycleDatesForCycleKey, todayDateStr } from "@/utils/creditCard";
 
 // --- CADASTRAR CARTÃO ---
@@ -294,7 +294,7 @@ export async function reassignTransactions(ids: string[], target: { ownerId?: st
     const changes: { ownerId?: string; entityType?: "pf" | "pj"; creditCardId?: string } = {};
 
     if (target.ownerId) {
-      const owner = (await ensureOwners(userId)).find((o) => o.id === target.ownerId);
+      const owner = (await getOwners(userId)).find((o) => o.id === target.ownerId);
       if (!owner) return { success: false, message: "Dono não encontrado." };
       changes.ownerId = owner.id;
       changes.entityType = owner.kind;

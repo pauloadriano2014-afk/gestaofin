@@ -289,3 +289,66 @@ test("fechamento do mês: tudo certo", () => {
   const r = monthChecklist({ transactions: [L("1")] }, "all", []);
   assert.equal(r.done, r.total);
 });
+
+import { planOwnerSetup, SETUP_TEMPLATES } from "./ownerSetup";
+import { buildViewOptions } from "./owners";
+
+const EX = (id: string, name: string, kind: "pf" | "pj", hasData = false) => ({ id, name, kind, hasData });
+
+test("organização: conta nova cria os donos escolhidos", () => {
+  const r = planOwnerSetup([], [{ name: " Ana ", kind: "pf" }, { name: "Loja da Ana", kind: "pj" }]);
+  assert.ok(r.ok);
+  if (r.ok) {
+    assert.deepEqual(r.final.map((f) => [f.existingId, f.name, f.kind]), [[null, "Ana", "pf"], [null, "Loja da Ana", "pj"]]);
+    assert.deepEqual(r.merges, []);
+  }
+});
+
+test("organização: reaproveita donos existentes (renomeia) e preserva os ids", () => {
+  const existing = [EX("a", "Paulo", "pf", true), EX("b", "Adri", "pf", true), EX("c", "Empresa", "pj", true)];
+  const r = planOwnerSetup(existing, [{ name: "João", kind: "pf" }, { name: "Maria", kind: "pf" }, { name: "Padaria", kind: "pj" }]);
+  assert.ok(r.ok);
+  if (r.ok) {
+    assert.deepEqual(r.final.map((f) => f.existingId), ["a", "b", "c"]);
+    assert.deepEqual(r.merges, []);
+  }
+});
+
+test("organização: 'Só eu' junta a outra pessoa física no dono que fica (nada se perde)", () => {
+  const existing = [EX("a", "Paulo", "pf", true), EX("b", "Adri", "pf", true)];
+  const r = planOwnerSetup(existing, [{ name: "Eu", kind: "pf" }]);
+  assert.ok(r.ok);
+  if (r.ok) {
+    assert.deepEqual(r.final.map((f) => f.existingId), ["a"]);
+    assert.deepEqual(r.merges, [{ fromId: "b", intoIndex: 0 }]);
+  }
+});
+
+test("organização: não deixa jogar lançamentos de empresa dentro de pessoa física", () => {
+  const existing = [EX("a", "Paulo", "pf", true), EX("c", "Empresa", "pj", true)];
+  const r = planOwnerSetup(existing, [{ name: "Eu", kind: "pf" }]);
+  assert.equal(r.ok, false);
+  // sem dados, a empresa vazia pode simplesmente sair
+  const vazio = planOwnerSetup([EX("a", "Paulo", "pf", true), EX("c", "Empresa", "pj", false)], [{ name: "Eu", kind: "pf" }]);
+  assert.ok(vazio.ok);
+  if (vazio.ok) assert.deepEqual(vazio.merges, [{ fromId: "c", intoIndex: null }]);
+});
+
+test("organização: validações de nome", () => {
+  assert.equal(planOwnerSetup([], []).ok, false);
+  assert.equal(planOwnerSetup([], [{ name: "  ", kind: "pf" }]).ok, false);
+  assert.equal(planOwnerSetup([], [{ name: "Ana", kind: "pf" }, { name: "ana", kind: "pj" }]).ok, false);
+  assert.equal(planOwnerSetup([], [{ name: "x".repeat(41), kind: "pf" }]).ok, false);
+});
+
+test("organização: os modelos prontos são válidos (menos o personalizado, que começa vazio)", () => {
+  for (const t of SETUP_TEMPLATES.filter((x) => x.id !== "custom")) assert.ok(planOwnerSetup([], t.owners).ok, t.id);
+});
+
+test("visões: o nome do grupo se adapta (Casal, Família, Empresas)", () => {
+  const o = (id: string, kind: string) => ({ id, name: id.toUpperCase(), kind });
+  assert.deepEqual(buildViewOptions([o("a", "pf")]).map((v) => v.label), ["Tudo", "A"]);
+  assert.deepEqual(buildViewOptions([o("a", "pf"), o("b", "pf")]).map((v) => v.label), ["Tudo", "Casal", "A", "B"]);
+  assert.deepEqual(buildViewOptions([o("a", "pf"), o("b", "pf"), o("c", "pf")])[1].label, "Família");
+  assert.deepEqual(buildViewOptions([o("a", "pf"), o("x", "pj"), o("y", "pj")]).map((v) => v.label), ["Tudo", "Empresas", "A", "X", "Y"]);
+});

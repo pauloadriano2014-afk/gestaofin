@@ -5,7 +5,7 @@ import { accounts, transactions, categoryRules } from "@/db/schema";
 import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { getUser } from "./actions";
-import { ensureOwners } from "@/db/owners";
+import { getOwners } from "@/db/owners";
 import { mapAsaasPayment, type AsaasPayment } from "@/utils/asaas";
 import { findMatchingRuleCategoryId } from "@/utils/categoryRules";
 
@@ -35,7 +35,7 @@ export async function syncAsaasPayments(startDate: string, endDate: string) {
     const baseUrl = (process.env.ASAAS_API_URL || "https://api.asaas.com/v3").replace(/\/$/, "");
 
     // 1. Conta "Asaas" (cria na primeira vez, no dono PJ).
-    const ownerList = await ensureOwners(userId);
+    const ownerList = await getOwners(userId);
     let account = (await db.select().from(accounts).where(and(eq(accounts.userId, userId), eq(accounts.institution, "asaas"), eq(accounts.archived, false))))[0];
     if (!account) {
       const owner = ownerList.find((o) => o.kind === "pj") ?? ownerList[0];

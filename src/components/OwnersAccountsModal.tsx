@@ -6,7 +6,7 @@ import { getOwnersAndAccounts, createOwner, renameOwner, createAccount, setAccou
 
 const KIND_LABEL: Record<string, string> = { checking: 'Conta corrente', gateway: 'Vendas (Asaas etc.)', cash: 'Caixa / dinheiro' }
 
-export function OwnersAccountsModal({ onClose }: { onClose: () => void }) {
+export function OwnersAccountsModal({ onClose, onReorganize }: { onClose: () => void; onReorganize?: () => void }) {
   const [owners, setOwners] = useState<any[]>([])
   const [accounts, setAccounts] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -76,6 +76,11 @@ export function OwnersAccountsModal({ onClose }: { onClose: () => void }) {
             <section>
               <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-500 mb-1">Quem tem gastos</h3>
               <p className="text-xs text-zinc-500 mb-3">Cada lançamento, cartão e conta pertence a um dono. A tela principal mostra cada um separado e também o conjunto.</p>
+              {onReorganize && (
+                <button onClick={onReorganize} className="mb-3 text-xs font-bold px-3 py-2 rounded-lg bg-blue-600/15 text-blue-400 hover:bg-blue-600/25 transition-all">
+                  Reorganizar (casal, família, empresa…)
+                </button>
+              )}
               <div className="space-y-2">
                 {owners.map((o) => (
                   <div key={o.id} className="bg-zinc-950 border border-zinc-800 rounded-xl p-3 flex items-center justify-between gap-2">

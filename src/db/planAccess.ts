@@ -116,3 +116,32 @@ export async function isMasterStripeCustomer(stripeCustomerId: string): Promise<
     return false;
   }
 }
+
+// --- CONTAS QUE NÃO PASSAM PELA ESCOLHA DE ORGANIZAÇÃO ---
+// Contas que já usam a organização atual (donos Paulo / Adri / Empresa) e não
+// devem ser mexidas: ficam como estão e nunca veem a tela de escolha.
+// Por padrão, só a gestaokore@outlook.com. Dá pra somar e-mails sem mexer no
+// código com a variável OWNER_SETUP_EXEMPT_EMAILS="a@x.com,b@y.com".
+const SETUP_EXEMPT_EMAILS = new Set(
+  ["gestaokore@outlook.com", ...(process.env.OWNER_SETUP_EXEMPT_EMAILS || "").split(",")]
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean)
+);
+const exemptCache = new Map<string, { value: boolean; at: number }>();
+
+export async function isOwnerSetupExempt(userId: string): Promise<boolean> {
+  const cached = exemptCache.get(userId);
+  if (cached && Date.now() - cached.at < MASTER_CACHE_TTL_MS) return cached.value;
+  try {
+    const user = await currentUser();
+    if (!user || user.id !== userId) return false;
+    const value = user.emailAddresses.some(
+      (e) => e.verification?.status === "verified" && SETUP_EXEMPT_EMAILS.has(e.emailAddress.trim().toLowerCase())
+    );
+    exemptCache.set(userId, { value, at: Date.now() });
+    return value;
+  } catch (error) {
+    console.error("Falha ao checar conta isenta no Clerk:", error);
+    return false;
+  }
+}

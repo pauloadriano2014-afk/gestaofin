@@ -27,6 +27,16 @@ export const owners = pgTable("owners", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// --- NOVA TABELA: ORGANIZAÇÃO ESCOLHIDA ---
+// Guarda que a pessoa já escolheu como organizar a conta (só eu, casal, família,
+// empresa...). Fica numa tabela própria, e não em user_settings, de propósito:
+// user_settings é lida em todo carregamento, então uma coluna nova ali quebraria
+// o app inteiro se a migração não tivesse sido rodada.
+export const ownerSetups = pgTable("owner_setups", {
+  userId: text("user_id").primaryKey(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 // --- NOVA TABELA: CONTAS (corrente, gateway de vendas, caixa) ---
 // Cartões de crédito continuam na tabela credit_cards. Aqui ficam as contas
 // onde o dinheiro de fato entra e sai: Itaú, Caixa, Asaas, Nubank conta etc.

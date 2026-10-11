@@ -10,9 +10,8 @@ import { cycleKeyForDueMonth, withInvoiceTag } from "@/utils/creditCard";
 import { paidByFromTags, withPaidBy, toCashRow } from "@/utils/paidBy";
 import { settleInvoice } from "@/db/invoices";
 import { loadUserRules } from "@/db/rules";
-import { mentionsOwner } from "@/utils/transfers";
+import { mentionsOwner, looksLikeTransfer, bestExistingMatch, daysApart } from "@/utils/transfers";
 import { dedupeAgainstExisting, parseLinkedInvoice, looksLikeBankInvoicePayment } from "@/utils/invoiceLines";
-import { bestExistingMatch, daysApart } from "@/utils/transfers";
 import { desc, asc, and, or, sql, eq, lte, gte, inArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { auth } from "@clerk/nextjs/server";
@@ -866,6 +865,16 @@ export async function deleteTransactions(ids: string[]) {
   }
 }
 
+// Categorias que a IA pode escolher: ficam de fora "Ajuste de saldo", pagamento de fatura e
+// reembolso/empréstimo. Essas são decididas pelo app (vínculo com fatura, nome dos donos,
+// aviso de transferência), nunca por palpite sobre o nome do estabelecimento.
+function aiCategoryList(cats: { id: string; name: string; kind?: string | null }[]): string {
+  return cats
+    .filter((c) => { const k = resolveCategoryKind(c); return k !== "card_payment" && k !== "refund" && c.name.trim().toLowerCase() !== "ajuste de saldo"; })
+    .map((c) => `{ id: '${c.id}', name: '${c.name}' }`)
+    .join(", ");
+}
+
 // Sugere categoria para lançamentos já salvos (em massa), sem aprender nada com o
 // palpite. Ordem: transferência com o nome de um dos donos -> Reembolso/Empréstimo;
 // regra aprendida (ignorando as genéricas/erradas); e, no que sobrar, a IA.
@@ -891,15 +900,18 @@ export async function suggestCategoriesForTransactions(ids: string[]) {
       if (looksLikeBankInvoicePayment(t.description)) continue; // pagamento de fatura fica como está
       if (refundId && mentionsOwner(t.description, ownerList)) { decided.set(t.id, refundId); continue; }
       const byRule = findMatchingRuleCategoryId(t.description, rules);
-      if (byRule && offered.some((c) => c.id === byRule)) { decided.set(t.id, byRule); continue; }
+      const ruleCat = byRule ? offered.find((c) => c.id === byRule) : undefined;
+      // regra que aponta para reembolso só vale em transferência (compra em pizzaria não é reembolso)
+      if (ruleCat && (resolveCategoryKind(ruleCat) !== "refund" || looksLikeTransfer(t.description))) { decided.set(t.id, ruleCat.id); continue; }
       needAi.push(t);
     }
 
-    const list = offered.map((c) => `{ id: '${c.id}', name: '${c.name}' }`).join(", ");
+    const list = aiCategoryList(cats);
+    const aiAllowed = new Set(cats.filter((c) => { const k = resolveCategoryKind(c); return k !== "card_payment" && k !== "refund" && c.name.trim().toLowerCase() !== "ajuste de saldo"; }).map((c) => c.id));
     for (let i = 0; i < needAi.length; i += 15) {
       const chunk = needAi.slice(i, i + 15);
       const payload = chunk.map((t, n) => ({ n, description: t.description, amount: t.amount, type: t.type }));
-      const prompt = `Categorize as transações. Categorias: ${list}\nDevolva SÓ um array JSON com { "n": número, "categoryId": id da lista } para cada uma, usando apenas ids da lista.\nTransações: ${JSON.stringify(payload)}`;
+      const prompt = `Categorize as transações. Categorias: ${list}\nDevolva SÓ um array JSON com { "n": número, "categoryId": id da lista } para cada uma, usando apenas ids da lista. Use o nome do estabelecimento (pizzaria/restaurante = alimentação fora de casa, mercado, posto, farmácia...) e escolha a categoria de gasto correspondente.\nTransações: ${JSON.stringify(payload)}`;
       try {
         const response = await fetch("https://api.openai.com/v1/chat/completions", {
           method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${process.env.OPENAI_API_KEY}` },
@@ -910,7 +922,7 @@ export async function suggestCategoriesForTransactions(ids: string[]) {
         const parsed = JSON.parse(String(data.choices[0].message.content).replace(/```json/g, "").replace(/```/g, "").trim());
         for (const r of parsed) {
           const t = chunk[Number(r?.n)];
-          if (t && offered.some((c) => c.id === r.categoryId)) decided.set(t.id, r.categoryId);
+          if (t && aiAllowed.has(r.categoryId)) decided.set(t.id, r.categoryId);
         }
       } catch { /* esse lote fica sem sugestão */ }
     }
@@ -1201,7 +1213,7 @@ export async function processCSVWithAI(batch: { date: string, amount: number, de
     if (!userId) return { success: false, message: "Login necessário." };
 
     const userCategories = await db.select().from(categories).where(eq(categories.userId, userId));
-    const categoriesList = userCategories.filter(c => c.name.trim().toLowerCase() !== 'ajuste de saldo').map(c => `{ id: '${c.id}', name: '${c.name}' }`).join(', ');
+    const categoriesList = aiCategoryList(userCategories);
 
     // 🔥 NOVO: busca o que o usuário já categorizou/corrigiu antes, pra usar
     // como fonte mais confiável do que um chute novo da IA.
@@ -1399,7 +1411,7 @@ export async function processCardInvoiceWithAI(batch: { date: string; amount: nu
     if (!userId) return { success: false, message: "Login necessário." };
 
     const userCategories = await db.select().from(categories).where(eq(categories.userId, userId));
-    const categoriesList = userCategories.filter(c => c.name.trim().toLowerCase() !== 'ajuste de saldo').map(c => `{ id: '${c.id}', name: '${c.name}' }`).join(', ');
+    const categoriesList = aiCategoryList(userCategories);
     const userRules = await loadUserRules(userId);
 
     const promptText = `Categorize os itens da fatura de um cartão de crédito abaixo. Categorias disponíveis: ${categoriesList}\nREGRAS: Mantenha date, amount, description originais. Adicione 'type' ('expense' p/ valores positivos — compra normal — e 'income' p/ valores negativos — estorno ou pagamento) e 'categoryId'. Devolva SÓ o JSON (array).\nItens: ${JSON.stringify(batch)}`;

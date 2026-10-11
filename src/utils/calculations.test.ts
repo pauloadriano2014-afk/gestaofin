@@ -701,3 +701,35 @@ test("estorno: compra + estorno iguais formam par (cada linha em um par só)", (
   ];
   assert.deepEqual(findReversalPairs(rows), [[0, 1], [2, 3]]);
 });
+
+import { normalizeDescriptionPattern as normPattern, isGenericPattern, findMatchingRuleCategoryId as findRule } from "./categoryRules";
+import { mentionsOwner } from "./transfers";
+import { groupFixedByCategory } from "./fixedGroups";
+test("regras: texto padrão do banco não vira regra; vale quem recebeu/enviou", () => {
+  assert.equal(normPattern("Transferência recebida pelo Pix - PA ELITE TEAM LTDA - 42.942.651/0001-40 - ASAAS IP S.A. (0461)"), "PA ELITE TEAM");
+  assert.equal(normPattern("Compra no débito - SUPERDIA"), "SUPERDIA");
+  assert.equal(normPattern("Estorno - Compra no débito - SUPERDIA"), "SUPERDIA");
+  assert.equal(isGenericPattern("TRANSFERENCIA RECEBIDA PELO"), true);
+  assert.equal(isGenericPattern("PA ELITE TEAM"), false);
+  // regra antiga e genérica é ignorada; a específica vale
+  const rules = [{ pattern: "TRANSFERENCIA RECEBIDA PELO", categoryId: "ajuste" }, { pattern: "PA ELITE TEAM", categoryId: "reemb" }];
+  assert.equal(findRule("Transferência recebida pelo Pix - PA ELITE TEAM LTDA - 42.942", rules), "reemb");
+  assert.equal(findRule("Transferência recebida pelo Pix - OUTRA PESSOA - 11.111", rules), null);
+});
+test("transferência com o nome de um dos donos é entre os donos", () => {
+  const owners = [{ name: "Paulo", kind: "pf" }, { name: "Adri", kind: "pf" }, { name: "Empresa", kind: "pj" }];
+  assert.equal(mentionsOwner("Transferência enviada pelo Pix - ADRIANA SILVA - 123", owners), true);
+  assert.equal(mentionsOwner("Transferência recebida pelo Pix - PAULO ADRIANO - 123", owners), true);
+  assert.equal(mentionsOwner("Transferência recebida pelo Pix - JOAO DA SILVA", owners), false);
+  assert.equal(mentionsOwner("Compra no débito - Posto Paulo", owners), false);
+});
+test("custos fixos agrupados por categoria com total e atrasadas", () => {
+  const items = [
+    { categoryId: "e", amount: "500", isPaid: false, date: "2026-10-05" },
+    { categoryId: "e", amount: "329", isPaid: false, date: "2026-10-10" },
+    { categoryId: "c", amount: "1827.95", isPaid: false, date: "2026-10-18" },
+    { categoryId: null, amount: "10", isPaid: true, date: "2026-10-01" },
+  ];
+  const g = groupFixedByCategory(items, [{ id: "e", name: "Estudos" }, { id: "c", name: "Carro" }], "2026-10-11");
+  assert.deepEqual(g.map((x) => [x.name, x.total, x.pendingCount, x.lateCount]), [["Carro", 1827.95, 1, 0], ["Estudos", 829, 2, 2], ["Sem categoria", 10, 0, 0]]);
+});

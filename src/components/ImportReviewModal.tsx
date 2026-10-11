@@ -3,7 +3,7 @@ import { effectivePaidBy } from "@/utils/paidBy";
 import { findReversalPairs } from "@/utils/reversals";
 import { looksLikeInvoicePaymentLine, looksLikeBankInvoicePayment, matchInvoiceByAmount } from "@/utils/invoiceLines";
 import { X, CheckCircle2, ArrowUpRight, ArrowDownRight, Briefcase, User, Loader2, Trash2, Scissors } from "lucide-react";
-import { looksLikeTransfer, pairWithinList, rankFixedBills } from "@/utils/transfers";
+import { looksLikeTransfer, pairWithinList, rankFixedBills, mentionsOwner } from "@/utils/transfers";
 import { resolveCategoryKind } from "@/utils/categoryKinds";
 import { findTransferMatches } from "@/app/actions";
 
@@ -13,6 +13,8 @@ export function ImportReviewModal({ isOpen, onClose, initialTransactions, catego
   const [matches, setMatches] = useState<Record<string, any>>({});
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const [importAccountId, setImportAccountId] = useState('');
+  // De quem é o arquivo inteiro (extrato): define o dono de todas as linhas de uma vez.
+  const [fileOwnerId, setFileOwnerId] = useState('');
 
   // Quando o modal abre, ele carrega os dados que vieram da IA
   useEffect(() => {
@@ -31,7 +33,16 @@ export function ImportReviewModal({ isOpen, onClose, initialTransactions, catego
             : ''
         ),
       }));
-      setTransactions(mapped);
+      // Transferência que cita um dos donos (você, a Adri...) é dinheiro entre os donos:
+      // já vem como Reembolso / Empréstimo (neutro), se a categoria ainda é "normal".
+      const refundCat = (categories || []).find((c: any) => resolveCategoryKind(c) === 'refund');
+      const ownerAware = mapped.map((t: any) => {
+        if (!refundCat || flagInvoicePayments || !mentionsOwner(t.description, owners)) return t;
+        const cur = (categories || []).find((c: any) => c.id === t.categoryId);
+        return !cur || resolveCategoryKind(cur) === 'operational' ? { ...t, categoryId: refundCat.id } : t;
+      });
+      setTransactions(ownerAware);
+      setFileOwnerId(!flagInvoicePayments && defaultOwnerId ? defaultOwnerId : '');
       setMatches({});
       setDismissed(new Set());
       setImportAccountId('');
@@ -105,20 +116,29 @@ export function ImportReviewModal({ isOpen, onClose, initialTransactions, catego
     });
   };
 
+  // "De quem é este arquivo?": dono de todas as linhas (depois dá para ajustar linha a linha).
+  const applyFileOwner = (ownerId: string) => {
+    setFileOwnerId(ownerId);
+    const owner = owners.find((o: any) => o.id === ownerId);
+    if (!owner) return;
+    setTransactions((prev) => prev.map((t) => ({ ...t, ownerId: owner.id, entityType: owner.kind, paidByOwnerId: undefined })));
+  };
+
   // Extrato inteiro de uma conta cadastrada: define dono e conta de todas as linhas de uma vez.
   const applyAccount = (accountId: string) => {
     setImportAccountId(accountId);
     const acc = accounts.find((a: any) => a.id === accountId);
     if (!acc) return;
     const owner = owners.find((o: any) => o.id === acc.ownerId);
-    setTransactions((prev) => prev.map((t) => ({ ...t, accountId: acc.id, ...(owner ? { ownerId: owner.id, entityType: owner.kind } : {}) })));
+    if (owner) setFileOwnerId(owner.id);
+    setTransactions((prev) => prev.map((t) => ({ ...t, accountId: acc.id, ...(owner ? { ownerId: owner.id, entityType: owner.kind, paidByOwnerId: undefined } : {}) })));
   };
 
   // Dono da conta/cartão deste arquivo: o dinheiro sai (ou entra) nela. Na fatura é
   // o dono do cartão; no extrato, o dono da conta escolhida em "Este extrato é da conta".
   const statementOwnerId: string | null = flagInvoicePayments
     ? (defaultOwnerId || null)
-    : (accounts.find((a: any) => a.id === importAccountId)?.ownerId || null);
+    : (fileOwnerId || accounts.find((a: any) => a.id === importAccountId)?.ownerId || null);
   const rowPaidBy = (t: any) => effectivePaidBy(t, statementOwnerId) || 'self';
 
   const formatCurrency = (val: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
@@ -142,6 +162,20 @@ export function ImportReviewModal({ isOpen, onClose, initialTransactions, catego
               {pendingFixedBills.length > 0 && ' Se algum item já é uma conta fixa cadastrada, vincule pra dar baixa nela em vez de duplicar.'}
             </p>
             {headerExtra}
+            {!flagInvoicePayments && owners.length > 0 && (
+              <div className="mt-3 flex items-center gap-2 flex-wrap">
+                <span className="text-sm font-bold text-gray-700 dark:text-zinc-200">De quem é este arquivo?</span>
+                {owners.map((o: any) => (
+                  <button
+                    key={o.id}
+                    type="button"
+                    onClick={() => applyFileOwner(o.id)}
+                    className={`text-xs font-bold px-3 py-1.5 rounded-full border transition-colors ${fileOwnerId === o.id ? 'bg-blue-600 border-blue-600 text-white' : 'bg-gray-50 dark:bg-zinc-950 border-gray-200 dark:border-zinc-800 text-gray-700 dark:text-zinc-300 hover:border-blue-400'}`}
+                  >{o.name}</button>
+                ))}
+                {!fileOwnerId && <span className="text-xs text-amber-600 dark:text-amber-400 font-semibold">Escolha para preencher o dono de todas as linhas.</span>}
+              </div>
+            )}
             {!flagInvoicePayments && accounts.length > 0 && (
               <div className="mt-3 flex items-center gap-2 flex-wrap">
                 <label className="text-sm font-bold text-gray-700 dark:text-zinc-200" htmlFor="import-account">Este extrato é da conta</label>

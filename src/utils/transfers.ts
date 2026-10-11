@@ -11,6 +11,22 @@ export function looksLikeTransfer(description: string): boolean {
   return /transferencia|\bpix\b|\bted\b|\bdoc\b|reembolso recebido|reembolso enviado/.test(d);
 }
 
+// A transferência cita o nome de um dos donos (você, a Adri...)? Compara o nome do
+// dono com o início de cada palavra da descrição ("Adri" casa com "ADRIANA").
+// Só vale para transferências; nomes com menos de 3 letras são ignorados.
+export function mentionsOwner(description: string, owners: { name: string; kind?: string }[]): boolean {
+  if (!looksLikeTransfer(description)) return false;
+  const words = new Set(norm(description).split(/[^a-z0-9]+/).filter((w) => w.length >= 3));
+  return owners
+    .filter((o) => o.kind !== "pj")
+    .some((o) => {
+      const first = norm(o.name).split(/[^a-z0-9]+/).filter((w) => w.length >= 3)[0];
+      if (!first) return false;
+      for (const w of words) if (w.startsWith(first)) return true;
+      return false;
+    });
+}
+
 const dayNumber = (dateStr: string) => {
   const [y, m, d] = dateStr.split("-").map(Number);
   return Math.round(Date.UTC(y, m - 1, d) / 86400000);

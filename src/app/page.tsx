@@ -485,7 +485,7 @@ export default function Dashboard() {
             <AccountsView
               theme={theme} currentTheme={currentTheme} formatCurrency={formatCurrency} todayStr={todayStr}
               openBillsPanel={openBillsPanel(true)}
-              fixedExpenses={processedData.fixedExpenses} ownerName={ownerNameById} cards={viewCards} owners={ownerList} copying={copying}
+              fixedExpenses={processedData.fixedExpenses} categories={rawData.allCategories} ownerName={ownerNameById} cards={viewCards} owners={ownerList} copying={copying}
               onCopyMonth={handleCopyMonth} onTogglePay={handleTogglePay} onEdit={handleEdit} onDelete={handleDelete}
               onViewInvoiceItems={(cardId: string, cycleKey: string) => setViewingInvoice({ cardId, cycleKey })}
               onPayInvoice={handlePayInvoice}

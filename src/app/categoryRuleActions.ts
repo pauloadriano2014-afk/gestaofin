@@ -5,7 +5,7 @@ import { categoryRules, categories } from "@/db/schema";
 import { and, desc, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { getUser } from "./actions";
-import { normalizeDescriptionPattern } from "@/utils/categoryRules";
+import { normalizeDescriptionPattern, isGenericPattern } from "@/utils/categoryRules";
 
 // --- APRENDIZADO AUTOMÁTICO ---
 // Chamado sempre que uma transação é salva/editada com uma categoria (lançamento
@@ -16,7 +16,7 @@ export async function learnCategoryRule(userId: string, description: string, cat
   try {
     if (!description || !categoryId) return;
     const pattern = normalizeDescriptionPattern(description);
-    if (pattern.length < 3) return; // padrão curto demais não vale a pena guardar
+    if (pattern.length < 3 || isGenericPattern(pattern)) return; // curto ou genérico demais (só texto de extrato) não vale a pena guardar
 
     // "Ajuste de saldo" é só da conciliação com o banco: nunca vira regra automática.
     const cat = (await db.select({ name: categories.name }).from(categories).where(eq(categories.id, categoryId)))[0];

@@ -58,18 +58,31 @@ export function matchInvoiceByAmount<T extends { total: number }>(amount: number
 
 interface KeyedItem { date: string; amount: string | number; description: string }
 
-const itemKey = (t: KeyedItem) => `${t.date}|${Math.abs(Number(t.amount)).toFixed(2)}|${norm(t.description).trim()}`;
+const cents = (t: KeyedItem) => Math.round(Math.abs(Number(t.amount)) * 100);
+
+// Nomes parecidos: a IA e os leitores de PDF/CSV escrevem o mesmo comerciante de jeitos
+// diferentes ("Dl*Google Canva", "Google Canva", 'IOF de "Cloudflare"'). Compara só letras e
+// números e aceita nome igual, um contido no outro ou uma palavra de 4+ letras em comum.
+const STOP = new Set(["de", "da", "do", "dos", "das", "com", "the", "ltda", "sao", "paulo"]);
+const tokens = (s: string) =>
+  norm(s).replace(/[^a-z0-9]+/g, " ").split(" ").filter((w) => w.length >= 3 && !STOP.has(w));
+function similarDescription(a: string, b: string): boolean {
+  const ca = norm(a).replace(/[^a-z0-9]+/g, "");
+  const cb = norm(b).replace(/[^a-z0-9]+/g, "");
+  if (ca === cb) return true;
+  if (ca.length >= 4 && cb.length >= 4 && (ca.includes(cb) || cb.includes(ca))) return true;
+  const tb = new Set(tokens(b));
+  return tokens(a).some((w) => w.length >= 4 && tb.has(w));
+}
 
 export function dedupeAgainstExisting<T extends KeyedItem>(existing: KeyedItem[], incoming: T[]): { fresh: T[]; skipped: T[] } {
-  const counts = new Map<string, number>();
-  for (const e of existing) counts.set(itemKey(e), (counts.get(itemKey(e)) || 0) + 1);
-
+  const used = new Set<number>();
   const fresh: T[] = [];
   const skipped: T[] = [];
   for (const t of incoming) {
-    const k = itemKey(t);
-    const left = counts.get(k) || 0;
-    if (left > 0) { counts.set(k, left - 1); skipped.push(t); } else { fresh.push(t); }
+    // mesma data e mesmo valor, com nome parecido; cada item existente só vale uma vez
+    const i = existing.findIndex((e, idx) => !used.has(idx) && e.date === t.date && cents(e) === cents(t) && similarDescription(e.description, t.description));
+    if (i >= 0) { used.add(i); skipped.push(t); } else { fresh.push(t); }
   }
   return { fresh, skipped };
 }

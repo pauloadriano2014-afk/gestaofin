@@ -877,3 +877,21 @@ test("fatura PDF (layout Nubank): data em linha própria, compra internacional, 
     ["2026-09-12", 349, "Sua Academia"],
   ]);
 });
+
+test("importar de novo: mesmo item com nome escrito diferente não duplica; repetição legítima continua", () => {
+  const ex = [
+    { date: "2026-08-31", amount: "0.95", description: "IOF de Cloudflare" },
+    { date: "2026-09-13", amount: "35.00", description: "Google Canva" },
+    { date: "2026-09-19", amount: "5.00", description: "Asa*Pa Elite Team" },
+  ];
+  const inc = [
+    { date: "2026-08-31", amount: "0.95", description: 'IOF de "Cloudflare"' },
+    { date: "2026-09-13", amount: "35.00", description: "Dl*Google Canva" },
+    { date: "2026-09-19", amount: "5.00", description: "Asa*Pa Elite Team" },
+    { date: "2026-09-19", amount: "5.00", description: "Asa*Pa Elite Team" }, // a 2ª de R$ 5 não existia
+    { date: "2026-09-20", amount: "32.90", description: "Dl*Google Capcut" },
+  ];
+  const r = dedupeAgainstExisting(ex, inc);
+  assert.equal(r.skipped.length, 3);
+  assert.deepEqual(r.fresh.map((x) => x.description), ["Asa*Pa Elite Team", "Dl*Google Capcut"]);
+});

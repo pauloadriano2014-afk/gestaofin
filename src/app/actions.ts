@@ -5,7 +5,7 @@ import { categories, transactions, userSettings, categoryRules, fixedBills, acco
 import { getOwners, resolveOwnership, ownerSetupNeeded } from "@/db/owners";
 import { matchesView } from "@/utils/owners";
 import { inferKindFromName, buildKindSets, type CategoryKind } from "@/utils/categoryKinds";
-import { balanceForPeriod, classifyForPeriod, FOREVER_START } from "@/utils/balance";
+import { balanceForPeriod, classifyForPeriod, adjustmentFor, FOREVER_START } from "@/utils/balance";
 import { cycleKeyForDueMonth, withInvoiceTag } from "@/utils/creditCard";
 import { settleInvoice } from "@/db/invoices";
 import { dedupeAgainstExisting } from "@/utils/invoiceLines";
@@ -79,17 +79,14 @@ export async function getDashboardData(startMonth: number, startYear: number, en
       db.select().from(transactions)
         .where(and(eq(transactions.userId, userId), gte(transactions.date, startDateStr), lte(transactions.date, endDateStr)))
         .orderBy(desc(transactions.date)),
-      // Linhas que mexem no saldo do período: as de DATA dentro dele (inclui as pendentes)
-      // e as PAGAS dentro dele, mesmo que a data da compra seja de outro mês
-      // (ex: fatura de setembro paga em outubro). No acumulado o início é "desde sempre".
+      // Linhas que mexem no saldo: a vida toda até o fim do período (data ou
+      // pagamento até lá). Delas saem o saldo do período (mês isolado ou
+      // acumulado) E o "dinheiro acumulado", usado para conferir com o banco.
       db.select({ type: transactions.type, amount: transactions.amount, entityType: transactions.entityType, ownerId: transactions.ownerId, categoryId: transactions.categoryId, isPaid: transactions.isPaid, date: transactions.date, paidAt: transactions.paidAt })
         .from(transactions)
         .where(and(
           eq(transactions.userId, userId),
-          or(
-            and(gte(transactions.date, balanceStart), lte(transactions.date, endDateStr)),
-            and(gte(transactions.paidAt, balanceStart), lte(transactions.paidAt, endDateStr))
-          )
+          or(lte(transactions.date, endDateStr), lte(transactions.paidAt, endDateStr))
         )),
     ]);
 
@@ -101,21 +98,31 @@ export async function getDashboardData(startMonth: number, startYear: number, en
     // Saldo = só o que já foi pago; o que ainda falta pagar/receber vem à parte
     // (pending) e o previsto é a soma dos dois. Ver utils/balance.ts.
     const split = (rows: BalanceRow[]) => balanceForPeriod(rows, kindSets, balanceStart, endDateStr);
+    const accum = (rows: BalanceRow[]) => balanceForPeriod(rows, kindSets, FOREVER_START, endDateStr).paid;
+    const pfRows = balanceRows.filter(t => t.entityType === 'pf');
+    const pjRows = balanceRows.filter(t => t.entityType === 'pj');
     const gAll = split(balanceRows);
-    const gPF = split(balanceRows.filter(t => t.entityType === 'pf'));
-    const gPJ = split(balanceRows.filter(t => t.entityType === 'pj'));
+    const gPF = split(pfRows);
+    const gPJ = split(pjRows);
     const globalBalance = gAll.paid;
     const globalBalancePF = gPF.paid;
     const globalBalancePJ = gPJ.paid;
     const globalPending = gAll.pending;
     const globalPendingPF = gPF.pending;
     const globalPendingPJ = gPJ.pending;
+    // Dinheiro acumulado (desde sempre, só o pago): é o que deve bater com o banco.
+    const accumulated = accum(balanceRows);
+    const accumulatedPF = accum(pfRows);
+    const accumulatedPJ = accum(pjRows);
     const balanceByOwner: Record<string, number> = {};
     const pendingByOwner: Record<string, number> = {};
+    const accumulatedByOwner: Record<string, number> = {};
     for (const o of ownerList) {
-      const g = split(balanceRows.filter(t => t.ownerId === o.id));
+      const rows = balanceRows.filter(t => t.ownerId === o.id);
+      const g = split(rows);
       balanceByOwner[o.id] = g.paid;
       pendingByOwner[o.id] = g.pending;
+      accumulatedByOwner[o.id] = accum(rows);
     }
 
     const fixedExpenses = currentTransactions.filter(t => t.isFixed === true && t.type === 'expense');
@@ -143,7 +150,7 @@ export async function getDashboardData(startMonth: number, startYear: number, en
       owners: ownerList,
       needsOwnerSetup,
       accounts: accountList,
-      summary: { cashBasis: true, balance, income, expense, globalBalance, globalBalancePF, globalBalancePJ, balanceByOwner, globalPending, globalPendingPF, globalPendingPJ, pendingByOwner },
+      summary: { cashBasis: true, balance, income, expense, globalBalance, globalBalancePF, globalBalancePJ, balanceByOwner, globalPending, globalPendingPF, globalPendingPJ, pendingByOwner, accumulated, accumulatedPF, accumulatedPJ, accumulatedByOwner },
       categoryStats, 
       pieData: categoryStats, 
       dailyData: [], 
@@ -198,6 +205,82 @@ export async function getBalanceBreakdown(startMonth: number, startYear: number,
   } catch (error) {
     console.error("Erro ao detalhar saldo:", error);
     return [];
+  }
+}
+
+// --- CONCILIAÇÃO COM O BANCO ---
+// Dinheiro acumulado de um dono (só o que já foi pago, desde sempre, até a data).
+// É o número que deve ser igual ao saldo que aparece no app do banco.
+async function accumulatedForOwner(userId: string, ownerId: string, untilDate: string) {
+  const [cats, rows] = await Promise.all([
+    db.select().from(categories).where(eq(categories.userId, userId)),
+    db.select({ type: transactions.type, amount: transactions.amount, categoryId: transactions.categoryId, isPaid: transactions.isPaid, date: transactions.date, paidAt: transactions.paidAt })
+      .from(transactions)
+      .where(and(
+        eq(transactions.userId, userId),
+        eq(transactions.ownerId, ownerId),
+        or(lte(transactions.date, untilDate), lte(transactions.paidAt, untilDate))
+      )),
+  ]);
+  return balanceForPeriod(rows, buildKindSets(cats), FOREVER_START, untilDate).paid;
+}
+
+export async function getOwnerAccumulated(ownerId: string, untilDate: string) {
+  try {
+    const userId = await getUser();
+    if (!userId) return { success: false as const, message: "Login necessário." };
+    const owner = (await getOwners(userId)).find((o) => o.id === ownerId);
+    if (!owner) return { success: false as const, message: "Dono não encontrado." };
+    return { success: true as const, accumulated: await accumulatedForOwner(userId, ownerId, untilDate) };
+  } catch (error) {
+    console.error("Erro ao calcular saldo acumulado:", error);
+    return { success: false as const, message: "Erro ao calcular." };
+  }
+}
+
+// Lança UM ajuste com a diferença entre o saldo do app e o do banco. Fica na
+// categoria "Ajuste de saldo" (tipo reembolso: não vira receita nem despesa, só
+// acerta o saldo). Pode ser apagado depois em Lançamentos, como qualquer outro.
+export async function reconcileOwnerBalance(ownerId: string, realBalance: number, untilDate: string) {
+  try {
+    const userId = await getUser();
+    if (!userId) return { success: false, message: "Login necessário." };
+    if (!Number.isFinite(realBalance)) return { success: false, message: "Informe o saldo do banco." };
+    const owner = (await getOwners(userId)).find((o) => o.id === ownerId);
+    if (!owner) return { success: false, message: "Dono não encontrado." };
+
+    const current = await accumulatedForOwner(userId, ownerId, untilDate);
+    const adj = adjustmentFor(current, realBalance);
+    if (!adj) return { success: true, adjusted: false, message: "Já está batendo com o banco." };
+
+    const cats = await db.select().from(categories).where(eq(categories.userId, userId));
+    let cat = cats.find((c) => c.name.trim().toLowerCase() === "ajuste de saldo");
+    if (!cat) {
+      cat = (await db.insert(categories).values({ userId, name: "Ajuste de saldo", type: "expense", kind: "refund" }).returning())[0];
+    } else if (cat.kind !== "refund") {
+      await db.update(categories).set({ kind: "refund" }).where(eq(categories.id, cat.id));
+    }
+
+    const ownership = await resolveOwnership(userId, { ownerId });
+    await db.insert(transactions).values({
+      userId,
+      description: `Ajuste de saldo (conciliação com o banco, ${untilDate.split("-").reverse().join("/")})`,
+      amount: adj.amount.toFixed(2),
+      categoryId: cat.id,
+      type: adj.type,
+      date: untilDate,
+      isFixed: false,
+      isPaid: true,
+      paidAt: untilDate,
+      entityType: ownership.entityType,
+      ownerId: ownership.ownerId,
+      aiTags: ["ajuste_saldo"],
+    });
+    revalidatePath("/");
+    return { success: true, adjusted: true, type: adj.type, amount: adj.amount };
+  } catch (error) {
+    console.error("Erro ao conciliar saldo:", error);
+    return { success: false, message: "Erro ao salvar o ajuste." };
   }
 }
 

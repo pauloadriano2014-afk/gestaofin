@@ -461,6 +461,8 @@ export default function Dashboard() {
                 viewMode={viewMode}
                 onEditTransaction={handleEdit}
                 onHelp={openHelp}
+                owners={ownerList}
+                onReconciled={loadData}
               />
               <DashboardCharts theme={theme} processedData={processedData} currentTheme={currentTheme} formatCurrency={formatCurrency} setSelectedCategory={setSelectedCategory} setBudgetModalOpen={setBudgetModalOpen} />
             </div>

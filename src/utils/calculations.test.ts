@@ -629,3 +629,11 @@ test("cartões: agrupados por dono, na ordem dos donos, com os sem dono no fim",
   // dono sem cartão não aparece
   assert.equal(groupCardsByOwner([{ id: "1", ownerId: "p" }], owners).length, 1);
 });
+
+import { adjustmentFor } from "./balance";
+test("conciliação: ajuste leva o saldo do app ao do banco", () => {
+  assert.deepEqual(adjustmentFor(-12.09, 73.77), { type: "income", amount: 85.86 });
+  assert.deepEqual(adjustmentFor(100, 73.77), { type: "expense", amount: 26.23 });
+  assert.equal(adjustmentFor(73.77, 73.77), null);
+  assert.equal(adjustmentFor(0.1 + 0.2, 0.3), null);
+});

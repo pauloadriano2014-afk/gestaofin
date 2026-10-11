@@ -101,3 +101,15 @@ export function balanceForPeriod(
 
 // "Desde o começo": início do período = o menor valor possível.
 export const FOREVER_START = "0001-01-01";
+
+// ---------------------------------------------------------------------------
+// CONCILIAÇÃO COM O BANCO
+// ---------------------------------------------------------------------------
+// O app só conhece o que foi lançado/importado. Para o saldo bater com o do
+// banco, lançamos UM ajuste com a diferença (entrada se faltava dinheiro no app,
+// saída se sobrava). Devolve null quando já está batendo (diferença < 1 centavo).
+export function adjustmentFor(current: number, real: number): { type: "income" | "expense"; amount: number } | null {
+  const delta = Math.round((real - current) * 100) / 100;
+  if (Math.abs(delta) < 0.005) return null;
+  return { type: delta > 0 ? "income" : "expense", amount: Math.abs(delta) };
+}

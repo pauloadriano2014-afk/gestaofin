@@ -86,14 +86,16 @@ export function calculateDashboardData(rawData: any, viewMode: string, selectedD
     const sm = rawData.summary || {};
     let finalBalance = sm.globalBalance || 0;
     let finalPending = sm.globalPending || 0;
-    if (viewMode === 'pf') { finalBalance = sm.globalBalancePF || 0; finalPending = sm.globalPendingPF || 0; }
-    else if (viewMode === 'pj') { finalBalance = sm.globalBalancePJ || 0; finalPending = sm.globalPendingPJ || 0; }
-    else if (viewMode !== 'all') { finalBalance = sm.balanceByOwner?.[viewMode] || 0; finalPending = sm.pendingByOwner?.[viewMode] || 0; }
+    let finalAccumulated = sm.accumulated || 0;
+    if (viewMode === 'pf') { finalBalance = sm.globalBalancePF || 0; finalPending = sm.globalPendingPF || 0; finalAccumulated = sm.accumulatedPF || 0; }
+    else if (viewMode === 'pj') { finalBalance = sm.globalBalancePJ || 0; finalPending = sm.globalPendingPJ || 0; finalAccumulated = sm.accumulatedPJ || 0; }
+    else if (viewMode !== 'all') { finalBalance = sm.balanceByOwner?.[viewMode] || 0; finalPending = sm.pendingByOwner?.[viewMode] || 0; finalAccumulated = sm.accumulatedByOwner?.[viewMode] || 0; }
 
     return {
         summary: {
             balance: finalBalance,
             pending: finalPending,
+            accumulated: finalAccumulated,
             projected: Math.round((finalBalance + finalPending) * 100) / 100,
             income,
             expense,

@@ -26,6 +26,13 @@ export const HELP_ENTRIES: HelpEntry[] = [
     keywords: "saldo diferente nao bate receita despesa resultado conta",
   },
   {
+    id: "saldo-vs-banco",
+    question: "Por que o saldo do app não bate com o do banco?",
+    answer:
+      "O app só conhece o que foi lançado ou importado. Três causas comuns: (1) a visão: \"Tudo\" soma Paulo, Adri e Empresa; para comparar com a conta pessoal, escolha só o dono dessa conta; (2) o Mês isolado mostra só o movimento do mês, sem o que já existia antes; olhe a linha \"Dinheiro acumulado até aqui\", que é o que deve se parecer com o banco; (3) faltam lançamentos antigos (o saldo que você já tinha antes do primeiro lançamento, por exemplo). Para fechar a diferença, use \"Conciliar com o banco\" no card de Saldo: informe o saldo do banco e o app lança um ajuste que não conta como receita nem despesa.",
+    keywords: "saldo banco bate conciliar conciliacao diferente ajuste acumulado real conta corrente",
+  },
+  {
     id: "card-saldo",
     question: "Card Saldo Principal: o que ele mostra?",
     answer:

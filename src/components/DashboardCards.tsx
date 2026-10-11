@@ -1,8 +1,9 @@
 'use client'
 
 import { useState } from "react";
-import { Wallet, TrendingUp, TrendingDown, PiggyBank, HelpCircle } from "lucide-react";
+import { Wallet, TrendingUp, TrendingDown, PiggyBank, HelpCircle, Scale } from "lucide-react";
 import { BreakdownModal } from "@/components/BreakdownModal";
+import { ReconcileBalanceModal } from "@/components/ReconcileBalanceModal";
 import { getBalanceBreakdown } from "@/app/actions";
 
 // 🔥 NOVO: os 4 cards agora são clicáveis. Cada clique abre um modal que
@@ -29,10 +30,13 @@ export function DashboardCards({
   viewMode,
   onEditTransaction,
   onHelp,
+  owners = [],
+  onReconciled,
 }: any) {
   const [openModal, setOpenModal] = useState<null | 'income' | 'expense' | 'balance' | 'invested'>(null);
   const [balanceTxs, setBalanceTxs] = useState<any[]>([]);
   const [loadingBalance, setLoadingBalance] = useState(false);
+  const [reconcileOpen, setReconcileOpen] = useState(false);
 
   const handleOpenBalance = async () => {
     setOpenModal('balance');
@@ -67,11 +71,24 @@ export function DashboardCards({
           </div>
           <p className={`text-lg md:text-3xl font-bold font-mono tracking-tight ${theme.text}`}>{formatCurrency(summary.balance)}</p>
           <p className={`text-[10px] md:text-xs mt-2 ${theme.textMuted}`}>{selectedDay ? `Em ${selectedDay}` : 'Disponível na conta (só o que já foi pago)'}</p>
+          {isolatePeriod && !selectedDay && (
+            <p className={`text-[10px] md:text-xs mt-1 ${theme.textMuted}`}>
+              Dinheiro acumulado até aqui <b className={`whitespace-nowrap ${summary.accumulated < 0 ? 'text-red-500' : theme.text}`}>{formatCurrency(summary.accumulated || 0)}</b>
+            </p>
+          )}
           {Math.abs(summary.pending || 0) >= 0.005 && (
             <p className={`text-[10px] md:text-xs mt-1 ${theme.textMuted}`}>
               {summary.pending < 0 ? 'Falta pagar' : 'Falta receber'} <b className={`whitespace-nowrap ${summary.pending < 0 ? 'text-red-500' : 'text-emerald-500'}`}>{formatCurrency(Math.abs(summary.pending))}</b>
               {' · '}previsto <b className={`whitespace-nowrap ${summary.projected < 0 ? 'text-red-500' : theme.text}`}>{formatCurrency(summary.projected)}</b>
             </p>
+          )}
+          {owners.length > 0 && (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); setReconcileOpen(true); }}
+              className="mt-2 self-start inline-flex items-center gap-1 text-[10px] md:text-xs font-semibold text-blue-500 hover:text-blue-400"
+              title="Ajustar o saldo do app para bater com o do banco"
+            ><Scale className="w-3.5 h-3.5" /> Conciliar com o banco</button>
           )}
         </div>
 
@@ -124,6 +141,16 @@ export function DashboardCards({
         </div>
 
       </div>
+
+      {reconcileOpen && (
+        <ReconcileBalanceModal
+          owners={owners}
+          initialOwnerId={owners.some((o: any) => o.id === viewMode) ? viewMode : undefined}
+          formatCurrency={formatCurrency}
+          onClose={() => setReconcileOpen(false)}
+          onDone={() => onReconciled?.()}
+        />
+      )}
 
       {openModal === 'balance' && (
         <BreakdownModal

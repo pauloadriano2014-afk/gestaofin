@@ -4,12 +4,14 @@ import { useState, useEffect } from 'react'
 import { X, Tags, Loader2, Plus, Pencil, Trash2, Check, Target, TrendingDown, TrendingUp } from 'lucide-react'
 import { getUserCategories, createCategory, renameCategory, deleteCategory, setCategoryKind } from '@/app/actions'
 import { CATEGORY_KIND_LABEL, resolveCategoryKind, type CategoryKind } from '@/utils/categoryKinds'
+import { getOwnersAndAccounts, setCategoryOwnerDefault } from '@/app/ownerActions'
 import { BudgetModal } from './BudgetModal'
 
 const sortByName = (list: any[]) => [...list].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
 
 export function CategoriesModal({ onClose }: { onClose: () => void }) {
   const [categories, setCategories] = useState<any[]>([])
+  const [owners, setOwners] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
 
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -30,7 +32,7 @@ export function CategoriesModal({ onClose }: { onClose: () => void }) {
     setLoading(false)
   }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { load(); getOwnersAndAccounts().then((r) => setOwners(r.owners)) }, [])
 
   function startRename(cat: any) {
     setEditingId(cat.id)
@@ -83,6 +85,11 @@ export function CategoriesModal({ onClose }: { onClose: () => void }) {
     if (res.success) load(); else alert(res.message || 'Erro ao salvar o tipo.')
   }
 
+  async function changeDefaultOwner(id: string, ownerId: string) {
+    const res = await setCategoryOwnerDefault(id, ownerId || null)
+    if (res.success) load(); else alert(res.message || 'Erro ao salvar o dono padrão.')
+  }
+
   function openBudget(cat: any) {
     setSelectedCategory(cat)
     setBudgetModalOpen(true)
@@ -120,6 +127,17 @@ export function CategoriesModal({ onClose }: { onClose: () => void }) {
               >
                 {(Object.keys(CATEGORY_KIND_LABEL) as CategoryKind[]).map((k) => <option key={k} value={k}>{CATEGORY_KIND_LABEL[k]}</option>)}
               </select>
+              {owners.length > 1 && (
+                <select
+                  value={cat.defaultOwnerId || ''}
+                  onChange={(e) => changeDefaultOwner(cat.id, e.target.value)}
+                  className="mt-1 ml-1 bg-zinc-800 border border-zinc-700 rounded px-1 py-0.5 text-[10px] text-zinc-300 outline-none"
+                  title="Gastos desta categoria já vêm como deste dono na importação e no lançamento"
+                >
+                  <option value="">Dono: sem padrão</option>
+                  {owners.map((o: any) => <option key={o.id} value={o.id}>Dono: {o.name}</option>)}
+                </select>
+              )}
               {hasBudget && <p className="text-[10px] text-purple-400">Meta: {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(cat.budget))}</p>}
             </div>
             <div className="flex items-center gap-1 shrink-0">

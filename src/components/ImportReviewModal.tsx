@@ -41,7 +41,13 @@ export function ImportReviewModal({ isOpen, onClose, initialTransactions, catego
         const cur = (categories || []).find((c: any) => c.id === t.categoryId);
         return !cur || resolveCategoryKind(cur) === 'operational' ? { ...t, categoryId: refundCat.id } : t;
       });
-      setTransactions(ownerAware);
+      // Categoria com dono padrão (ex: Transporte -> Empresa): a linha já vem como desse dono.
+      const withCatOwner = ownerAware.map((t: any) => {
+        const cat = (categories || []).find((c: any) => c.id === t.categoryId);
+        const o = cat?.defaultOwnerId ? owners.find((x: any) => x.id === cat.defaultOwnerId) : null;
+        return o ? { ...t, ownerId: o.id, entityType: o.kind } : t;
+      });
+      setTransactions(withCatOwner);
       setFileOwnerId(!flagInvoicePayments && defaultOwnerId ? defaultOwnerId : '');
       setMatches({});
       setDismissed(new Set());
@@ -121,7 +127,12 @@ export function ImportReviewModal({ isOpen, onClose, initialTransactions, catego
     setFileOwnerId(ownerId);
     const owner = owners.find((o: any) => o.id === ownerId);
     if (!owner) return;
-    setTransactions((prev) => prev.map((t) => ({ ...t, ownerId: owner.id, entityType: owner.kind, paidByOwnerId: undefined })));
+    setTransactions((prev) => prev.map((t) => {
+      const cat = (categories || []).find((c: any) => c.id === t.categoryId);
+      const catOwner = cat?.defaultOwnerId ? owners.find((x: any) => x.id === cat.defaultOwnerId) : null;
+      const o = catOwner || owner; // o dono padrão da categoria vale mais que o do arquivo
+      return { ...t, ownerId: o.id, entityType: o.kind, paidByOwnerId: undefined };
+    }));
   };
 
   // Extrato inteiro de uma conta cadastrada: define dono e conta de todas as linhas de uma vez.
@@ -305,7 +316,11 @@ export function ImportReviewModal({ isOpen, onClose, initialTransactions, catego
                         {/* Seletor Categoria */}
                         <select
                           value={tx.categoryId || ""}
-                          onChange={(e) => handleUpdate(idx, 'categoryId', e.target.value)}
+                          onChange={(e) => {
+                            const cat = (categories || []).find((c: any) => c.id === e.target.value);
+                            const o = cat?.defaultOwnerId ? owners.find((x: any) => x.id === cat.defaultOwnerId) : null;
+                            handleUpdates(idx, o ? { categoryId: e.target.value, ownerId: o.id, entityType: o.kind, paidByOwnerId: undefined } : { categoryId: e.target.value });
+                          }}
                           className="flex-1 min-w-[9rem] md:max-w-[13rem] bg-gray-50 dark:bg-zinc-950 border border-gray-200 dark:border-zinc-800 text-gray-900 dark:text-zinc-50 text-xs rounded-lg px-2 py-2.5 outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
                         >
                           <option value="">Geral (Sem Categoria)</option>

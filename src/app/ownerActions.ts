@@ -1,7 +1,7 @@
 'use server'
 
 import { db } from "@/db";
-import { owners, accounts } from "@/db/schema";
+import { owners, accounts, categories, categoryOwnerDefaults } from "@/db/schema";
 import { and, asc, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { getUser } from "./actions";
@@ -147,5 +147,29 @@ export async function confirmCurrentOwners() {
     return { success: true };
   } catch (error) {
     return { success: false, message: "Não foi possível salvar." };
+  }
+}
+
+
+// Dono padrão de uma categoria (ex: Transporte -> Empresa). ownerId null = sem padrão.
+export async function setCategoryOwnerDefault(categoryId: string, ownerId: string | null) {
+  try {
+    const userId = await getUser();
+    if (!userId) return { success: false, message: "Login necessário." };
+    const cat = (await db.select({ id: categories.id }).from(categories).where(and(eq(categories.id, categoryId), eq(categories.userId, userId))))[0];
+    if (!cat) return { success: false, message: "Categoria não encontrada." };
+    if (!ownerId) {
+      await db.delete(categoryOwnerDefaults).where(and(eq(categoryOwnerDefaults.userId, userId), eq(categoryOwnerDefaults.categoryId, categoryId)));
+    } else {
+      const owner = (await getOwners(userId)).find((o) => o.id === ownerId);
+      if (!owner) return { success: false, message: "Dono não encontrado." };
+      await db.insert(categoryOwnerDefaults).values({ userId, categoryId, ownerId })
+        .onConflictDoUpdate({ target: [categoryOwnerDefaults.userId, categoryOwnerDefaults.categoryId], set: { ownerId } });
+    }
+    revalidatePath("/");
+    return { success: true };
+  } catch (error) {
+    console.error("Erro ao salvar dono padrão da categoria:", error);
+    return { success: false, message: "Erro ao salvar. Rode a migração 'dono_padrao_da_categoria' no banco." };
   }
 }

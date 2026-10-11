@@ -9,7 +9,7 @@ import { balanceForPeriod, classifyForPeriod, adjustmentFor, FOREVER_START } fro
 import { cycleKeyForDueMonth, withInvoiceTag } from "@/utils/creditCard";
 import { paidByFromTags, withPaidBy, toCashRow } from "@/utils/paidBy";
 import { settleInvoice } from "@/db/invoices";
-import { loadUserRules } from "@/db/rules";
+import { loadUserRules, loadCategoryOwnerDefaults } from "@/db/rules";
 import { mentionsOwner, looksLikeTransfer, bestExistingMatch, daysApart } from "@/utils/transfers";
 import { dedupeAgainstExisting, parseLinkedInvoice, looksLikeBankInvoicePayment } from "@/utils/invoiceLines";
 import { desc, asc, and, or, sql, eq, lte, gte, inArray } from "drizzle-orm";
@@ -83,7 +83,7 @@ export async function getDashboardData(startMonth: number, startYear: number, en
     // categorias, transações do período e (no modo acumulado) o saldo da vida toda.
     type BalanceRow = { type: string; amount: string; entityType: string | null; ownerId: string | null; categoryId: string | null; isPaid: boolean | null; date: string; paidAt: string | null; aiTags: string[] | null };
     const balanceStart = isolatePeriod ? startDateStr : FOREVER_START;
-    const [allCategories, currentTransactions, rawBalanceRows] = await Promise.all([
+    const [categoryRows, currentTransactions, rawBalanceRows, ownerDefaults] = await Promise.all([
       db.select().from(categories).where(eq(categories.userId, userId)),
       db.select().from(transactions)
         .where(and(eq(transactions.userId, userId), gte(transactions.date, startDateStr), lte(transactions.date, endDateStr)))
@@ -97,7 +97,10 @@ export async function getDashboardData(startMonth: number, startYear: number, en
           eq(transactions.userId, userId),
           or(lte(transactions.date, endDateStr), lte(transactions.paidAt, endDateStr))
         )),
+      loadCategoryOwnerDefaults(userId),
     ]);
+    // dono padrão de cada categoria (ex: Transporte -> Empresa), usado na importação e no lançamento
+    const allCategories = categoryRows.map((c) => ({ ...c, defaultOwnerId: ownerDefaults[c.id] ?? null }));
 
     // Saldo = entradas - saídas (transferência e pagamento de fatura ficam de
     // fora, ver utils/balance.ts). Com "isolatePeriod" só conta a janela
@@ -1066,7 +1069,8 @@ export async function getUserCategories() {
   const userId = await getUser();
   if (!userId) return [];
   await syncEssentialCategories(userId);
-  return db.select().from(categories).where(eq(categories.userId, userId));
+  const [list, defaults] = await Promise.all([db.select().from(categories).where(eq(categories.userId, userId)), loadCategoryOwnerDefaults(userId)]);
+  return list.map((c) => ({ ...c, defaultOwnerId: defaults[c.id] ?? null }));
 }
 
 export async function createCategory(name: string, type: "income" | "expense", kind?: CategoryKind) {

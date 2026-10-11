@@ -1,5 +1,5 @@
 import { db } from "@/db";
-import { categoryRules, categories } from "@/db/schema";
+import { categoryRules, categories, categoryOwnerDefaults } from "@/db/schema";
 import { and, eq } from "drizzle-orm";
 import { resolveCategoryKind } from "@/utils/categoryKinds";
 
@@ -14,4 +14,15 @@ export async function loadUserRules(userId: string) {
   ]);
   const blocked = new Set(adjust.filter((c) => c.name.trim().toLowerCase() === "ajuste de saldo" || resolveCategoryKind(c) === "card_payment").map((c) => c.id));
   return rules.filter((r) => !blocked.has(r.categoryId));
+}
+
+// Dono padrão por categoria ({ categoryId: ownerId }). Se a tabela ainda não existe
+// (migração não rodada), devolve vazio em vez de quebrar o app.
+export async function loadCategoryOwnerDefaults(userId: string): Promise<Record<string, string>> {
+  try {
+    const rows = await db.select().from(categoryOwnerDefaults).where(eq(categoryOwnerDefaults.userId, userId));
+    return Object.fromEntries(rows.map((r) => [r.categoryId, r.ownerId]));
+  } catch {
+    return {};
+  }
 }

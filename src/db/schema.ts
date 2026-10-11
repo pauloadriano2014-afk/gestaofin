@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, numeric, date, timestamp, boolean, integer, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, numeric, date, timestamp, boolean, integer, uniqueIndex, primaryKey } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
 export const categories = pgTable("categories", {
@@ -36,6 +36,16 @@ export const ownerSetups = pgTable("owner_setups", {
   userId: text("user_id").primaryKey(),
   createdAt: timestamp("created_at").defaultNow(),
 });
+
+// --- NOVA TABELA: DONO PADRÃO DA CATEGORIA ---
+// Ex: "Transporte" -> Empresa: gastos dessa categoria já vêm como da Empresa na
+// importação e no lançamento. Fica em tabela própria (como owner_setups): se a
+// migração ainda não foi rodada, só esta função falha, o resto do app segue.
+export const categoryOwnerDefaults = pgTable("category_owner_defaults", {
+  userId: text("user_id").notNull(),
+  categoryId: uuid("category_id").notNull().references(() => categories.id, { onDelete: "cascade" }),
+  ownerId: uuid("owner_id").notNull().references(() => owners.id, { onDelete: "cascade" }),
+}, (t) => [primaryKey({ columns: [t.userId, t.categoryId] })]);
 
 // --- NOVA TABELA: CONTAS (corrente, gateway de vendas, caixa) ---
 // Cartões de crédito continuam na tabela credit_cards. Aqui ficam as contas

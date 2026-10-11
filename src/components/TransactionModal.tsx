@@ -408,7 +408,12 @@ export function TransactionModal({
                 <select
                   className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-white outline-none focus:border-blue-600 transition-all appearance-none"
                   value={categoryId}
-                  onChange={(e) => setCategoryId(e.target.value)}
+                  onChange={(e) => {
+                    setCategoryId(e.target.value)
+                    // categoria com dono padrão (ex: Transporte -> Empresa): novo lançamento já vem desse dono
+                    const def = categories.find((c: any) => c.id === e.target.value)?.defaultOwnerId
+                    if (def && !transaction?.id && owners.some((o: any) => o.id === def)) changeOwner(def)
+                  }}
                 >
                   <option value="">Selecione...</option>
                   {[...uniqueCategories].sort((a: any, b: any) => a.name.localeCompare(b.name, 'pt-BR')).map((cat: any) => (

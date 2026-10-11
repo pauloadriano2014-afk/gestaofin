@@ -83,6 +83,8 @@ export async function getDashboardData(startMonth: number, startYear: number, en
     // categorias, transações do período e (no modo acumulado) o saldo da vida toda.
     type BalanceRow = { type: string; amount: string; entityType: string | null; ownerId: string | null; categoryId: string | null; isPaid: boolean | null; date: string; paidAt: string | null; aiTags: string[] | null };
     const balanceStart = isolatePeriod ? startDateStr : FOREVER_START;
+    const todayForBalance = todayDateStr();
+    const reachDateStr = endDateStr > todayForBalance ? endDateStr : todayForBalance;
     const [categoryRows, currentTransactions, rawBalanceRows, ownerDefaults] = await Promise.all([
       db.select().from(categories).where(eq(categories.userId, userId)),
       db.select().from(transactions)
@@ -95,7 +97,8 @@ export async function getDashboardData(startMonth: number, startYear: number, en
         .from(transactions)
         .where(and(
           eq(transactions.userId, userId),
-          or(lte(transactions.date, endDateStr), lte(transactions.paidAt, endDateStr))
+          // até o fim do período OU até hoje (o que for mais tarde): o painel "Saldo hoje" não depende do mês olhado
+          or(lte(transactions.date, reachDateStr), lte(transactions.paidAt, reachDateStr))
         )),
       loadCategoryOwnerDefaults(userId),
     ]);
@@ -131,8 +134,11 @@ export async function getDashboardData(startMonth: number, startYear: number, en
     const balanceByOwner: Record<string, number> = {};
     const pendingByOwner: Record<string, number> = {};
     const accumulatedByOwner: Record<string, number> = {};
+    // Saldo de HOJE por dono: dinheiro de verdade (só o pago), desde sempre até hoje.
+    const todayByOwner: Record<string, number> = {};
     for (const o of ownerList) {
       const rows = balanceRows.filter(t => t.ownerId === o.id);
+      todayByOwner[o.id] = balanceForPeriod(rows, kindSets, FOREVER_START, todayForBalance).paid;
       const g = split(rows);
       balanceByOwner[o.id] = g.paid;
       pendingByOwner[o.id] = g.pending;
@@ -164,7 +170,7 @@ export async function getDashboardData(startMonth: number, startYear: number, en
       owners: ownerList,
       needsOwnerSetup,
       accounts: accountList,
-      summary: { cashBasis: true, balance, income, expense, globalBalance, globalBalancePF, globalBalancePJ, balanceByOwner, globalPending, globalPendingPF, globalPendingPJ, pendingByOwner, accumulated, accumulatedPF, accumulatedPJ, accumulatedByOwner },
+      summary: { cashBasis: true, balance, income, expense, globalBalance, globalBalancePF, globalBalancePJ, balanceByOwner, globalPending, globalPendingPF, globalPendingPJ, pendingByOwner, accumulated, accumulatedPF, accumulatedPJ, accumulatedByOwner, todayByOwner },
       categoryStats, 
       pieData: categoryStats, 
       dailyData: [], 

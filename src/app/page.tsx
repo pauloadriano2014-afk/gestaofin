@@ -7,6 +7,7 @@ import { getDashboardData, toggleTransactionStatus, copyFixedExpenses, generateM
 import { TransactionModal } from "@/components/TransactionModal";
 import { BudgetModal } from "@/components/BudgetModal";
 import { ImportReviewModal } from "@/components/ImportReviewModal";
+import { BalancesStrip } from "@/components/BalancesStrip";
 import { UserButton } from "@clerk/nextjs"; 
 import { DashboardCards } from "@/components/DashboardCards";
 import { DashboardCharts } from "@/components/DashboardCharts";
@@ -446,6 +447,7 @@ export default function Dashboard() {
             <div className="space-y-6 pb-8">
               {openBillsPanel(false)}
               <MonthCloseChecklist theme={theme} checklist={checklist} onGo={goTo} />
+              <BalancesStrip theme={theme} owners={ownerList} todayByOwner={rawData.summary?.todayByOwner} formatCurrency={formatCurrency} onChanged={loadData} />
               <DashboardCards
                 theme={theme}
                 summary={processedData.summary}

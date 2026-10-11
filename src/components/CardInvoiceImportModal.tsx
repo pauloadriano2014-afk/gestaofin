@@ -31,7 +31,7 @@ export function CardInvoiceImportModal({ categories, onClose, pendingFixedBills 
   const [newCardDueDay, setNewCardDueDay] = useState('')
   const [newCardOwner, setNewCardOwner] = useState('')
   // O que o próprio arquivo diz da fatura: vencimento e total (quando o formato traz).
-  const [fileMeta, setFileMeta] = useState<{ dueDate?: string | null; total?: number | null }>({})
+  const [fileMeta, setFileMeta] = useState<{ dueDate?: string | null; total?: number | null; closingDay?: number | null }>({})
   const [isSavingCard, setIsSavingCard] = useState(false)
 
   const [uploadStatus, setUploadStatus] = useState('')
@@ -53,10 +53,10 @@ export function CardInvoiceImportModal({ categories, onClose, pendingFixedBills 
   // Cria o cartão sozinho a partir do arquivo: o dia de vencimento vem da fatura (se o arquivo
   // trouxer); fechamento aproximado (7 dias antes), pois todos os itens importados vão para a
   // fatura escolhida mesmo. Só o nome é obrigatório.
-  async function createCardFromFile(meta: { dueDate?: string | null }): Promise<any | null> {
+  async function createCardFromFile(meta: { dueDate?: string | null; closingDay?: number | null }): Promise<any | null> {
     const dueFromFile = meta.dueDate ? Number(meta.dueDate.slice(8, 10)) : 0
     const dueDay = Number(newCardDueDay) || dueFromFile || 10
-    const closingDay = Number(newCardClosingDay) || (dueDay > 7 ? dueDay - 7 : dueDay + 23)
+    const closingDay = Number(newCardClosingDay) || meta.closingDay || (dueDay > 7 ? dueDay - 7 : dueDay + 23)
     const res = await createCreditCard({ name: newCardName.trim(), closingDay, dueDay, ownerId: newCardOwner || null })
     if (!res.success) { alert(res.message || 'Erro ao cadastrar o cartão.'); return null }
     const previousIds = new Set(cards.map((c: any) => c.id))
@@ -69,7 +69,7 @@ export function CardInvoiceImportModal({ categories, onClose, pendingFixedBills 
     return created
   }
 
-  async function processRawRows(rawRows: { date: string; amount: number; description: string }[], meta: { dueDate?: string | null; total?: number | null } = {}) {
+  async function processRawRows(rawRows: { date: string; amount: number; description: string }[], meta: { dueDate?: string | null; total?: number | null; closingDay?: number | null } = {}) {
     if (rawRows.length === 0) {
       alert('Não encontrei nenhum item nesse arquivo. Confira se é mesmo o extrato/fatura do cartão.')
       setUploadStatus('')
@@ -175,12 +175,19 @@ export function CardInvoiceImportModal({ categories, onClose, pendingFixedBills 
   async function handleConfirmImport(finalTransactions: any[]) {
     setIsSaving(true)
     const res = await saveBulkCardInvoiceTransactions(finalTransactions, selectedCardId, dueMonth || undefined)
-    // O arquivo trouxe um vencimento diferente do cadastrado no cartão: oferece atualizar (assim a aba Cartões mostra a data certa)
+    // O arquivo trouxe vencimento/fechamento diferentes do cadastrado no cartão: oferece atualizar
+    // (assim a aba Cartões mostra as datas certas)
     const fileDueDay = fileMeta.dueDate ? Number(fileMeta.dueDate.slice(8, 10)) : 0
+    const fileClosingDay = fileMeta.closingDay || 0
     const cardNow = cards.find((c: any) => c.id === selectedCardId)
-    if (res.success && cardNow && fileDueDay && fileDueDay !== cardNow.dueDay &&
-        confirm(`O vencimento nesta fatura é dia ${fileDueDay}, mas o cartão "${cardNow.name}" está com dia ${cardNow.dueDay}. Atualizar o cartão para dia ${fileDueDay}?`)) {
-      await updateCreditCard(cardNow.id, { name: cardNow.name, closingDay: cardNow.closingDay, dueDay: fileDueDay, ownerId: cardNow.ownerId || null })
+    const dueDiffers = !!fileDueDay && !!cardNow && fileDueDay !== cardNow.dueDay
+    const closeDiffers = !!fileClosingDay && !!cardNow && fileClosingDay !== cardNow.closingDay
+    if (res.success && cardNow && (dueDiffers || closeDiffers)) {
+      const newClosing = fileClosingDay || cardNow.closingDay
+      const newDue = fileDueDay || cardNow.dueDay
+      if (confirm(`Este arquivo indica fechamento dia ${newClosing} e vencimento dia ${newDue}, mas o cartão "${cardNow.name}" está com fechamento ${cardNow.closingDay} e vencimento ${cardNow.dueDay}. Atualizar o cartão?`)) {
+        await updateCreditCard(cardNow.id, { name: cardNow.name, closingDay: newClosing, dueDay: newDue, ownerId: cardNow.ownerId || null })
+      }
     }
     setIsSaving(false)
 

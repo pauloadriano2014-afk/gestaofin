@@ -784,3 +784,47 @@ test("OFX: total da fatura vem do LEDGERBAL (valor absoluto)", () => {
   assert.equal(parseOfxTotal("<LEDGERBAL><BALAMT>-835.96<DTASOF>20261003</LEDGERBAL>"), 835.96);
   assert.equal(parseOfxTotal("<STMTTRN></STMTTRN>"), null);
 });
+
+import { parseInvoiceText } from "./invoicePdf";
+const ITAU_TEXT = `
+Resumo da fatura em R$
+Total da fatura anterior1.075,41
+Pagamento efetuado em 21/08/2026-1.075,41
+Encargos (Financiamento + moratório)31,45
+Lançamentos atuais1.619,16
+Total desta fatura1.650,61
+Postagem:  13/09/2026
+Vencimento: 21/09/2026
+Emissão: 13/09/2026
+Previsão próx. Fechamento: 13/10/2026
+Pagamentos efetuados
+DATAVALOR EM R$
+21/08PAGAMENTO PIX-1.075,41
+Total dos pagamentos-1.075,41
+Lançamentos: compras e saques
+DATAESTABELECIMENTOVALOR EM R$
+11/08DL*GOOGLE InstagSAO PAU86,90
+outros  SAO PAULO
+12/08DL*UberRidesSao PauloBR16,96
+transporte  Sao Paulo
+27/08PAC OVERALL GYM BATELCU599,90
+lazer  CURITIBA
+Lançamentos no cartão703,76
+Total dos lançamentos atuais703,76
+Encargos cobrados nesta fatura
+Total de encargos em R$31,45
+`;
+test("fatura PDF (layout Itaú): vencimento, fechamento, total, itens com dica do banco e encargos", () => {
+  const { rows, meta } = parseInvoiceText(ITAU_TEXT);
+  assert.deepEqual(meta, { dueDate: "2026-09-21", closingDay: 13, total: 1650.61 });
+  assert.deepEqual(rows.map((r) => [r.date, r.amount, r.description, r.hint]), [
+    ["2026-08-11", 86.9, "DL*GOOGLE InstagSAO PAU", "outros"],
+    ["2026-08-12", 16.96, "DL*UberRidesSao PauloBR", "transporte"],
+    ["2026-08-27", 599.9, "PAC OVERALL GYM BATELCU", "lazer"],
+    ["2026-09-13", 31.45, "Encargos da fatura (juros, multa e IOF)", "encargos"],
+  ]);
+});
+test("fatura PDF: compra de dezembro numa fatura que vence em janeiro fica no ano anterior", () => {
+  const { rows } = parseInvoiceText("Vencimento: 10/01/2027\nLançamentos: compras e saques\n20/12LOJA X50,00\n");
+  assert.equal(rows[0].date, "2026-12-20");
+});

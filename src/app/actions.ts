@@ -11,6 +11,7 @@ import { paidByFromTags, withPaidBy, toCashRow } from "@/utils/paidBy";
 import { settleInvoice } from "@/db/invoices";
 import { loadUserRules, loadCategoryOwnerDefaults, loadBalanceCheckpoints } from "@/db/rules";
 import { mentionsOwner, looksLikeTransfer, bestExistingMatch, daysApart } from "@/utils/transfers";
+import { parseInvoiceText } from "@/utils/invoicePdf";
 import { dedupeAgainstExisting, parseLinkedInvoice, looksLikeBankInvoicePayment } from "@/utils/invoiceLines";
 import { desc, asc, and, or, sql, eq, lte, gte, inArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
@@ -1382,7 +1383,7 @@ export async function processCardInvoiceWithAI(batch: { date: string; amount: nu
     const categoriesList = aiCategoryList(userCategories);
     const userRules = await loadUserRules(userId);
 
-    const promptText = `Categorize os itens da fatura de um cartão de crédito abaixo. Categorias disponíveis: ${categoriesList}\nREGRAS: Mantenha date, amount, description originais. Adicione 'type' ('expense' p/ valores positivos — compra normal — e 'income' p/ valores negativos — estorno ou pagamento) e 'categoryId'. Devolva SÓ o JSON (array).\nItens: ${JSON.stringify(batch)}`;
+    const promptText = `Categorize os itens da fatura de um cartão de crédito abaixo. Categorias disponíveis: ${categoriesList}\nREGRAS: Mantenha date, amount, description originais. Adicione 'type' ('expense' p/ valores positivos — compra normal — e 'income' p/ valores negativos — estorno ou pagamento) e 'categoryId'. Se o item tiver 'hint', é a categoria que o próprio banco informou (transporte, lazer, serviços, outros...): use como pista, mas escolha sempre uma categoria da lista (Uber/99 = transporte; juros, multa e IOF = impostos e taxas). Devolva SÓ o JSON (array).\nItens: ${JSON.stringify(batch)}`;
 
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${process.env.OPENAI_API_KEY}` },
@@ -1546,6 +1547,13 @@ export async function parsePdfInvoiceText(base64: string) {
     const rawText = (parsed.text || "").substring(0, 12000); // limite de segurança pro prompt
 
     if (!rawText.trim()) return { success: false, message: "Não consegui ler texto desse PDF (pode ser uma fatura escaneada como imagem)." };
+
+    // 1) leitura direta do texto (formato dos grandes emissores, ex: Itaú): sem IA, sem chute.
+    //    Usa o texto completo (o limite de 12 mil caracteres é só para o prompt da IA).
+    const direct = parseInvoiceText(parsed.text || "");
+    if (direct.rows.length >= 3) {
+      return { success: true, data: direct.rows, meta: { dueDate: direct.meta.dueDate, total: direct.meta.total, closingDay: direct.meta.closingDay } };
+    }
 
     const promptText = `Extraia os dados de uma fatura de cartão de crédito a partir do texto abaixo (extraído de um PDF, pode ter ruído de layout). Devolva SÓ um objeto JSON com: "dueDate" (data de VENCIMENTO da fatura em YYYY-MM-DD, ou null se não achar), "total" (valor TOTAL da fatura a pagar, número positivo, ou null se não achar) e "items" (array). Cada item de "items" tem: date (formato YYYY-MM-DD, deduza o ano pelo contexto da fatura se não estiver explícito no item), amount (número positivo pra compra normal, negativo pra estorno/pagamento), description. Em "items" ignore linhas de resumo, total da fatura, limite disponível, cabeçalho/rodapé.\n\nTexto da fatura:\n${rawText}`;
 

@@ -105,6 +105,25 @@ export function CardsOverview({ theme, formatCurrency, cards, owners, todayStr, 
               )}
             </div>
 
+            {(card.paidHistory || []).length > 0 && (
+              <details className="group">
+                <summary className={`cursor-pointer text-[11px] font-bold ${theme.textMuted} hover:text-blue-500 list-none flex items-center gap-1`}>
+                  <span className="inline-block transition-transform group-open:rotate-90">›</span> Faturas pagas ({card.paidHistory.length})
+                </summary>
+                <div className="mt-2 space-y-1.5">
+                  {card.paidHistory.map((cycle: any) => (
+                    <div key={cycle.cycleKey} className="rounded-xl border border-black/5 dark:border-white/10 px-3 py-2 flex items-center justify-between gap-2">
+                      <div>
+                        <p className={`font-mono font-bold text-sm ${theme.text}`}>{formatCurrency(cycle.total)}</p>
+                        <p className={`text-[10px] ${theme.textMuted}`}>vence {fmtDate(cycle.dueDate)}{cycle.paidAt ? ` · paga em ${fmtDate(cycle.paidAt)}` : ''} · {cycle.count} {cycle.count === 1 ? 'item' : 'itens'}</p>
+                      </div>
+                      <button onClick={() => onViewItems(card.id, cycle.cycleKey)} className="text-xs font-bold text-blue-500 hover:underline shrink-0">ver itens</button>
+                    </div>
+                  ))}
+                </div>
+              </details>
+            )}
+
             {card.closedUnpaidCycles.length > 0 && (
               <div className="space-y-2">
                 <p className="text-[10px] font-bold uppercase text-red-500">Fechadas e não pagas · {formatCurrency(card.closedUnpaidTotal)}</p>

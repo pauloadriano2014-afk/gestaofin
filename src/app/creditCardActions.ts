@@ -116,6 +116,10 @@ export async function getCreditCardsOverview() {
   const overrides = await db.select().from(creditCardInvoiceOverrides).where(
     and(eq(creditCardInvoiceOverrides.userId, userId), inArray(creditCardInvoiceOverrides.creditCardId, cardIds), eq(creditCardInvoiceOverrides.isPaid, false))
   );
+  // Faturas já pagas, para consulta ("o que tinha dentro daquele cartão").
+  const paidTransactions = await db.select().from(transactions).where(
+    and(eq(transactions.userId, userId), inArray(transactions.creditCardId, cardIds), eq(transactions.isPaid, true))
+  );
 
   const today = todayDateStr();
 
@@ -155,11 +159,27 @@ export async function getCreditCardsOverview() {
     const closedUnpaidCycles = allCycles.filter((c) => c.closingDate < today);
     const closedUnpaidTotal = closedUnpaidCycles.reduce((sum, c) => sum + c.total, 0);
 
+    // Histórico: faturas cujos itens já foram pagos (as 8 mais recentes)
+    const paidCycles = new Map<string, { cycleKey: string; closingDate: string; dueDate: string; total: number; count: number; paidAt: string | null }>();
+    for (const p of paidTransactions.filter((t) => t.creditCardId === card.id)) {
+      const cycleKey = cycleKeyOfTransaction(p, card);
+      const cur = paidCycles.get(cycleKey) || { cycleKey, ...getCycleDatesForCycleKey(cycleKey, card.closingDay, card.dueDay), total: 0, count: 0, paidAt: null as string | null };
+      cur.total += invoiceAmount(p);
+      cur.count += 1;
+      if (p.paidAt && (!cur.paidAt || p.paidAt > cur.paidAt)) cur.paidAt = p.paidAt;
+      paidCycles.set(cycleKey, cur);
+    }
+    const paidHistory = Array.from(paidCycles.values())
+      .map((c) => ({ ...c, total: Math.round(c.total * 100) / 100 }))
+      .sort((a, b) => b.cycleKey.localeCompare(a.cycleKey))
+      .slice(0, 8);
+
     return {
       ...card,
       openCycle,
       closedUnpaidCycles,
       closedUnpaidTotal,
+      paidHistory,
     };
   });
 }

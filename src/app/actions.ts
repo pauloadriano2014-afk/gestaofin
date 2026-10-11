@@ -4,6 +4,7 @@ import { db } from "@/db";
 import { categories, transactions, userSettings, categoryRules, fixedBills, accounts, creditCards } from "@/db/schema";
 import { ensureOwners, resolveOwnership } from "@/db/owners";
 import { matchesView } from "@/utils/owners";
+import { inferKindFromName, type CategoryKind } from "@/utils/categoryKinds";
 import { desc, asc, and, sql, eq, lte, gte } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { auth } from "@clerk/nextjs/server";
@@ -755,7 +756,7 @@ async function syncEssentialCategories(userId: string) {
 
     for (const cat of essential) {
       const exists = existingCategories.find((c) => c.name.trim().toLowerCase() === cat.name.trim().toLowerCase());
-      if (!exists) { await db.insert(categories).values({ userId: userId, name: cat.name, type: cat.type as "income" | "expense" }); }
+      if (!exists) { await db.insert(categories).values({ userId: userId, name: cat.name, type: cat.type as "income" | "expense", kind: inferKindFromName(cat.name) }); }
     }
 
     // 🔥 NOVO: unifica "Compras Variadas" dentro de "Despesas Variadas" (eram
@@ -781,7 +782,7 @@ export async function getUserCategories() {
   return db.select().from(categories).where(eq(categories.userId, userId));
 }
 
-export async function createCategory(name: string, type: "income" | "expense") {
+export async function createCategory(name: string, type: "income" | "expense", kind?: CategoryKind) {
   try {
     const userId = await getUser();
     if (!userId) return { success: false, message: "Login necessário." };
@@ -792,10 +793,23 @@ export async function createCategory(name: string, type: "income" | "expense") {
       return { success: false, message: "Já existe uma categoria com esse nome." };
     }
 
-    await db.insert(categories).values({ userId, name: name.trim(), type });
+    await db.insert(categories).values({ userId, name: name.trim(), type, kind: kind ?? inferKindFromName(name) });
     revalidatePath("/");
     return { success: true };
   } catch (error) { return { success: false, message: "Erro ao criar categoria." }; }
+}
+
+// Muda o tipo contábil da categoria (investimento, reembolso, pagamento de fatura...).
+// Afeta como os lançamentos dela entram em Despesas/Receita e na previsão.
+export async function setCategoryKind(id: string, kind: CategoryKind) {
+  try {
+    const userId = await getUser();
+    if (!userId) return { success: false, message: "Login necessário." };
+    if (!["operational", "investment", "refund", "card_payment"].includes(kind)) return { success: false, message: "Tipo inválido." };
+    await db.update(categories).set({ kind }).where(and(eq(categories.id, id), eq(categories.userId, userId)));
+    revalidatePath("/");
+    return { success: true };
+  } catch (error) { return { success: false, message: "Erro ao salvar o tipo." }; }
 }
 
 export async function renameCategory(id: string, name: string) {

@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from 'react'
 import { X, Tags, Loader2, Plus, Pencil, Trash2, Check, Target, TrendingDown, TrendingUp } from 'lucide-react'
-import { getUserCategories, createCategory, renameCategory, deleteCategory } from '@/app/actions'
+import { getUserCategories, createCategory, renameCategory, deleteCategory, setCategoryKind } from '@/app/actions'
+import { CATEGORY_KIND_LABEL, resolveCategoryKind, type CategoryKind } from '@/utils/categoryKinds'
 import { BudgetModal } from './BudgetModal'
 
 const sortByName = (list: any[]) => [...list].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
@@ -77,6 +78,11 @@ export function CategoriesModal({ onClose }: { onClose: () => void }) {
     }
   }
 
+  async function changeKind(id: string, kind: CategoryKind) {
+    const res = await setCategoryKind(id, kind)
+    if (res.success) load(); else alert(res.message || 'Erro ao salvar o tipo.')
+  }
+
   function openBudget(cat: any) {
     setSelectedCategory(cat)
     setBudgetModalOpen(true)
@@ -106,6 +112,14 @@ export function CategoriesModal({ onClose }: { onClose: () => void }) {
           <>
             <div className="min-w-0">
               <p className="text-sm font-medium text-white truncate">{cat.name}</p>
+              <select
+                value={resolveCategoryKind(cat)}
+                onChange={(e) => changeKind(cat.id, e.target.value as CategoryKind)}
+                className="mt-1 bg-zinc-800 border border-zinc-700 rounded px-1 py-0.5 text-[10px] text-zinc-300 outline-none"
+                title="Como esta categoria entra nas contas"
+              >
+                {(Object.keys(CATEGORY_KIND_LABEL) as CategoryKind[]).map((k) => <option key={k} value={k}>{CATEGORY_KIND_LABEL[k]}</option>)}
+              </select>
               {hasBudget && <p className="text-[10px] text-purple-400">Meta: {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(cat.budget))}</p>}
             </div>
             <div className="flex items-center gap-1 shrink-0">

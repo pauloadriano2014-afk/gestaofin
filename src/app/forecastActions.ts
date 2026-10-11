@@ -7,6 +7,7 @@ import { getUser } from "./actions";
 import { getCreditCardsOverview } from "./creditCardActions";
 import { todayDateStr, addDays, addMonthsClamped } from "@/utils/dates";
 import { matchesView } from "@/utils/owners";
+import { buildKindSets, isOperational } from "@/utils/categoryKinds";
 
 // --- PREVISÃO FINANCEIRA DO MÊS ---
 // Junta o que ainda falta pagar (contas fixas em aberto + faturas de cartão
@@ -26,14 +27,9 @@ export async function getFinancialForecast(viewMode: string = "all") {
     if (!userId) return { success: false as const };
 
     const userCategories = await db.select().from(categories).where(eq(categories.userId, userId));
-    const catInvestimentosId = userCategories.find((c) => c.name.toLowerCase().includes("investimento"))?.id;
-    const catCartaoId = userCategories.find((c) => c.name.toLowerCase().includes("cartão de crédito"))?.id;
-    const catReembolsoId = userCategories.find((c) => c.name.toLowerCase().includes("reembolso"))?.id;
+    const kindSets = buildKindSets(userCategories);
     const isOperacional = (t: { categoryId: string | null; entityType: string | null; ownerId: string | null }) =>
-      t.categoryId !== catInvestimentosId &&
-      t.categoryId !== catCartaoId &&
-      t.categoryId !== catReembolsoId &&
-      matchesView(t, viewMode);
+      isOperational(t.categoryId, kindSets) && matchesView(t, viewMode);
 
     const today = todayDateStr();
     const [y, m] = today.split("-").map(Number);

@@ -7,6 +7,9 @@ export const categories = pgTable("categories", {
   icon: text("icon"),
   type: text("type", { enum: ["income", "expense"] }).notNull(),
   budget: numeric("budget", { precision: 10, scale: 2 }).default("0"),
+  // Como a categoria entra nas contas (ver src/utils/categoryKinds.ts):
+  // 'operational' | 'investment' | 'refund' | 'card_payment'. Nulo = palpite pelo nome.
+  kind: text("kind"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

@@ -1,4 +1,5 @@
 import { matchesView } from "@/utils/owners";
+import { buildKindSets, isOperational } from "@/utils/categoryKinds";
 
 export function calculateDashboardData(rawData: any, viewMode: string, selectedDay: number | null) {
     let txs = (rawData.transactions || []).filter((t: any) => matchesView(t, viewMode));
@@ -8,18 +9,13 @@ export function calculateDashboardData(rawData: any, viewMode: string, selectedD
       txs = txs.filter((t: any) => t.date.endsWith(`-${dayStr}`));
     }
   
-    const catInvestimentosId = rawData.allCategories.find((c: any) => c.name.toLowerCase().includes('investimento'))?.id;
-    const catCartaoId = rawData.allCategories.find((c: any) => c.name.toLowerCase().includes('cartão de crédito'))?.id;
-    const catReembolsoId = rawData.allCategories.find((c: any) => c.name.toLowerCase().includes('reembolso'))?.id;
-  
-    const txsInvestimentos = txs.filter((t: any) => t.categoryId === catInvestimentosId);
-  
-    const txsOperacionais = txs.filter((t: any) => 
-      t.categoryId !== catInvestimentosId && 
-      t.categoryId !== catCartaoId && 
-      t.categoryId !== catReembolsoId
-    );
-  
+    const kindSets = buildKindSets(rawData.allCategories || []);
+    const isInvestimento = (t: any) => !!t.categoryId && kindSets.investment.has(t.categoryId);
+
+    const txsInvestimentos = txs.filter(isInvestimento);
+
+    const txsOperacionais = txs.filter((t: any) => isOperational(t.categoryId, kindSets));
+
     // 1. Receita e Despesa LIMPAS (Operacionais)
     const income = txsOperacionais.filter((t: any) => t.type === 'income').reduce((acc: number, t: any) => acc + Math.abs(Number(t.amount)), 0);
     const expense = txsOperacionais.filter((t: any) => t.type === 'expense').reduce((acc: number, t: any) => acc + Math.abs(Number(t.amount)), 0);

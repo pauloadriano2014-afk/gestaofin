@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { getOwnersAndAccounts } from '@/app/ownerActions'
 import { X, CreditCard, Loader2, Plus, Pencil, Archive, CheckCircle2, Check } from 'lucide-react'
 import {
   getCreditCardsOverview,
@@ -27,6 +28,8 @@ export function CreditCardsModal({ onClose }: { onClose: () => void }) {
   const [name, setName] = useState('')
   const [closingDay, setClosingDay] = useState('')
   const [dueDay, setDueDay] = useState('')
+  const [owners, setOwners] = useState<any[]>([])
+  const [ownerId, setOwnerId] = useState('')
   const [showForm, setShowForm] = useState(false)
 
   // 🔥 NOVO: edição do valor da fatura na mão (por cartão + ciclo).
@@ -48,9 +51,10 @@ export function CreditCardsModal({ onClose }: { onClose: () => void }) {
   }
 
   useEffect(() => { loadCards() }, [])
+  useEffect(() => { getOwnersAndAccounts().then((r) => { setOwners(r.owners); setOwnerId((cur) => cur || r.owners[0]?.id || '') }) }, [])
 
   function resetForm() {
-    setName(''); setClosingDay(''); setDueDay(''); setEditingId(null); setShowForm(false)
+    setName(''); setClosingDay(''); setDueDay(''); setOwnerId(owners[0]?.id || ''); setEditingId(null); setShowForm(false)
   }
 
   function startEdit(card: any) {
@@ -58,6 +62,7 @@ export function CreditCardsModal({ onClose }: { onClose: () => void }) {
     setName(card.name)
     setClosingDay(String(card.closingDay))
     setDueDay(String(card.dueDay))
+    setOwnerId(card.ownerId || owners[0]?.id || '')
     setShowForm(true)
   }
 
@@ -67,7 +72,7 @@ export function CreditCardsModal({ onClose }: { onClose: () => void }) {
       return
     }
     setSaving(true)
-    const payload = { name, closingDay: Number(closingDay), dueDay: Number(dueDay) }
+    const payload = { name, closingDay: Number(closingDay), dueDay: Number(dueDay), ownerId: ownerId || null }
     const res = editingId ? await updateCreditCard(editingId, payload) : await createCreditCard(payload)
     setSaving(false)
     if (res.success) {
@@ -193,7 +198,7 @@ export function CreditCardsModal({ onClose }: { onClose: () => void }) {
                 <div className="flex justify-between items-start">
                   <div>
                     <h3 className="font-bold text-white">{card.name}</h3>
-                    <p className="text-[10px] text-zinc-500 uppercase tracking-wider">Fecha dia {card.closingDay} · Vence dia {card.dueDay}</p>
+                    <p className="text-[10px] text-zinc-500 uppercase tracking-wider">Fecha dia {card.closingDay} · Vence dia {card.dueDay}{owners.find((o) => o.id === card.ownerId) ? ` · ${owners.find((o) => o.id === card.ownerId).name}` : ''}</p>
                   </div>
                   <div className="flex gap-1">
                     <button onClick={() => startEdit(card)} className="p-1.5 hover:bg-blue-500/10 text-blue-500 rounded transition-colors"><Pencil className="w-3.5 h-3.5" /></button>
@@ -353,6 +358,14 @@ export function CreditCardsModal({ onClose }: { onClose: () => void }) {
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                 />
+                {owners.length > 0 && (
+                  <div>
+                    <label className="text-[10px] font-bold text-zinc-500 uppercase mb-1 block">De quem é o cartão</label>
+                    <select className="w-full bg-zinc-900 border border-zinc-800 rounded-xl p-3 text-white outline-none focus:border-blue-600" value={ownerId} onChange={(e) => setOwnerId(e.target.value)}>
+                      {owners.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+                    </select>
+                  </div>
+                )}
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="text-[10px] font-bold text-zinc-500 uppercase mb-1 block">Dia de fechamento</label>

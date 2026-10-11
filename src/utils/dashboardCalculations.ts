@@ -1,7 +1,7 @@
+import { matchesView } from "@/utils/owners";
+
 export function calculateDashboardData(rawData: any, viewMode: string, selectedDay: number | null) {
-    let txs = (rawData.transactions || []).filter((t: any) => 
-      viewMode === 'all' ? true : t.entityType === viewMode
-    );
+    let txs = (rawData.transactions || []).filter((t: any) => matchesView(t, viewMode));
   
     if (selectedDay !== null) {
       const dayStr = String(selectedDay).padStart(2, '0');
@@ -86,7 +86,8 @@ export function calculateDashboardData(rawData: any, viewMode: string, selectedD
 
     let finalBalance = rawData.summary?.globalBalance || 0;
     if (viewMode === 'pf') finalBalance = rawData.summary?.globalBalancePF || 0;
-    if (viewMode === 'pj') finalBalance = rawData.summary?.globalBalancePJ || 0;
+    else if (viewMode === 'pj') finalBalance = rawData.summary?.globalBalancePJ || 0;
+    else if (viewMode !== 'all') finalBalance = rawData.summary?.balanceByOwner?.[viewMode] || 0;
 
     return {
         summary: {

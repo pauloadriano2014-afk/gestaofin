@@ -13,13 +13,14 @@ import { calculateDashboardData } from "@/utils/dashboardCalculations";
 import {
   Plus,
   Clock, CheckCircle2, Circle, Copy, Loader2,
-  Briefcase, User, Layers, MessageSquare, X, Palette, Pencil, Trash2, AlertCircle, Crown, FileText, Download, Filter, Calendar as CalendarIcon, ToggleLeft, ToggleRight, CreditCard, Tag, Tags, Repeat, Upload
+  Briefcase, User, Layers, MessageSquare, X, Palette, Pencil, Trash2, AlertCircle, Crown, FileText, Download, Filter, Calendar as CalendarIcon, ToggleLeft, ToggleRight, CreditCard, Tag, Tags, Repeat, Upload, Users
 } from "lucide-react";
 import { PremiumModal } from "@/components/PremiumModal";
 import { OpenBillsPanel } from "@/components/OpenBillsPanel";
 import { CreditCardsModal } from "@/components/CreditCardsModal";
 import { CategoryRulesModal } from "@/components/CategoryRulesModal";
 import { CategoriesModal } from "@/components/CategoriesModal";
+import { OwnersAccountsModal } from "@/components/OwnersAccountsModal";
 import { FixedBillsModal } from "@/components/FixedBillsModal";
 import { CardInvoiceImportModal } from "@/components/CardInvoiceImportModal";
 
@@ -105,7 +106,7 @@ export default function Dashboard() {
   const [showPremium, setShowPremium] = useState(false);
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [uploadStatus, setUploadStatus] = useState("");
-  const [viewMode, setViewMode] = useState<'all' | 'pf' | 'pj'>('all');
+  const [viewMode, setViewMode] = useState<string>('all');
   const [currentTheme, setCurrentTheme] = useState<'dark' | 'nubank' | 'green' | 'blue' | 'red'>('nubank');
   const [isThemeMenuOpen, setIsThemeMenuOpen] = useState(false); 
   const [filterCategory, setFilterCategory] = useState<string>('all');
@@ -123,6 +124,7 @@ export default function Dashboard() {
   const [isCategoryRulesModalOpen, setIsCategoryRulesModalOpen] = useState(false);
   const [isCategoriesModalOpen, setIsCategoriesModalOpen] = useState(false);
   const [isFixedBillsModalOpen, setIsFixedBillsModalOpen] = useState(false);
+  const [isOwnersModalOpen, setIsOwnersModalOpen] = useState(false);
   const [isCardInvoiceModalOpen, setIsCardInvoiceModalOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
 
@@ -261,6 +263,16 @@ export default function Dashboard() {
       }
   }
 
+  // Visões da barra do topo: Tudo, o conjunto das pessoas físicas ("Casal", só
+  // aparece com 2+ pessoas) e cada dono separado (Paulo, Adri, Empresa...).
+  const owners: any[] = rawData.owners || [];
+  const ownerNameById = (id?: string | null) => owners.find((o) => o.id === id)?.name || '';
+  const viewOptions: { id: string; label: string; kind: 'all' | 'pf' | 'pj' }[] = [
+    { id: 'all', label: 'Tudo', kind: 'all' },
+    ...(owners.filter((o) => o.kind === 'pf').length >= 2 ? [{ id: 'pf', label: 'Casal', kind: 'pf' as const }] : []),
+    ...owners.map((o) => ({ id: o.id as string, label: o.name as string, kind: o.kind as 'pf' | 'pj' })),
+  ];
+
   const processedData = useMemo(() => {
     return calculateDashboardData(rawData, viewMode, selectedDay);
   }, [rawData, viewMode, selectedDay]);
@@ -317,6 +329,7 @@ export default function Dashboard() {
                     <button onClick={() => setIsCreditCardsModalOpen(true)} className={`p-2 rounded-full border transition-all shrink-0 ${theme.card}`} title="Meus Cartões"><CreditCard className="w-5 h-5" /></button>
                     <button onClick={() => setIsCategoryRulesModalOpen(true)} className={`p-2 rounded-full border transition-all shrink-0 ${theme.card}`} title="Regras de Categorização"><Tag className="w-5 h-5" /></button>
                     <button onClick={() => setIsCategoriesModalOpen(true)} className={`p-2 rounded-full border transition-all shrink-0 ${theme.card}`} title="Minhas Categorias"><Tags className="w-5 h-5" /></button>
+                    <button onClick={() => setIsOwnersModalOpen(true)} className={`p-2 rounded-full border transition-all shrink-0 ${theme.card}`} title="Pessoas e Contas"><Users className="w-5 h-5" /></button>
                     <button onClick={() => setIsFixedBillsModalOpen(true)} className={`p-2 rounded-full border transition-all shrink-0 ${theme.card}`} title="Minhas Contas Fixas"><Repeat className="w-5 h-5" /></button>
                     <div className="flex items-center justify-center bg-white/10 rounded-full p-1 shrink-0" title="Minha Conta"><UserButton afterSignOutUrl="/sign-in" /></div>
                     <div className="relative shrink-0">
@@ -336,9 +349,11 @@ export default function Dashboard() {
                 </div>
 
                 <div className={`flex p-1 rounded-full border w-full md:w-auto justify-between ${theme.card}`}>
-                    <button onClick={() => setViewMode('all')} className={`flex-1 md:flex-none px-4 md:px-8 py-2 md:py-3 text-xs md:text-sm font-bold rounded-full flex items-center justify-center gap-2 transition-all ${viewMode === 'all' ? theme.navActive : theme.navInactive}`}><Layers className="w-3 h-3"/> Tudo</button>
-                    <button onClick={() => setViewMode('pf')} className={`flex-1 md:flex-none px-4 md:px-8 py-2 md:py-3 text-xs md:text-sm font-bold rounded-full flex items-center justify-center gap-2 transition-all ${viewMode === 'pf' ? theme.navActive : theme.navInactive}`}><User className="w-3 h-3"/> PF</button>
-                    <button onClick={() => setViewMode('pj')} className={`flex-1 md:flex-none px-4 md:px-8 py-2 md:py-3 text-xs md:text-sm font-bold rounded-full flex items-center justify-center gap-2 transition-all ${viewMode === 'pj' ? theme.navActive : theme.navInactive}`}><Briefcase className="w-3 h-3"/> PJ</button>
+                    {viewOptions.map((opt) => (
+                      <button key={opt.id} onClick={() => setViewMode(opt.id)} className={`flex-1 md:flex-none px-3 md:px-6 py-2 md:py-3 text-xs md:text-sm font-bold rounded-full flex items-center justify-center gap-2 transition-all ${viewMode === opt.id ? theme.navActive : theme.navInactive}`}>
+                        {opt.kind === 'all' ? <Layers className="w-3 h-3"/> : opt.kind === 'pj' ? <Briefcase className="w-3 h-3"/> : <User className="w-3 h-3"/>} {opt.label}
+                      </button>
+                    ))}
                 </div>
             </div>
           </div>
@@ -508,7 +523,7 @@ export default function Dashboard() {
                         <button onClick={() => handleTogglePay(tx.id, tx.isPaid)} className={`p-2 rounded-full transition-all shrink-0 ${tx.isPaid ? 'text-emerald-600 bg-emerald-500/10' : 'text-slate-400 bg-slate-100/50 hover:text-orange-500'}`}>{tx.isPaid ? <CheckCircle2 className="w-5 h-5" /> : <Circle className="w-5 h-5" />}</button>
                         <div className="min-w-0">
                           <p className={`font-semibold text-sm truncate ${tx.isPaid ? 'text-zinc-500 line-through' : theme.text}`}>{tx.description}</p>
-                          <p className={`text-[10px] font-bold uppercase flex items-center gap-1 flex-wrap ${theme.textMuted}`}>{tx.entityType === 'pj' ? <Briefcase className="w-3 h-3 text-blue-500 shrink-0"/> : <User className="w-3 h-3 opacity-50 shrink-0"/>}{isLate ? (<span className="flex items-center gap-1 text-red-500 animate-pulse"><AlertCircle className="w-3 h-3"/> VENCIDO (Dia {tx.date.split('-')[2]})</span>) : isToday ? (<span className="flex items-center gap-1 text-amber-500 font-bold"><Clock className="w-3 h-3"/> VENCE HOJE</span>) : (<span>Dia {tx.date.split('-')[2]}</span>)}</p>
+                          <p className={`text-[10px] font-bold uppercase flex items-center gap-1 flex-wrap ${theme.textMuted}`}>{tx.entityType === 'pj' ? <Briefcase className="w-3 h-3 text-blue-500 shrink-0"/> : <User className="w-3 h-3 opacity-50 shrink-0"/>}{ownerNameById(tx.ownerId) && <span className="normal-case">{ownerNameById(tx.ownerId)}</span>}{isLate ? (<span className="flex items-center gap-1 text-red-500 animate-pulse"><AlertCircle className="w-3 h-3"/> VENCIDO (Dia {tx.date.split('-')[2]})</span>) : isToday ? (<span className="flex items-center gap-1 text-amber-500 font-bold"><Clock className="w-3 h-3"/> VENCE HOJE</span>) : (<span>Dia {tx.date.split('-')[2]}</span>)}</p>
                           {hasOriginal && Math.abs(diff) > 0.009 && (
                             <p className={`text-[9px] font-bold pt-0.5 ${diff > 0 ? 'text-red-400' : 'text-emerald-400'}`}>
                               Original: {formatCurrency(Number(tx.originalAmount))} • {diff > 0 ? 'Juros' : 'Desconto'} de {formatCurrency(Math.abs(diff))}
@@ -545,7 +560,7 @@ export default function Dashboard() {
                           <div className="min-w-0">
                             <p className={`font-semibold text-sm truncate ${tx.isPaid ? 'text-zinc-500 line-through' : theme.text}`}>{tx.description}</p>
                             <p className={`text-[10px] font-bold uppercase flex items-center gap-1 flex-wrap ${theme.textMuted}`}>
-                              {tx.entityType === 'pj' ? <Briefcase className="w-3 h-3 text-blue-500 shrink-0"/> : <User className="w-3 h-3 opacity-50 shrink-0"/>}
+                              {tx.entityType === 'pj' ? <Briefcase className="w-3 h-3 text-blue-500 shrink-0"/> : <User className="w-3 h-3 opacity-50 shrink-0"/>}{ownerNameById(tx.ownerId) && <span className="normal-case">{ownerNameById(tx.ownerId)}</span>}
                               <span>Dia {tx.date.split('-')[2]}/{tx.date.split('-')[1]}</span>
                               {tx.isFixed && <span className="opacity-50">• Fixo</span>}
                             </p>
@@ -567,13 +582,14 @@ export default function Dashboard() {
       </div>
       
       {/* MODAIS CLÁSSICOS */}
-      {isModalOpen && (<TransactionModal categories={rawData.allCategories} transaction={editingTransaction} onClose={() => { setIsModalOpen(false); setEditingTransaction(null); loadData(); }} userPlan={rawData.planType} onRequestPremium={() => setShowPremium(true)} />)}
+      {isModalOpen && (<TransactionModal categories={rawData.allCategories} transaction={editingTransaction} onClose={() => { setIsModalOpen(false); setEditingTransaction(null); loadData(); }} userPlan={rawData.planType} onRequestPremium={() => setShowPremium(true)} owners={rawData.owners} accounts={rawData.accounts} defaultOwnerId={owners.some((o) => o.id === viewMode) ? viewMode : undefined} />)}
       {budgetModalOpen && selectedCategory && (<BudgetModal category={selectedCategory} onClose={() => { setBudgetModalOpen(false); loadData(); }} />)}
       <PremiumModal isOpen={showPremium} onClose={() => setShowPremium(false)} />
       {isReportModalOpen && (<ReportModal onClose={() => setIsReportModalOpen(false)} userPlan={rawData.planType} onRequestPremium={() => setShowPremium(true)} />)}
       {isCreditCardsModalOpen && (<CreditCardsModal onClose={() => { setIsCreditCardsModalOpen(false); loadData(); }} />)}
       {isCategoryRulesModalOpen && (<CategoryRulesModal onClose={() => setIsCategoryRulesModalOpen(false)} categories={rawData.allCategories} />)}
       {isCategoriesModalOpen && (<CategoriesModal onClose={() => { setIsCategoriesModalOpen(false); loadData(); }} />)}
+      {isOwnersModalOpen && (<OwnersAccountsModal onClose={() => { setIsOwnersModalOpen(false); loadData(); }} />)}
       {isFixedBillsModalOpen && (<FixedBillsModal categories={rawData.allCategories} onClose={() => { setIsFixedBillsModalOpen(false); loadData(); }} />)}
       {isCardInvoiceModalOpen && (<CardInvoiceImportModal categories={rawData.allCategories} pendingFixedBills={pendingFixedBills} onClose={() => { setIsCardInvoiceModalOpen(false); loadData(); }} />)}
 
@@ -586,6 +602,8 @@ export default function Dashboard() {
         onConfirm={handleConfirmImport}
         isSaving={isSavingBulk}
         pendingFixedBills={pendingFixedBills}
+        owners={owners}
+        defaultOwnerId={owners.some((o) => o.id === viewMode) ? viewMode : undefined}
       />
     </main>
   );

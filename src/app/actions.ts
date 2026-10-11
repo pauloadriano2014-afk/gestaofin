@@ -1,7 +1,9 @@
 'use server'
 
 import { db } from "@/db";
-import { categories, transactions, userSettings, categoryRules, fixedBills } from "@/db/schema";
+import { categories, transactions, userSettings, categoryRules, fixedBills, accounts, creditCards } from "@/db/schema";
+import { ensureOwners, resolveOwnership } from "@/db/owners";
+import { matchesView } from "@/utils/owners";
 import { desc, asc, and, sql, eq, lte, gte } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { auth } from "@clerk/nextjs/server";
@@ -43,6 +45,10 @@ export async function getDashboardData(startMonth: number, startYear: number, en
     }
 
     await syncEssentialCategories(userId);
+    // Donos (Paulo / Adri / Empresa) e contas. Na primeira vez cria os donos
+    // padrão e atribui os lançamentos antigos (PF -> Paulo, PJ -> Empresa).
+    const ownerList = await ensureOwners(userId);
+    const accountList = await db.select().from(accounts).where(and(eq(accounts.userId, userId), eq(accounts.archived, false)));
     // 🔥 NOVO: garante que os moldes de "Minhas Contas Fixas" já tenham a
     // cobrança gerada pro(s) mês(es) que você está olhando, sem precisar
     // clicar em "Virar Mês" toda vez que cadastra uma conta nova. Só gera pra
@@ -80,44 +86,29 @@ export async function getDashboardData(startMonth: number, startYear: number, en
       )
       .orderBy(desc(transactions.date));
 
-    // 3. Lógica das Carteiras de Saldo (Global, PF, PJ)
-    let globalBalance = 0;
-    let globalBalancePF = 0;
-    let globalBalancePJ = 0;
-    
-    if (isolatePeriod) {
-        // Zera o passado e calcula só o saldo da janela selecionada
-        const periodIncome = currentTransactions.filter(t => t.type === 'income').reduce((acc, t) => acc + Math.abs(Number(t.amount)), 0);
-        const periodExpense = currentTransactions.filter(t => t.type === 'expense').reduce((acc, t) => acc + Math.abs(Number(t.amount)), 0);
-        globalBalance = periodIncome - periodExpense;
+    // 3. Lógica das Carteiras de Saldo (Global, PF, PJ e por dono)
+    // Saldo = entradas - saídas (transferência fica de fora). Com "isolatePeriod"
+    // só conta a janela selecionada; senão, a vida toda até o fim do período.
+    type BalanceRow = { type: string; amount: string; entityType: string | null; ownerId: string | null };
+    const balanceRows: BalanceRow[] = isolatePeriod
+      ? currentTransactions
+      : await db
+          .select({ type: transactions.type, amount: transactions.amount, entityType: transactions.entityType, ownerId: transactions.ownerId })
+          .from(transactions)
+          .where(and(eq(transactions.userId, userId), lte(transactions.date, endDateStr)));
 
-        const pfTx = currentTransactions.filter(t => t.entityType === 'pf');
-        globalBalancePF = pfTx.filter(t => t.type === 'income').reduce((acc, t) => acc + Math.abs(Number(t.amount)), 0) - pfTx.filter(t => t.type === 'expense').reduce((acc, t) => acc + Math.abs(Number(t.amount)), 0);
+    const sumBalance = (rows: BalanceRow[]) =>
+      rows.reduce((acc, t) => {
+        if (t.type === 'income') return acc + Math.abs(Number(t.amount));
+        if (t.type === 'expense') return acc - Math.abs(Number(t.amount));
+        return acc;
+      }, 0);
 
-        const pjTx = currentTransactions.filter(t => t.entityType === 'pj');
-        globalBalancePJ = pjTx.filter(t => t.type === 'income').reduce((acc, t) => acc + Math.abs(Number(t.amount)), 0) - pjTx.filter(t => t.type === 'expense').reduce((acc, t) => acc + Math.abs(Number(t.amount)), 0);
-    } else {
-        // Traz a vida toda até a data final do período
-        const allTx = await db
-            .select({ type: transactions.type, amount: transactions.amount, entityType: transactions.entityType }) // Agora busca o entityType!
-            .from(transactions)
-            .where(
-                and(
-                    eq(transactions.userId, userId),
-                    lte(transactions.date, endDateStr)
-                )
-            );
-            
-        const globalIncome = allTx.filter(t => t.type === 'income').reduce((acc, t) => acc + Math.abs(Number(t.amount)), 0);
-        const globalExpense = allTx.filter(t => t.type === 'expense').reduce((acc, t) => acc + Math.abs(Number(t.amount)), 0);
-        globalBalance = globalIncome - globalExpense;
-
-        const pfTx = allTx.filter(t => t.entityType === 'pf');
-        globalBalancePF = pfTx.filter(t => t.type === 'income').reduce((acc, t) => acc + Math.abs(Number(t.amount)), 0) - pfTx.filter(t => t.type === 'expense').reduce((acc, t) => acc + Math.abs(Number(t.amount)), 0);
-
-        const pjTx = allTx.filter(t => t.entityType === 'pj');
-        globalBalancePJ = pjTx.filter(t => t.type === 'income').reduce((acc, t) => acc + Math.abs(Number(t.amount)), 0) - pjTx.filter(t => t.type === 'expense').reduce((acc, t) => acc + Math.abs(Number(t.amount)), 0);
-    }
+    const globalBalance = sumBalance(balanceRows);
+    const globalBalancePF = sumBalance(balanceRows.filter(t => t.entityType === 'pf'));
+    const globalBalancePJ = sumBalance(balanceRows.filter(t => t.entityType === 'pj'));
+    const balanceByOwner: Record<string, number> = {};
+    for (const o of ownerList) balanceByOwner[o.id] = sumBalance(balanceRows.filter(t => t.ownerId === o.id));
 
     const fixedExpenses = currentTransactions.filter(t => t.isFixed === true && t.type === 'expense');
     const variableTransactions = currentTransactions.filter(t => t.isFixed === false || t.type === 'income');
@@ -141,7 +132,9 @@ export async function getDashboardData(startMonth: number, startYear: number, en
       fixedExpenses, 
       variableTransactions, 
       transactions: currentTransactions, 
-      summary: { balance, income, expense, globalBalance, globalBalancePF, globalBalancePJ }, // 🔥 Enviamos as 3 carteiras pro Front!
+      owners: ownerList,
+      accounts: accountList,
+      summary: { balance, income, expense, globalBalance, globalBalancePF, globalBalancePJ, balanceByOwner },
       categoryStats, 
       pieData: categoryStats, 
       dailyData: [], 
@@ -185,7 +178,7 @@ export async function getBalanceBreakdown(startMonth: number, startYear: number,
       );
     }
 
-    const filtered = (viewMode === 'all' ? rows : rows.filter((t) => t.entityType === viewMode))
+    const filtered = rows.filter((t) => matchesView(t, viewMode))
       .filter((t) => t.type === 'income' || t.type === 'expense') // transferência não entra no saldo
       .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
 
@@ -293,6 +286,8 @@ export async function createTransaction(data: any) {
       await absorbFixedBillOccurrence(userId, data.fixedBillId, baseDate);
     }
 
+    const ownership = await resolveOwnership(userId, { ownerId: data.ownerId, entityType: data.entityType });
+
     for (let i = 0; i < installments; i++) {
       // 🔥 CORRIGIDO: somar meses direto no dia (ex: dia 31 + 1 mês) podia
       // gerar datas de calendário inválidas como "2026-02-31". Agora a data
@@ -314,7 +309,9 @@ export async function createTransaction(data: any) {
         date: finalDateStr,
         isFixed: data.isFixed || false,
         isPaid: isPaidValue,
-        entityType: data.entityType || "pf",
+        entityType: ownership.entityType,
+        ownerId: ownership.ownerId,
+        accountId: data.accountId || null,
         creditCardId: data.creditCardId || null,
         // 🔥 NOVO: vínculo com o molde de conta fixa + valor original esperado
         // (pra poder comparar com o valor efetivamente pago e saber se teve
@@ -432,7 +429,7 @@ export async function copyFixedExpenses(currentMonth: number, currentYear: numbe
           userId: userId, description: expense.description, amount: Math.abs(Number(expense.amount)).toString(),
           originalAmount: expense.originalAmount ?? expense.amount,
           categoryId: expense.categoryId, type: expense.type, date: nextDateStr, isFixed: true, isPaid: false,
-          entityType: expense.entityType, aiTags: expense.aiTags,
+          entityType: expense.entityType, ownerId: expense.ownerId, accountId: expense.accountId, aiTags: expense.aiTags,
         });
         count++;
       }
@@ -464,7 +461,7 @@ export async function copyFixedExpenses(currentMonth: number, currentYear: numbe
           await db.insert(transactions).values({
             userId: userId, description: tpl.name, amount: tpl.originalAmount, originalAmount: tpl.originalAmount,
             categoryId: tpl.categoryId, type: 'expense', date: dueDateStr, isFixed: true, isPaid: false,
-            entityType: tpl.entityType || 'pf', creditCardId: tpl.creditCardId, fixedBillId: tpl.id, aiTags: [],
+            entityType: tpl.entityType || 'pf', ownerId: tpl.ownerId, creditCardId: tpl.creditCardId, fixedBillId: tpl.id, aiTags: [],
           });
           count++;
         }
@@ -508,7 +505,7 @@ async function ensureFixedBillOccurrences(userId: string, month: number, year: n
       await db.insert(transactions).values({
         userId, description: tpl.name, amount: tpl.originalAmount, originalAmount: tpl.originalAmount,
         categoryId: tpl.categoryId, type: 'expense', date: dueDateStr, isFixed: true, isPaid: false,
-        entityType: tpl.entityType || 'pf', creditCardId: tpl.creditCardId, fixedBillId: tpl.id, aiTags: [],
+        entityType: tpl.entityType || 'pf', ownerId: tpl.ownerId, creditCardId: tpl.creditCardId, fixedBillId: tpl.id, aiTags: [],
       });
     }
   }
@@ -580,7 +577,7 @@ export async function getFixedBills() {
   }
 }
 
-export async function createFixedBill(data: { name: string; categoryId?: string | null; originalAmount: string | number; dueDay: number; entityType?: string; creditCardId?: string | null }) {
+export async function createFixedBill(data: { name: string; categoryId?: string | null; originalAmount: string | number; dueDay: number; entityType?: string; ownerId?: string | null; creditCardId?: string | null }) {
   try {
     const userId = await getUser();
     if (!userId) return { success: false, message: "Login necessário." };
@@ -588,13 +585,15 @@ export async function createFixedBill(data: { name: string; categoryId?: string 
     if (!data.originalAmount || Number(data.originalAmount) <= 0) return { success: false, message: "Informe o valor original." };
     if (!data.dueDay || data.dueDay < 1 || data.dueDay > 31) return { success: false, message: "Dia de vencimento inválido (1 a 31)." };
 
+    const ownership = await resolveOwnership(userId, data);
     await db.insert(fixedBills).values({
       userId,
       name: data.name.trim(),
       categoryId: data.categoryId || null,
       originalAmount: Math.abs(Number(data.originalAmount)).toString(),
       dueDay: data.dueDay,
-      entityType: data.entityType || "pf",
+      entityType: ownership.entityType,
+      ownerId: ownership.ownerId,
       creditCardId: data.creditCardId || null,
     });
     revalidatePath("/");
@@ -605,7 +604,7 @@ export async function createFixedBill(data: { name: string; categoryId?: string 
   }
 }
 
-export async function updateFixedBill(id: string, data: { name: string; categoryId?: string | null; originalAmount: string | number; dueDay: number; entityType?: string; creditCardId?: string | null }) {
+export async function updateFixedBill(id: string, data: { name: string; categoryId?: string | null; originalAmount: string | number; dueDay: number; entityType?: string; ownerId?: string | null; creditCardId?: string | null }) {
   try {
     const userId = await getUser();
     if (!userId) return { success: false, message: "Login necessário." };
@@ -613,12 +612,14 @@ export async function updateFixedBill(id: string, data: { name: string; category
     if (!data.originalAmount || Number(data.originalAmount) <= 0) return { success: false, message: "Informe o valor original." };
     if (!data.dueDay || data.dueDay < 1 || data.dueDay > 31) return { success: false, message: "Dia de vencimento inválido (1 a 31)." };
 
+    const ownership = await resolveOwnership(userId, data);
     await db.update(fixedBills).set({
       name: data.name.trim(),
       categoryId: data.categoryId || null,
       originalAmount: Math.abs(Number(data.originalAmount)).toString(),
       dueDay: data.dueDay,
-      entityType: data.entityType || "pf",
+      entityType: ownership.entityType,
+      ownerId: ownership.ownerId,
       creditCardId: data.creditCardId || null,
     }).where(and(eq(fixedBills.id, id), eq(fixedBills.userId, userId)));
     revalidatePath("/");
@@ -701,11 +702,14 @@ export async function updateTransaction(id: string, data: any) {
       await absorbFixedBillOccurrence(userId, data.fixedBillId, data.date, id);
     }
 
+    const ownership = await resolveOwnership(userId, { ownerId: data.ownerId, entityType: data.entityType });
     await db.update(transactions).set({
         // 🔥 CORRIGIDO: categoryId é uma coluna uuid — mandar "" (categoria
         // vazia, ex: ao editar uma Transferência) quebrava com erro de UUID
         // inválido. Agora vira null igual já acontecia ao criar um lançamento.
-        description: data.description, amount: Math.abs(Number(data.amount)).toString(), date: data.date, categoryId: data.categoryId || null, type: data.type, isFixed: data.isFixed, entityType: data.entityType,
+        description: data.description, amount: Math.abs(Number(data.amount)).toString(), date: data.date, categoryId: data.categoryId || null, type: data.type, isFixed: data.isFixed, entityType: ownership.entityType,
+        ownerId: ownership.ownerId,
+        accountId: data.accountId || null,
         creditCardId: data.creditCardId || null,
         // 🔥 NOVO: mesmo vínculo/valor original de createTransaction, agora também editável.
         fixedBillId: data.fixedBillId || null,
@@ -850,7 +854,8 @@ export async function getReportData(startMonth: string, endMonth: string, filter
       gte(transactions.date, startDateStr),
       lte(transactions.date, endDateStr),
     ];
-    if (filterType !== 'all') { filters.push(eq(transactions.entityType, filterType as 'pf' | 'pj')); }
+    if (filterType === 'pf' || filterType === 'pj') { filters.push(eq(transactions.entityType, filterType)); }
+    else if (filterType !== 'all') { filters.push(eq(transactions.ownerId, filterType)); }
 
     const periodTransactions = await db.select().from(transactions).where(and(...filters)).orderBy(desc(transactions.date));
     const income = periodTransactions.filter(t => t.type === 'income').reduce((acc, t) => acc + Math.abs(Number(t.amount)), 0);
@@ -979,6 +984,7 @@ export async function saveBulkTransactions(transactionsList: any[]) {
         if (!userId) return { success: false, message: "Login necessário." };
 
         for (const tx of transactionsList) {
+            const ownership = await resolveOwnership(userId, { ownerId: tx.ownerId, entityType: tx.entityType });
             // 🔥 NOVO: se na revisão o usuário vinculou esse item importado a uma
             // ocorrência de conta fixa pendente, dá baixa nela (usando o valor
             // real importado, o que já calcula juros/desconto automaticamente)
@@ -1006,7 +1012,9 @@ export async function saveBulkTransactions(transactionsList: any[]) {
                 date: tx.date,
                 isFixed: tx.isFixed,
                 isPaid: tx.isPaid,
-                entityType: tx.entityType,
+                entityType: ownership.entityType,
+                ownerId: ownership.ownerId,
+                accountId: tx.accountId || null,
                 aiTags: tx.aiTags
             });
 
@@ -1104,7 +1112,11 @@ export async function saveBulkCardInvoiceTransactions(transactionsList: any[], c
     if (!userId) return { success: false, message: "Login necessário." };
     if (!creditCardId) return { success: false, message: "Selecione o cartão." };
 
+    // Dono padrão das compras = dono do cartão (a fatura do cartão da Adri é da Adri).
+    const card = (await db.select().from(creditCards).where(and(eq(creditCards.id, creditCardId), eq(creditCards.userId, userId))))[0];
+
     for (const tx of transactionsList) {
+      const ownership = await resolveOwnership(userId, { ownerId: tx.ownerId || card?.ownerId, entityType: tx.entityType });
       // 🔥 NOVO: mesmo tratamento do extrato bancário — se o item foi
       // vinculado a uma conta fixa pendente, dá baixa nela em vez de criar
       // um lançamento novo (evita duplicar).
@@ -1131,7 +1143,8 @@ export async function saveBulkCardInvoiceTransactions(transactionsList: any[], c
         date: tx.date,
         isFixed: false,
         isPaid: false,
-        entityType: tx.entityType || "pf",
+        entityType: ownership.entityType,
+        ownerId: ownership.ownerId,
         creditCardId: creditCardId,
         aiTags: tx.aiTags,
       });

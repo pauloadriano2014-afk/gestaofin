@@ -6,6 +6,7 @@ import { and, eq, gte, lte } from "drizzle-orm";
 import { getUser } from "./actions";
 import { getCreditCardsOverview } from "./creditCardActions";
 import { todayDateStr, addDays, addMonthsClamped } from "@/utils/dates";
+import { matchesView } from "@/utils/owners";
 
 // --- PREVISÃO FINANCEIRA DO MÊS ---
 // Junta o que ainda falta pagar (contas fixas em aberto + faturas de cartão
@@ -28,11 +29,11 @@ export async function getFinancialForecast(viewMode: string = "all") {
     const catInvestimentosId = userCategories.find((c) => c.name.toLowerCase().includes("investimento"))?.id;
     const catCartaoId = userCategories.find((c) => c.name.toLowerCase().includes("cartão de crédito"))?.id;
     const catReembolsoId = userCategories.find((c) => c.name.toLowerCase().includes("reembolso"))?.id;
-    const isOperacional = (t: { categoryId: string | null; entityType: string | null }) =>
+    const isOperacional = (t: { categoryId: string | null; entityType: string | null; ownerId: string | null }) =>
       t.categoryId !== catInvestimentosId &&
       t.categoryId !== catCartaoId &&
       t.categoryId !== catReembolsoId &&
-      (viewMode === "all" || t.entityType === viewMode);
+      matchesView(t, viewMode);
 
     const today = todayDateStr();
     const [y, m] = today.split("-").map(Number);
@@ -49,7 +50,8 @@ export async function getFinancialForecast(viewMode: string = "all") {
       eq(transactions.isPaid, false),
       lte(transactions.date, endOfMonth),
     ];
-    if (viewMode !== "all") fixedConditions.push(eq(transactions.entityType, viewMode));
+    if (viewMode === "pf" || viewMode === "pj") fixedConditions.push(eq(transactions.entityType, viewMode));
+    else if (viewMode !== "all") fixedConditions.push(eq(transactions.ownerId, viewMode));
     const unpaidFixed = await db.select().from(transactions).where(and(...fixedConditions));
     const fixedBillsTotal = unpaidFixed.reduce((sum, t) => sum + Math.abs(Number(t.amount)), 0);
 

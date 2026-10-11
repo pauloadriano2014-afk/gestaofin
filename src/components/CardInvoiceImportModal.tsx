@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { X, Upload, Loader2, CreditCard, FileText, Plus } from 'lucide-react'
 import { getUserCreditCards, createCreditCard } from '@/app/creditCardActions'
+import { getOwnersAndAccounts } from '@/app/ownerActions'
 import { processCardInvoiceWithAI, saveBulkCardInvoiceTransactions, parsePdfInvoiceText } from '@/app/actions'
 import { parseCardInvoiceCsv, parseOfx } from '@/utils/importParsers'
 import { ImportReviewModal } from '@/components/ImportReviewModal'
@@ -20,6 +21,7 @@ const NEW_CARD_VALUE = '__new__'
 // pra importação sem sair da tela, num fluxo só.
 export function CardInvoiceImportModal({ categories, onClose, pendingFixedBills = [] }: { categories: any[]; onClose: () => void; pendingFixedBills?: any[] }) {
   const [cards, setCards] = useState<any[]>([])
+  const [owners, setOwners] = useState<any[]>([])
   const [loadingCards, setLoadingCards] = useState(true)
   const [selectedCardId, setSelectedCardId] = useState('')
 
@@ -165,6 +167,8 @@ export function CardInvoiceImportModal({ categories, onClose, pendingFixedBills 
     }
   }
 
+  useEffect(() => { getOwnersAndAccounts().then((r) => setOwners(r.owners)) }, [])
+
   const selectedCard = cards.find((c: any) => c.id === selectedCardId)
 
   return (
@@ -282,6 +286,8 @@ export function CardInvoiceImportModal({ categories, onClose, pendingFixedBills 
         onConfirm={handleConfirmImport}
         isSaving={isSaving}
         pendingFixedBills={pendingFixedBills}
+        owners={owners}
+        defaultOwnerId={selectedCard?.ownerId || undefined}
       />
     </>
   )

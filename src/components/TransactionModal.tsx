@@ -11,13 +11,19 @@ export function TransactionModal({
   onClose, 
   transaction, 
   userPlan = 'free', 
-  onRequestPremium 
+  onRequestPremium,
+  owners = [],
+  accounts = [],
+  defaultOwnerId
 }: { 
   categories: any[], 
   onClose: () => void,
   transaction?: any,
   userPlan?: string,
-  onRequestPremium?: () => void
+  onRequestPremium?: () => void,
+  owners?: any[],
+  accounts?: any[],
+  defaultOwnerId?: string
 }) {
   const [description, setDescription] = useState(transaction?.description || '')
   const [amount, setAmount] = useState(transaction?.amount ? Math.abs(Number(transaction.amount)).toString() : '')
@@ -36,7 +42,15 @@ export function TransactionModal({
   const [isPaid, setIsPaid] = useState(transaction?.isPaid ?? true) 
   const [installments, setInstallments] = useState(1) 
 
-  const [entityType, setEntityType] = useState<'pf' | 'pj'>(transaction?.entityType || 'pf')
+  // Dono do lançamento (Paulo / Adri / Empresa). Ao editar usa o dono salvo; ao
+  // criar usa o dono da visão atual (se uma específica estiver selecionada).
+  const [ownerId, setOwnerId] = useState<string>(
+    transaction?.ownerId || defaultOwnerId || owners.find((o: any) => o.kind === (transaction?.entityType || 'pf'))?.id || owners[0]?.id || ''
+  )
+  const selectedOwner = owners.find((o: any) => o.id === ownerId)
+  // entityType continua sendo enviado (derivado do dono) pra manter PF/PJ coerente.
+  const entityType: 'pf' | 'pj' = selectedOwner?.kind || transaction?.entityType || 'pf'
+  const [accountId, setAccountId] = useState<string>(transaction?.accountId || '')
 
   const [loading, setLoading] = useState(false)
   const [isListening, setIsListening] = useState(false)
@@ -101,7 +115,10 @@ export function TransactionModal({
         if (data.date) setDate(data.date);
         
         // Se a IA mandou 'pj', atualiza os botões lá em cima
-        if (data.entityType) setEntityType(data.entityType);
+        if (data.entityType) {
+          const match = owners.find((o: any) => o.kind === data.entityType)
+          if (match) setOwnerId(match.id)
+        }
         // ------------------------------------
 
         if (data.categoryName) {
@@ -208,6 +225,8 @@ export function TransactionModal({
       isPaid,
       installments: Number(installments),
       entityType,
+      ownerId: ownerId || null,
+      accountId: type === 'expense' || type === 'income' ? (accountId || null) : null,
       creditCardId: type === 'expense' ? (creditCardId || null) : null,
       fixedBillId: isFixed && !creditCardId ? (fixedBillId || null) : null,
       originalAmount: isFixed && !creditCardId ? (originalAmount || null) : null,
@@ -249,20 +268,19 @@ export function TransactionModal({
         </div>
 
         <div className="space-y-6"> 
-            <div className="flex bg-zinc-950 p-1 rounded-xl border border-zinc-800">
-              <button 
-                onClick={() => setEntityType('pf')}
-                className={`flex-1 py-2 text-xs font-bold rounded-lg flex items-center justify-center gap-2 transition-all ${entityType === 'pf' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
-              >
-                <User className="w-4 h-4" /> Pessoa Física
-              </button>
-              <button 
-                onClick={() => setEntityType('pj')}
-                className={`flex-1 py-2 text-xs font-bold rounded-lg flex items-center justify-center gap-2 transition-all ${entityType === 'pj' ? 'bg-blue-900/30 text-blue-400 shadow-sm border border-blue-500/20' : 'text-zinc-500 hover:text-zinc-300'}`}
-              >
-                <Building2 className="w-4 h-4" /> Pessoa Jurídica
-              </button>
-            </div>
+            {owners.length > 0 ? (
+              <div className="flex flex-wrap bg-zinc-950 p-1 rounded-xl border border-zinc-800 gap-1">
+                {owners.map((o: any) => (
+                  <button
+                    key={o.id}
+                    onClick={() => setOwnerId(o.id)}
+                    className={`flex-1 py-2 px-3 text-xs font-bold rounded-lg flex items-center justify-center gap-2 transition-all ${ownerId === o.id ? (o.kind === 'pj' ? 'bg-blue-900/30 text-blue-400 shadow-sm border border-blue-500/20' : 'bg-zinc-800 text-white shadow-sm') : 'text-zinc-500 hover:text-zinc-300'}`}
+                  >
+                    {o.kind === 'pj' ? <Building2 className="w-4 h-4" /> : <User className="w-4 h-4" />} {o.name}
+                  </button>
+                ))}
+              </div>
+            ) : null}
 
             <div className="flex bg-zinc-950 p-1 rounded-xl border border-zinc-800">
               <button 
@@ -374,13 +392,33 @@ export function TransactionModal({
                   <select
                     className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-white outline-none focus:border-blue-600 transition-all appearance-none"
                     value={creditCardId}
-                    onChange={(e) => setCreditCardId(e.target.value)}
+                    onChange={(e) => {
+                      setCreditCardId(e.target.value)
+                      const card = userCreditCards.find((c: any) => c.id === e.target.value)
+                      if (card?.ownerId && !transaction?.id) setOwnerId(card.ownerId)
+                    }}
                   >
                     <option value="">Dinheiro / Débito / Pix</option>
                     {userCreditCards.map((card: any) => (
                       <option key={card.id} value={card.id}>Cartão: {card.name}</option>
                     ))}
                   </select>
+                  {!creditCardId && accounts.length > 0 && (
+                    <select
+                      className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-white outline-none focus:border-blue-600 transition-all appearance-none mt-2"
+                      value={accountId}
+                      onChange={(e) => {
+                        setAccountId(e.target.value)
+                        const acc = accounts.find((a: any) => a.id === e.target.value)
+                        if (acc?.ownerId && !transaction?.id) setOwnerId(acc.ownerId)
+                      }}
+                    >
+                      <option value="">Conta (opcional)</option>
+                      {accounts.map((a: any) => (
+                        <option key={a.id} value={a.id}>{a.name}</option>
+                      ))}
+                    </select>
+                  )}
                   {selectedCard && date && (
                     <p className="text-[10px] text-blue-400 pt-1">
                       {(() => {

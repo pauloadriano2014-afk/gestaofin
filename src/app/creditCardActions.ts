@@ -5,10 +5,11 @@ import { creditCards, transactions, creditCardInvoiceOverrides } from "@/db/sche
 import { and, eq, inArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { getUser } from "./actions";
+import { resolveOwnership } from "@/db/owners";
 import { getInvoiceCycleForDate, getCycleDatesForCycleKey, todayDateStr } from "@/utils/creditCard";
 
 // --- CADASTRAR CARTÃO ---
-export async function createCreditCard(data: { name: string; closingDay: number; dueDay: number; limitAmount?: string }) {
+export async function createCreditCard(data: { name: string; closingDay: number; dueDay: number; limitAmount?: string; ownerId?: string | null }) {
   try {
     const userId = await getUser();
     if (!userId) return { success: false, message: "Login necessário." };
@@ -20,8 +21,10 @@ export async function createCreditCard(data: { name: string; closingDay: number;
       return { success: false, message: "Dia de fechamento e vencimento devem ser entre 1 e 31." };
     }
 
+    const ownership = await resolveOwnership(userId, { ownerId: data.ownerId });
     await db.insert(creditCards).values({
       userId,
+      ownerId: ownership.ownerId,
       name: data.name.trim(),
       closingDay,
       dueDay,
@@ -36,7 +39,7 @@ export async function createCreditCard(data: { name: string; closingDay: number;
 }
 
 // --- EDITAR CARTÃO ---
-export async function updateCreditCard(id: string, data: { name: string; closingDay: number; dueDay: number; limitAmount?: string }) {
+export async function updateCreditCard(id: string, data: { name: string; closingDay: number; dueDay: number; limitAmount?: string; ownerId?: string | null }) {
   try {
     const userId = await getUser();
     if (!userId) return { success: false, message: "Login necessário." };
@@ -48,6 +51,8 @@ export async function updateCreditCard(id: string, data: { name: string; closing
     }
 
     await db.update(creditCards).set({
+      // só troca o dono se veio um (evita apagar o dono ao editar só o nome)
+      ...(data.ownerId ? { ownerId: data.ownerId } : {}),
       name: data.name.trim(),
       closingDay,
       dueDay,

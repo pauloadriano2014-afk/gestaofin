@@ -4,10 +4,11 @@ import { useState, useEffect } from 'react'
 import { X, Repeat, Loader2, Plus, Pencil, Archive, ArchiveRestore, User, Building2 } from 'lucide-react'
 import { getFixedBills, createFixedBill, updateFixedBill, setFixedBillArchived } from '@/app/actions'
 import { getUserCreditCards } from '@/app/creditCardActions'
+import { getOwnersAndAccounts } from '@/app/ownerActions'
 
 const formatCurrency = (v: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v)
 
-const emptyForm = { name: '', categoryId: '', originalAmount: '', dueDay: '', entityType: 'pf' as 'pf' | 'pj', creditCardId: '' }
+const emptyForm = { name: '', categoryId: '', originalAmount: '', dueDay: '', ownerId: '', creditCardId: '' }
 
 // 🔥 NOVO: "Minhas Contas Fixas" — o molde de cada conta fixa (Aluguel,
 // Internet, Financiamento etc), separado das transações que ele gera todo
@@ -17,6 +18,7 @@ const emptyForm = { name: '', categoryId: '', originalAmount: '', dueDay: '', en
 export function FixedBillsModal({ categories, onClose }: { categories: any[]; onClose: () => void }) {
   const [bills, setBills] = useState<any[]>([])
   const [creditCards, setCreditCards] = useState<any[]>([])
+  const [owners, setOwners] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
 
@@ -26,6 +28,8 @@ export function FixedBillsModal({ categories, onClose }: { categories: any[]; on
   const [showArchived, setShowArchived] = useState(false)
 
   const expenseCategories = [...categories.filter((c: any) => c.type === 'expense')].sort((a: any, b: any) => a.name.localeCompare(b.name, 'pt-BR'))
+
+  useEffect(() => { getOwnersAndAccounts().then((r) => setOwners(r.owners)) }, [])
 
   async function load() {
     setLoading(true)
@@ -50,7 +54,7 @@ export function FixedBillsModal({ categories, onClose }: { categories: any[]; on
       categoryId: bill.categoryId || '',
       originalAmount: Math.abs(Number(bill.originalAmount)).toString(),
       dueDay: String(bill.dueDay),
-      entityType: bill.entityType || 'pf',
+      ownerId: bill.ownerId || '',
       creditCardId: bill.creditCardId || '',
     })
     setShowForm(true)
@@ -68,7 +72,7 @@ export function FixedBillsModal({ categories, onClose }: { categories: any[]; on
       categoryId: form.categoryId || null,
       originalAmount: form.originalAmount,
       dueDay: dueDayNum,
-      entityType: form.entityType,
+      ownerId: form.ownerId || owners[0]?.id || null,
       creditCardId: form.creditCardId || null,
     }
     const res = editingId ? await updateFixedBill(editingId, payload) : await createFixedBill(payload)
@@ -134,7 +138,7 @@ export function FixedBillsModal({ categories, onClose }: { categories: any[]; on
                     <div className="min-w-0">
                       <p className="text-sm font-medium text-white truncate">{bill.name} {bill.archived && <span className="text-[10px] text-zinc-600">(arquivada)</span>}</p>
                       <p className="text-[10px] text-zinc-500 truncate">
-                        {categoryName(bill.categoryId)} • vence dia {bill.dueDay} • {formatCurrency(Math.abs(Number(bill.originalAmount)))}
+                        {owners.find((o) => o.id === bill.ownerId)?.name ? `${owners.find((o) => o.id === bill.ownerId).name} • ` : ''}{categoryName(bill.categoryId)} • vence dia {bill.dueDay} • {formatCurrency(Math.abs(Number(bill.originalAmount)))}
                         {cardName(bill.creditCardId) && ` • Cartão: ${cardName(bill.creditCardId)}`}
                       </p>
                     </div>
@@ -200,9 +204,13 @@ export function FixedBillsModal({ categories, onClose }: { categories: any[]; on
                   </select>
                 </div>
 
-                <div className="flex bg-zinc-900 p-1 rounded-xl border border-zinc-800">
-                  <button onClick={() => setForm({ ...form, entityType: 'pf' })} className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${form.entityType === 'pf' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}>Pessoa Física</button>
-                  <button onClick={() => setForm({ ...form, entityType: 'pj' })} className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${form.entityType === 'pj' ? 'bg-blue-900/30 text-blue-400' : 'text-zinc-500 hover:text-zinc-300'}`}>Pessoa Jurídica</button>
+                <div className="flex flex-wrap bg-zinc-900 p-1 rounded-xl border border-zinc-800 gap-1">
+                  {owners.map((o: any) => {
+                    const active = (form.ownerId || owners[0]?.id) === o.id
+                    return (
+                      <button key={o.id} onClick={() => setForm({ ...form, ownerId: o.id })} className={`flex-1 py-2 px-3 text-xs font-bold rounded-lg transition-all ${active ? (o.kind === 'pj' ? 'bg-blue-900/30 text-blue-400' : 'bg-zinc-800 text-white') : 'text-zinc-500 hover:text-zinc-300'}`}>{o.name}</button>
+                    )
+                  })}
                 </div>
 
                 <div className="flex gap-2 pt-1">

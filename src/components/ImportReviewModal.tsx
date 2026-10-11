@@ -1,14 +1,20 @@
 import { useState, useEffect } from "react";
 import { X, CheckCircle2, ArrowUpRight, ArrowDownRight, Briefcase, User, Loader2, Trash2 } from "lucide-react";
 
-export function ImportReviewModal({ isOpen, onClose, initialTransactions, categories, onConfirm, isSaving, pendingFixedBills = [] }: any) {
+export function ImportReviewModal({ isOpen, onClose, initialTransactions, categories, onConfirm, isSaving, pendingFixedBills = [], owners = [], defaultOwnerId }: any) {
   const [transactions, setTransactions] = useState<any[]>([]);
 
   // Quando o modal abre, ele carrega os dados que vieram da IA
   useEffect(() => {
     if (isOpen && initialTransactions) {
-      setTransactions(initialTransactions);
+      // Cada linha já nasce com um dono: o padrão da tela (visão atual, ou dono
+      // do cartão na fatura) ou o primeiro dono do tipo PF/PJ que a IA sugeriu.
+      setTransactions(initialTransactions.map((t: any) => ({
+        ...t,
+        ownerId: t.ownerId || defaultOwnerId || owners.find((o: any) => o.kind === (t.entityType || 'pf'))?.id || owners[0]?.id || null,
+      })));
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, initialTransactions]);
 
   if (!isOpen) return null;
@@ -124,21 +130,20 @@ export function ImportReviewModal({ isOpen, onClose, initialTransactions, catego
                           ))}
                         </select>
 
-                        {/* Seletor PF / PJ */}
-                        <div className="flex bg-gray-100 dark:bg-zinc-800 p-1 rounded-lg shrink-0">
-                          <button
-                            onClick={() => handleUpdate(idx, 'entityType', 'pf')}
-                            className={`flex items-center gap-1 px-3 py-1.5 text-xs font-bold rounded-md transition-all ${tx.entityType === 'pf' ? 'bg-white dark:bg-zinc-950 text-gray-900 dark:text-zinc-50 shadow-sm' : 'text-gray-500 dark:text-zinc-400 hover:text-gray-700 dark:hover:text-zinc-200'}`}
+                        {/* Dono do lançamento (Paulo / Adri / Empresa...) */}
+                        {owners.length > 0 && (
+                          <select
+                            value={tx.ownerId || ''}
+                            onChange={(e) => {
+                              const o = owners.find((x: any) => x.id === e.target.value);
+                              handleUpdate(idx, 'ownerId', e.target.value);
+                              if (o) handleUpdate(idx, 'entityType', o.kind);
+                            }}
+                            className="bg-gray-100 dark:bg-zinc-800 text-xs font-bold rounded-lg px-2 py-2 shrink-0 outline-none"
                           >
-                            <User className="w-3 h-3" /> PF
-                          </button>
-                          <button
-                            onClick={() => handleUpdate(idx, 'entityType', 'pj')}
-                            className={`flex items-center gap-1 px-3 py-1.5 text-xs font-bold rounded-md transition-all ${tx.entityType === 'pj' ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-500 dark:text-zinc-400 hover:text-gray-700 dark:hover:text-zinc-200'}`}
-                          >
-                            <Briefcase className="w-3 h-3" /> PJ
-                          </button>
-                        </div>
+                            {owners.map((o: any) => <option key={o.id} value={o.id}>{o.name}</option>)}
+                          </select>
+                        )}
                       </>
                     )}
 

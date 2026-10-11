@@ -10,12 +10,40 @@ export const categories = pgTable("categories", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// --- NOVA TABELA: DONOS (quem é o titular de cada gasto/conta/cartão) ---
+// Substitui o "PF/PJ" fixo: o mesmo login enxerga Paulo, Adri e Empresa
+// separadamente e também em conjunto. "kind" mantém a compatibilidade com o
+// antigo entityType: pessoa física ('pf') ou pessoa jurídica ('pj').
+export const owners = pgTable("owners", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: text("user_id").notNull(),
+  name: text("name").notNull(),
+  kind: text("kind", { enum: ["pf", "pj"] }).notNull().default("pf"),
+  sortOrder: integer("sort_order").default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// --- NOVA TABELA: CONTAS (corrente, gateway de vendas, caixa) ---
+// Cartões de crédito continuam na tabela credit_cards. Aqui ficam as contas
+// onde o dinheiro de fato entra e sai: Itaú, Caixa, Asaas, Nubank conta etc.
+export const accounts = pgTable("accounts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: text("user_id").notNull(),
+  ownerId: uuid("owner_id").references(() => owners.id),
+  name: text("name").notNull(), // ex: "Itaú PJ"
+  institution: text("institution"), // ex: "itau", "nubank", "caixa", "asaas"
+  kind: text("kind", { enum: ["checking", "gateway", "cash"] }).notNull().default("checking"),
+  archived: boolean("archived").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 // --- NOVA TABELA: CARTÕES DE CRÉDITO ---
 // Cada cartão tem seu próprio ciclo de fatura (dia de fechamento e vencimento),
 // usado para calcular em qual fatura uma compra cai.
 export const creditCards = pgTable("credit_cards", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: text("user_id").notNull(),
+  ownerId: uuid("owner_id").references(() => owners.id), // de quem é o cartão
   name: text("name").notNull(), // apelido do cartão, ex: "Nubank"
   closingDay: integer("closing_day").notNull(), // dia do mês em que a fatura fecha (1-31)
   dueDay: integer("due_day").notNull(), // dia do mês em que a fatura vence (1-31)
@@ -69,6 +97,7 @@ export const fixedBills = pgTable("fixed_bills", {
   originalAmount: numeric("original_amount", { precision: 12, scale: 2 }).notNull(),
   dueDay: integer("due_day").notNull(), // dia do mês em que costuma vencer (1-31)
   entityType: text("entity_type").default("pf"), // 'pf' | 'pj'
+  ownerId: uuid("owner_id").references(() => owners.id),
   creditCardId: uuid("credit_card_id").references(() => creditCards.id), // opcional: se essa conta fixa é debitada no cartão
   archived: boolean("archived").default(false), // "excluir" só arquiva, pra não quebrar o histórico de transações já vinculadas
   createdAt: timestamp("created_at").defaultNow(),
@@ -109,6 +138,12 @@ export const transactions = pgTable("transactions", {
   // --- NOVO CAMPO: Tipo de Entidade (PF ou PJ) ---
   entityType: text("entity_type").default("pf"), // 'pf' | 'pj'
   // ----------------------------------------------
+
+  // Dono do lançamento (Paulo, Adri, Empresa...). entityType continua sendo
+  // gravado, derivado de owners.kind, pra não quebrar o que já usa PF/PJ.
+  ownerId: uuid("owner_id").references(() => owners.id),
+  // Conta de onde o dinheiro saiu/entrou (nulo = não informada).
+  accountId: uuid("account_id").references(() => accounts.id),
 
   createdAt: timestamp("created_at").defaultNow(),
 });

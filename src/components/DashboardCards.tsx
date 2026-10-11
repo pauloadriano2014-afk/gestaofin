@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from "react";
-import { Wallet, TrendingUp, TrendingDown, PiggyBank } from "lucide-react";
+import { Wallet, TrendingUp, TrendingDown, PiggyBank, HelpCircle } from "lucide-react";
 import { BreakdownModal } from "@/components/BreakdownModal";
 import { getBalanceBreakdown } from "@/app/actions";
 
@@ -28,6 +28,7 @@ export function DashboardCards({
   isolatePeriod,
   viewMode,
   onEditTransaction,
+  onHelp,
 }: any) {
   const [openModal, setOpenModal] = useState<null | 'income' | 'expense' | 'balance' | 'invested'>(null);
   const [balanceTxs, setBalanceTxs] = useState<any[]>([]);
@@ -62,6 +63,7 @@ export function DashboardCards({
         >
           <div className="flex items-center justify-between mb-2 md:mb-4">
             <h3 className={`text-xs md:text-sm font-bold flex items-center gap-2 ${theme.textMuted}`}><Wallet className="w-4 h-4 text-blue-500" /> Saldo Principal</h3>
+            {onHelp && <button type="button" onClick={(e) => { e.stopPropagation(); onHelp('card-saldo'); }} className={`p-1 rounded-full hover:bg-black/5 ${theme.textMuted}`} title="Como esse número é calculado?" aria-label="Ajuda sobre este card"><HelpCircle className="w-4 h-4" /></button>}
           </div>
           <p className={`text-lg md:text-3xl font-bold font-mono tracking-tight ${theme.text}`}>{formatCurrency(summary.balance)}</p>
           <p className={`text-[10px] md:text-xs mt-2 ${theme.textMuted}`}>{selectedDay ? `Em ${selectedDay}` : 'Disponível na Conta'}</p>
@@ -77,6 +79,7 @@ export function DashboardCards({
         >
           <div className="flex items-center justify-between mb-2 md:mb-4">
             <h3 className={`text-xs md:text-sm font-bold flex items-center gap-2 ${theme.textMuted}`}><TrendingUp className="w-4 h-4 text-emerald-500" /> Receita Operacional</h3>
+            {onHelp && <button type="button" onClick={(e) => { e.stopPropagation(); onHelp('card-receita'); }} className={`p-1 rounded-full hover:bg-black/5 ${theme.textMuted}`} title="Como esse número é calculado?" aria-label="Ajuda sobre este card"><HelpCircle className="w-4 h-4" /></button>}
           </div>
           <p className={`text-lg md:text-3xl font-bold font-mono tracking-tight text-emerald-500`}>{formatCurrency(summary.income)}</p>
           <p className={`text-[10px] md:text-xs mt-2 ${theme.textMuted}`}>Excl. cartão e investimentos</p>
@@ -92,6 +95,7 @@ export function DashboardCards({
         >
           <div className="flex items-center justify-between mb-2 md:mb-4">
             <h3 className={`text-xs md:text-sm font-bold flex items-center gap-2 ${theme.textMuted}`}><TrendingDown className="w-4 h-4 text-red-500" /> Despesas de Fato</h3>
+            {onHelp && <button type="button" onClick={(e) => { e.stopPropagation(); onHelp('card-despesas'); }} className={`p-1 rounded-full hover:bg-black/5 ${theme.textMuted}`} title="Como esse número é calculado?" aria-label="Ajuda sobre este card"><HelpCircle className="w-4 h-4" /></button>}
           </div>
           <p className={`text-lg md:text-3xl font-bold font-mono tracking-tight text-red-500`}>{formatCurrency(summary.expense)}</p>
           <p className={`text-[10px] md:text-xs mt-2 ${theme.textMuted}`}>Excl. cartão e investimentos</p>
@@ -107,6 +111,7 @@ export function DashboardCards({
         >
           <div className="flex items-center justify-between mb-2 md:mb-4">
             <h3 className={`text-xs md:text-sm font-bold flex items-center gap-2 ${theme.textMuted}`}><PiggyBank className="w-4 h-4 text-purple-500" /> Aportes / Investido</h3>
+            {onHelp && <button type="button" onClick={(e) => { e.stopPropagation(); onHelp('card-investido'); }} className={`p-1 rounded-full hover:bg-black/5 ${theme.textMuted}`} title="Como esse número é calculado?" aria-label="Ajuda sobre este card"><HelpCircle className="w-4 h-4" /></button>}
           </div>
           <p className={`text-lg md:text-3xl font-bold font-mono tracking-tight text-purple-500`}>{formatCurrency(summary.invested)}</p>
           <p className={`text-[10px] md:text-xs mt-2 ${theme.textMuted}`}>Patrimônio alocado</p>

@@ -120,12 +120,15 @@ export async function getCreditCardsOverview() {
     const purchases = cardTransactions.filter((t) => t.creditCardId === card.id);
     const cardOverrides = overrides.filter((o) => o.creditCardId === card.id);
 
-    const cycles = new Map<string, { cycleKey: string; closingDate: string; dueDate: string; total: number; count: number; isManual: boolean }>();
+    const cycles = new Map<string, { cycleKey: string; closingDate: string; dueDate: string; total: number; count: number; isManual: boolean; byOwner: Record<string, number> }>();
     for (const p of purchases) {
       const cycle = getInvoiceCycleForDate(p.date, card.closingDay, card.dueDay);
-      const existing = cycles.get(cycle.cycleKey) || { ...cycle, total: 0, count: 0, isManual: false };
+      const existing = cycles.get(cycle.cycleKey) || { ...cycle, total: 0, count: 0, isManual: false, byOwner: {} };
       existing.total += Math.abs(Number(p.amount));
       existing.count += 1;
+      // quanto da fatura é de cada dono (a chave 'none' agrupa itens sem dono)
+      const ownerKey = p.ownerId || 'none';
+      existing.byOwner[ownerKey] = (existing.byOwner[ownerKey] || 0) + Math.abs(Number(p.amount));
       cycles.set(cycle.cycleKey, existing);
     }
 
@@ -139,7 +142,7 @@ export async function getCreditCardsOverview() {
       } else {
         // Fatura sem transação nenhuma: o valor digitado cria o ciclo sozinho.
         const { closingDate, dueDate } = getCycleDatesForCycleKey(o.cycleKey, card.closingDay, card.dueDay);
-        cycles.set(o.cycleKey, { cycleKey: o.cycleKey, closingDate, dueDate, total: Number(o.amount), count: 0, isManual: true });
+        cycles.set(o.cycleKey, { cycleKey: o.cycleKey, closingDate, dueDate, total: Number(o.amount), count: 0, isManual: true, byOwner: {} });
       }
     }
 

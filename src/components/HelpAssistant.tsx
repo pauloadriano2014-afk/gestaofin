@@ -8,11 +8,16 @@ import { HELP_ENTRIES, searchHelp, explainNumbers, type ExcludedLine } from '@/u
 //  - Perguntas: respostas prontas sobre como o app calcula as coisas (com busca);
 //  - Meus números: explica, com os dados da tela atual, de onde vem cada valor
 //    e aponta as causas mais comuns de "não bate". Sem IA.
-export function HelpAssistant({ theme, rawData, viewMode, isolatePeriod, formatCurrency, viewLabel }: any) {
-  const [open, setOpen] = useState(false)
+export function HelpAssistant({ theme, rawData, viewMode, isolatePeriod, formatCurrency, viewLabel, open, onOpenChange, focusId }: any) {
+  const setOpen = (v: boolean) => onOpenChange(v)
   const [tab, setTab] = useState<'faq' | 'numbers'>('faq')
   const [query, setQuery] = useState('')
-  const [openId, setOpenId] = useState<string | null>(null)
+  const [openIdState, setOpenIdState] = useState<string | null>(null)
+  // Quando alguém abre a ajuda por um "?" de card, já vem com aquela resposta aberta.
+  const [lastFocus, setLastFocus] = useState<string | null>(null)
+  if (focusId !== lastFocus) { setLastFocus(focusId ?? null); if (focusId) { setOpenIdState(focusId); setTab('faq'); setQuery('') } }
+  const openId = openIdState
+  const setOpenId = setOpenIdState
 
   const results = useMemo(() => (query.trim().length > 0 ? searchHelp(query) : HELP_ENTRIES), [query])
   const explanation = useMemo(
@@ -35,14 +40,14 @@ export function HelpAssistant({ theme, rawData, viewMode, isolatePeriod, formatC
     <>
       <button
         onClick={() => setOpen(true)}
-        className={`fixed bottom-5 left-5 z-40 flex items-center gap-2 px-4 py-3 rounded-full shadow-xl font-bold text-sm transition-all hover:scale-105 ${theme.button}`}
+        className={`fixed bottom-20 md:bottom-5 right-4 md:right-5 z-40 flex items-center gap-2 px-4 py-3 rounded-full shadow-xl font-bold text-sm transition-all hover:scale-105 ${theme.button}`}
         title="Tira-dúvidas"
       >
         <HelpCircle className="w-5 h-5" /> Ajuda
       </button>
 
       {open && (
-        <div className="fixed inset-0 z-[9998] flex items-end sm:items-center justify-center sm:justify-start sm:pl-5 sm:pb-20 pointer-events-none">
+        <div className="fixed inset-0 z-[9998] flex items-end sm:items-end justify-center sm:justify-end sm:pr-5 sm:pb-20 pointer-events-none">
           <div className="fixed inset-0 bg-black/30 pointer-events-auto sm:hidden" onClick={() => setOpen(false)} />
           <div className={`pointer-events-auto relative w-full sm:w-[26rem] max-h-[80vh] flex flex-col rounded-t-2xl sm:rounded-2xl border shadow-2xl ${theme.card} ${theme.text}`}>
             <div className="flex items-center justify-between p-4 border-b border-black/5">

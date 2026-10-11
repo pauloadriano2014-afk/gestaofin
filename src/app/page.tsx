@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef } from "react";
 import { ReportModal } from "@/components/ReportModal"; 
+import { getCreditCardsOverview, payCreditCardInvoice } from "./creditCardActions";
 import { getDashboardData, toggleTransactionStatus, copyFixedExpenses, generateMonthlyReport, deleteTransaction, processCSVWithAI, saveBulkTransactions, getPendingFixedBillOccurrences } from "./actions";
 import { TransactionModal } from "@/components/TransactionModal";
 import { BudgetModal } from "@/components/BudgetModal";
@@ -11,9 +12,7 @@ import { DashboardCards } from "@/components/DashboardCards";
 import { DashboardCharts } from "@/components/DashboardCharts";
 import { calculateDashboardData } from "@/utils/dashboardCalculations";
 import {
-  Plus,
-  Clock, CheckCircle2, Circle, Copy, Loader2,
-  Briefcase, User, Layers, MessageSquare, X, Palette, Pencil, Trash2, AlertCircle, Crown, FileText, Download, Filter, Calendar as CalendarIcon, ToggleLeft, ToggleRight, CreditCard, Tag, Tags, Repeat, Upload, Users, Settings, ChevronLeft, ChevronRight
+  Crown, Users, CreditCard, Repeat, Tags, Tag, Info,
 } from "lucide-react";
 import { PremiumModal } from "@/components/PremiumModal";
 import { OpenBillsPanel } from "@/components/OpenBillsPanel";
@@ -21,6 +20,18 @@ import { CreditCardsModal } from "@/components/CreditCardsModal";
 import { CategoryRulesModal } from "@/components/CategoryRulesModal";
 import { CategoriesModal } from "@/components/CategoriesModal";
 import { syncAsaasPayments } from "@/app/asaasActions";
+import { AppShell, type Section } from "@/components/shell/AppShell";
+import { ContextBar } from "@/components/shell/ContextBar";
+import { TransactionsView } from "@/components/views/TransactionsView";
+import { AccountsView } from "@/components/views/AccountsView";
+import { CategoriesView } from "@/components/views/CategoriesView";
+import { ReportsView } from "@/components/views/ReportsView";
+import { MonthCloseChecklist } from "@/components/MonthCloseChecklist";
+import { InvoiceItemsModal } from "@/components/InvoiceItemsModal";
+import { accentFor } from "@/utils/ownerAccent";
+import { monthChecklist } from "@/utils/closing";
+import { EMPTY_FILTERS, type TxFilters } from "@/utils/txFilters";
+import { todayDateStr } from "@/utils/dates";
 import { HelpAssistant } from "@/components/HelpAssistant";
 import { OwnersAccountsModal } from "@/components/OwnersAccountsModal";
 import { FixedBillsModal } from "@/components/FixedBillsModal";
@@ -110,13 +121,17 @@ export default function Dashboard() {
   const [uploadStatus, setUploadStatus] = useState("");
   const [viewMode, setViewMode] = useState<string>('all');
   const [currentTheme, setCurrentTheme] = useState<'dark' | 'nubank' | 'green' | 'blue' | 'red'>('nubank');
-  const [isThemeMenuOpen, setIsThemeMenuOpen] = useState(false); 
   // 'month' = um mês só, isolado (saldo e tudo mais só daquele mês, sem nada dos outros).
   // 'range'  = período com De/Até, com a opção de acumular o saldo de antes ou não.
   const [periodMode, setPeriodMode] = useState<'month' | 'range'>('month');
-  const [openMenu, setOpenMenu] = useState<'cadastros' | 'importar' | null>(null);
   const csvInputRef = useRef<HTMLInputElement>(null);
-  const [filterCategory, setFilterCategory] = useState<string>('all');
+  // Área da tela (menu lateral/inferior) e filtros da tela de Lançamentos.
+  const [section, setSection] = useState<Section>('inicio');
+  const [txFilters, setTxFilters] = useState<TxFilters>(EMPTY_FILTERS);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [helpFocus, setHelpFocus] = useState<string | null>(null);
+  const [cardsOverview, setCardsOverview] = useState<any[]>([]);
+  const [viewingInvoice, setViewingInvoice] = useState<{ cardId: string; cycleKey: string } | null>(null);
 
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
   const [reviewTransactions, setReviewTransactions] = useState<any[]>([]);
@@ -145,24 +160,18 @@ export default function Dashboard() {
   const theme = THEMES[currentTheme];
   const [rawData, setRawData] = useState<any>({ allCategories: [], transactions: [], summary: { globalBalance: 0 }, planType: 'free' });
 
-  // 🔥 NOVO: refs pros campos de mês, pra abrir o calendário nativo clicando
-  // em qualquer lugar do "cartão" (não só no ícone minúsculo do navegador).
-  const startMonthInputRef = useRef<HTMLInputElement>(null);
-  const endMonthInputRef = useRef<HTMLInputElement>(null);
-  const openPicker = (ref: React.RefObject<HTMLInputElement | null>) => {
-    try { ref.current?.showPicker?.(); } catch { /* navegador sem suporte a showPicker(); o clique no campo já funciona normalmente */ }
-  };
-
   useEffect(() => { document.body.style.backgroundColor = theme.hex; }, [currentTheme, theme.hex]);
 
   // Carrega sempre que o range ou a chavinha mudar
   async function loadData() {
-    const [result, pending] = await Promise.all([
+    const [result, pending, cards] = await Promise.all([
       getDashboardData(startMonth, startYear, endMonth, endYear, isolatePeriod),
       getPendingFixedBillOccurrences(),
+      getCreditCardsOverview(),
     ]);
     setRawData(result);
     setPendingFixedBills(pending);
+    setCardsOverview(cards);
     setRefreshKey((k) => k + 1); // avisa os painéis de Contas em Aberto / Previsão para atualizar também
   }
 
@@ -336,356 +345,163 @@ export default function Dashboard() {
 
   const isPro = rawData.planType !== 'free';
 
-  const displayedFixedExpenses = processedData.fixedExpenses.filter((tx: any) => filterCategory === 'all' || tx.categoryId === filterCategory);
-  // 🔥 NOVO: categorias em ordem alfabética em todo canto que elas aparecem como lista/seleção.
-  const sortedCategories = [...rawData.allCategories].sort((a: any, b: any) => a.name.localeCompare(b.name, 'pt-BR'));
+  const todayStr = todayDateStr();
+  const ownerList: any[] = rawData.owners || [];
+  const accent = accentFor(viewMode, ownerList);
+  const accentOf = (id: string) => accentFor(id, ownerList);
+  const viewLabel = viewOptions.find((o) => o.id === viewMode)?.label || 'Tudo';
+  const periodLabel = startMonth === endMonth && startYear === endYear
+    ? `${String(startMonth).padStart(2, '0')}/${startYear}`
+    : `${String(startMonth).padStart(2, '0')}/${startYear} a ${String(endMonth).padStart(2, '0')}/${endYear}`;
 
-  // 🔥 NOVO: antes, escolher uma categoria no filtro só reduzia a lista de
-  // "Custos Fixos" — quem quisesse ver TODOS os lançamentos daquela categoria
-  // (fixos e variáveis, pagos e pendentes) não tinha como. Agora, com uma
-  // categoria selecionada, mostra essa lista completa ao lado.
-  const selectedCategoryObj = filterCategory !== 'all' ? sortedCategories.find((c: any) => c.id === filterCategory) : null;
-  const categoryFilteredTxs = filterCategory === 'all'
-    ? []
-    : (processedData.allTxs || []).filter((tx: any) => tx.categoryId === filterCategory).sort((a: any, b: any) => (a.date < b.date ? 1 : -1));
+  // Cartões da visão atual (um cartão pertence a um dono).
+  const viewCards = cardsOverview.filter((c: any) => {
+    if (viewMode === 'all') return true;
+    if (viewMode === 'pf' || viewMode === 'pj') return ownerList.find((o) => o.id === c.ownerId)?.kind === viewMode;
+    return c.ownerId === viewMode;
+  });
+
+  const checklist = useMemo(() => monthChecklist(rawData, viewMode, viewCards), [rawData, viewMode, cardsOverview]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function goTo(target: { section: Section; quick?: any }) {
+    if (target.section === 'lancamentos') setTxFilters({ ...EMPTY_FILTERS, quick: target.quick || 'todos' });
+    setSection(target.section);
+  }
+  function viewCategoryTransactions(categoryId: string) {
+    setTxFilters({ ...EMPTY_FILTERS, categoryId });
+    setSection('lancamentos');
+  }
+  function openHelp(entryId?: string) { setHelpFocus(entryId || null); setHelpOpen(true); }
+
+  async function handlePayInvoice(cardId: string, cycleKey: string, total: number) {
+    if (!confirm(`Dar baixa na fatura inteira (${formatCurrency(total)})? Todos os itens dela serão marcados como pagos.`)) return;
+    const res = await payCreditCardInvoice(cardId, cycleKey);
+    alert(res.message);
+    if (res.success) loadData();
+  }
+
+  const cadastros = [
+    { label: 'Pessoas e Contas', hint: 'Paulo, Adri, Empresa, bancos', icon: Users, run: () => setIsOwnersModalOpen(true) },
+    { label: 'Meus Cartões', hint: 'Faturas, fechamento e vencimento', icon: CreditCard, run: () => setIsCreditCardsModalOpen(true) },
+    { label: 'Contas Fixas', hint: 'Aluguel, internet, assinaturas', icon: Repeat, run: () => setIsFixedBillsModalOpen(true) },
+    { label: 'Categorias', hint: 'Metas e como cada uma entra nas contas', icon: Tags, run: () => setIsCategoriesModalOpen(true) },
+    { label: 'Regras de Categorização', hint: 'Ensina o app a categorizar sozinho', icon: Tag, run: () => setIsCategoryRulesModalOpen(true) },
+    { label: 'Ajuda', hint: 'Tira-dúvidas e explicação dos números', icon: Info, run: () => openHelp() },
+  ];
+
+  const badges: Partial<Record<Section, number>> = { contas: (checklist.items.find((i) => i.id === 'faturas' && !i.ok) ? 1 : 0) + (checklist.items.find((i) => i.id === 'contas-fixas' && !i.ok) ? 1 : 0) };
+
+  const proSlot = isPro
+    ? (<span className="bg-gradient-to-r from-blue-500 to-purple-600 text-white font-bold px-3 py-1 rounded-full text-[10px] uppercase tracking-wider shadow-lg flex items-center gap-1 whitespace-nowrap"><Crown className="w-3 h-3" /> PRO</span>)
+    : (<button onClick={() => setShowPremium(true)} className="bg-gradient-to-r from-yellow-400 to-orange-500 text-black font-bold px-3 py-2 rounded-full text-xs hover:scale-105 transition-all shadow-lg flex items-center gap-2 whitespace-nowrap"><Crown className="w-4 h-4" /> Seja PRO</button>);
+  const userSlot = (<div className="flex items-center justify-center bg-white/10 rounded-full p-1 shrink-0" title="Minha Conta"><UserButton afterSignOutUrl="/sign-in" /></div>);
+  const themeSlot = (
+    <div className="flex items-center gap-1.5" title="Tema">
+      {([['dark', 'bg-zinc-950 border border-zinc-700', 'Dark'], ['nubank', 'bg-purple-600', 'Nubank'], ['green', 'bg-emerald-500', 'Eco'], ['blue', 'bg-blue-600', 'Executivo'], ['red', 'bg-rose-600', 'Red']] as const).map(([id, cls, name]) => (
+        <button key={id} onClick={() => setCurrentTheme(id)} className={`w-5 h-5 rounded-full hover:scale-110 transition-transform ${cls} ${currentTheme === id ? 'ring-2 ring-offset-2 ring-blue-500' : ''}`} title={name} aria-label={`Tema ${name}`} />
+      ))}
+    </div>
+  );
+
+  const openBillsPanel = (startExpanded: boolean) => (
+    <OpenBillsPanel theme={theme} formatCurrency={formatCurrency} onChanged={loadData} refreshKey={refreshKey} startMonth={startMonth} startYear={startYear} endMonth={endMonth} endYear={endYear} viewMode={viewMode} startExpanded={startExpanded} />
+  );
 
   return (
-    <main className={`min-h-screen w-full ${theme.bg} ${theme.text} pt-4 md:pt-8 font-sans transition-colors duration-500 overflow-x-hidden`}>
-      <div className="max-w-7xl mx-auto space-y-6 px-4 md:px-0">
-        
-        <header className="flex flex-col gap-4 md:gap-6">
-          <div className="flex flex-col md:flex-row justify-between items-center w-full gap-4">
-            <div className="w-full md:w-auto flex justify-center md:justify-start">
-              <img src="/logo.png" alt="KORE" className={`h-24 md:h-40 w-auto object-contain transition-all duration-500 ${theme.logoFilter}`} />
-            </div>
+    <main className={`min-h-screen w-full ${theme.bg} ${theme.text} font-sans transition-colors duration-500 overflow-x-hidden`}>
+      <AppShell
+        theme={theme} section={section} onSection={setSection} accent={accent}
+        logoSrc="/logo.png" logoClass={theme.logoFilter} badges={badges} cadastros={cadastros}
+        proSlot={proSlot} userSlot={userSlot} themeSlot={themeSlot}
+      >
+        <ContextBar
+          theme={theme} currentTheme={currentTheme}
+          viewOptions={viewOptions} viewMode={viewMode} onViewMode={setViewMode} accentOf={accentOf}
+          periodMode={periodMode} onPeriodMode={switchPeriodMode}
+          startYear={startYear} startMonth={startMonth} endYear={endYear} endMonth={endMonth}
+          onSelectMonth={selectSingleMonth} onShiftMonth={shiftMonth}
+          onRangeStart={(y: number, m: number) => { setStartYear(y); setStartMonth(m); }}
+          onRangeEnd={(y: number, m: number) => { setEndYear(y); setEndMonth(m); }}
+          isolatePeriod={isolatePeriod} onToggleIsolate={() => setIsolatePeriod(!isolatePeriod)}
+          uploadStatus={uploadStatus}
+          onImportCsv={() => csvInputRef.current?.click()}
+          onImportCard={() => setIsCardInvoiceModalOpen(true)}
+          onSyncAsaas={handleSyncAsaas}
+          onNewTransaction={() => { setEditingTransaction(null); setIsModalOpen(true); }}
+        />
+        <input ref={csvInputRef} type="file" accept=".csv" className="hidden" onChange={handleFileUpload} disabled={!!uploadStatus} />
 
-            <div className="flex flex-col md:flex-row items-center gap-3 w-full md:w-auto justify-end">
-                <div className="flex items-center flex-wrap gap-3 w-full justify-center md:justify-end">
-                    {!isPro && (<button onClick={() => setShowPremium(true)} className="bg-gradient-to-r from-yellow-400 to-orange-500 text-black font-bold px-3 py-2 rounded-full text-xs hover:scale-105 transition-all shadow-lg flex items-center gap-2 animate-pulse whitespace-nowrap"><Crown className="w-4 h-4"/> Seja PRO</button>)}
-                    {isPro && (<span className="bg-gradient-to-r from-blue-500 to-purple-600 text-white font-bold px-3 py-1 rounded-full text-[10px] uppercase tracking-wider shadow-lg flex items-center gap-1 whitespace-nowrap"><Crown className="w-3 h-3"/> PRO</span>)}
-                    <div className="relative shrink-0">
-                        <button onClick={() => setOpenMenu(openMenu === 'cadastros' ? null : 'cadastros')} className={`px-3 py-2 rounded-full border transition-all flex items-center gap-2 text-xs font-bold ${openMenu === 'cadastros' ? theme.navActive : theme.card}`}><Settings className="w-4 h-4" /> Cadastros</button>
-                        {openMenu === 'cadastros' && (
-                          <>
-                            <div className="fixed inset-0 z-40" onClick={() => setOpenMenu(null)} />
-                            <div className={`absolute right-0 top-full mt-2 z-50 w-64 rounded-2xl border shadow-xl p-2 ${theme.card}`}>
-                              {[
-                                { label: 'Pessoas e Contas', hint: 'Paulo, Adri, Empresa, bancos', icon: Users, run: () => setIsOwnersModalOpen(true) },
-                                { label: 'Meus Cartões', hint: 'Faturas, fechamento e vencimento', icon: CreditCard, run: () => setIsCreditCardsModalOpen(true) },
-                                { label: 'Contas Fixas', hint: 'Aluguel, internet, assinaturas', icon: Repeat, run: () => setIsFixedBillsModalOpen(true) },
-                                { label: 'Categorias', hint: 'Metas e como cada uma entra nas contas', icon: Tags, run: () => setIsCategoriesModalOpen(true) },
-                                { label: 'Regras de Categorização', hint: 'Ensina o app a categorizar sozinho', icon: Tag, run: () => setIsCategoryRulesModalOpen(true) },
-                              ].map((item) => (
-                                <button key={item.label} onClick={() => { setOpenMenu(null); item.run(); }} className={`w-full text-left flex items-start gap-3 px-3 py-2 rounded-xl transition-all ${theme.cardHover}`}>
-                                  <item.icon className="w-4 h-4 mt-0.5 shrink-0" />
-                                  <span className="min-w-0"><span className="block text-sm font-bold">{item.label}</span><span className={`block text-[11px] ${theme.textMuted}`}>{item.hint}</span></span>
-                                </button>
-                              ))}
-                            </div>
-                          </>
-                        )}
-                    </div>
-                    <div className="flex items-center justify-center bg-white/10 rounded-full p-1 shrink-0" title="Minha Conta"><UserButton afterSignOutUrl="/sign-in" /></div>
-                    <div className="relative shrink-0">
-                        <button onClick={() => setIsThemeMenuOpen(!isThemeMenuOpen)} className={`p-2 rounded-full border transition-all ${isThemeMenuOpen ? theme.navActive : theme.card}`}><Palette className="w-5 h-5" /></button>
-                        {isThemeMenuOpen && (
-                            <div className={`absolute top-full right-0 mt-2 p-2 rounded-xl border shadow-xl flex flex-col gap-2 z-50 animate-in fade-in slide-in-from-top-2 ${theme.card}`}>
-                            <div className="flex gap-2">
-                                <button onClick={() => { setCurrentTheme('dark'); setIsThemeMenuOpen(false); }} className="w-8 h-8 rounded-full bg-zinc-950 border border-zinc-700 hover:scale-110" title="Dark" />
-                                <button onClick={() => { setCurrentTheme('nubank'); setIsThemeMenuOpen(false); }} className="w-8 h-8 rounded-full bg-purple-600 hover:scale-110" title="Nubank" />
-                                <button onClick={() => { setCurrentTheme('green'); setIsThemeMenuOpen(false); }} className="w-8 h-8 rounded-full bg-emerald-500 hover:scale-110" title="Eco" />
-                                <button onClick={() => { setCurrentTheme('blue'); setIsThemeMenuOpen(false); }} className="w-8 h-8 rounded-full bg-blue-600 hover:scale-110" title="Executivo" />
-                                <button onClick={() => { setCurrentTheme('red'); setIsThemeMenuOpen(false); }} className="w-8 h-8 rounded-full bg-rose-600 hover:scale-110" title="Red" />
-                            </div>
-                            </div>
-                        )}
-                    </div>
-                </div>
-
-                <div className={`flex p-1 rounded-full border w-full md:w-auto justify-between ${theme.card}`}>
-                    {viewOptions.map((opt) => (
-                      <button key={opt.id} onClick={() => setViewMode(opt.id)} className={`flex-1 md:flex-none px-3 md:px-6 py-2 md:py-3 text-xs md:text-sm font-bold rounded-full flex items-center justify-center gap-2 transition-all ${viewMode === opt.id ? theme.navActive : theme.navInactive}`}>
-                        {opt.kind === 'all' ? <Layers className="w-3 h-3"/> : opt.kind === 'pj' ? <Briefcase className="w-3 h-3"/> : <User className="w-3 h-3"/>} {opt.label}
-                      </button>
-                    ))}
-                </div>
-            </div>
-          </div>
-
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 w-full">
-            
-            {/* 🔥 BARRA DE CONTROLE DE PERÍODO (DATA RANGE) 🔥
-                Redesenhado: antes eram 3 ícones de calendário amontoados (1
-                decorativo + 1 nativo por campo) e só o ícone minúsculo do
-                navegador abria o seletor. Agora cada campo é um "cartão"
-                inteiro clicável (abre o calendário em qualquer ponto dele),
-                com um rótulo De/Até e um único ícone por campo. */}
-            <div className={`flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full md:w-auto p-3 rounded-2xl border ${theme.card}`}>
-                <div className={`flex p-1 rounded-xl shrink-0 ${currentTheme === 'dark' ? 'bg-zinc-950' : 'bg-gray-100'}`}>
-                    {([['month', 'Mês isolado'], ['range', 'Período']] as const).map(([mode, label]) => (
-                        <button key={mode} onClick={() => switchPeriodMode(mode)} className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${periodMode === mode ? theme.navActive : theme.navInactive}`}>{label}</button>
-                    ))}
-                </div>
-
-                {periodMode === 'month' ? (
-                    <div className="flex items-center gap-1 flex-1">
-                        <button onClick={() => shiftMonth(-1)} className={`p-2 rounded-xl border transition-colors hover:border-blue-400 ${theme.card}`} title="Mês anterior"><ChevronLeft className="w-4 h-4" /></button>
-                        <div
-                            onClick={() => openPicker(startMonthInputRef)}
-                            className={`flex-1 flex items-center gap-2 px-3 py-2 rounded-xl border cursor-pointer transition-colors hover:border-blue-400 ${currentTheme === 'dark' ? 'bg-zinc-950 border-zinc-800' : 'bg-gray-50 border-gray-200'}`}
-                        >
-                            <CalendarIcon className={`w-4 h-4 shrink-0 ${theme.textMuted}`} />
-                            <div className="min-w-0">
-                                <p className={`text-[9px] font-bold uppercase tracking-wider leading-none mb-0.5 ${theme.textMuted}`}>Mês</p>
-                                <input
-                                    ref={startMonthInputRef}
-                                    type="month"
-                                    value={`${startYear}-${String(startMonth).padStart(2, '0')}`}
-                                    onChange={(e) => { if (!e.target.value) return; const [y, m] = e.target.value.split('-'); selectSingleMonth(Number(y), Number(m)); }}
-                                    className={`w-full bg-transparent text-sm font-bold outline-none cursor-pointer appearance-none [&::-webkit-calendar-picker-indicator]:hidden ${theme.text}`}
-                                />
-                            </div>
-                        </div>
-                        <button onClick={() => shiftMonth(1)} className={`p-2 rounded-xl border transition-colors hover:border-blue-400 ${theme.card}`} title="Próximo mês"><ChevronRight className="w-4 h-4" /></button>
-                    </div>
-                ) : (
-                    <>
-                <div className="flex items-center gap-2 flex-1">
-                    <div
-                        onClick={() => openPicker(startMonthInputRef)}
-                        className={`flex-1 flex items-center gap-2 px-3 py-2 rounded-xl border cursor-pointer transition-colors hover:border-blue-400 ${currentTheme === 'dark' ? 'bg-zinc-950 border-zinc-800' : 'bg-gray-50 border-gray-200'}`}
-                    >
-                        <CalendarIcon className={`w-4 h-4 shrink-0 ${theme.textMuted}`} />
-                        <div className="min-w-0">
-                            <p className={`text-[9px] font-bold uppercase tracking-wider leading-none mb-0.5 ${theme.textMuted}`}>De</p>
-                            <input
-                                ref={startMonthInputRef}
-                                type="month"
-                                value={`${startYear}-${String(startMonth).padStart(2, '0')}`}
-                                onChange={(e) => { const [y, m] = e.target.value.split('-'); setStartYear(Number(y)); setStartMonth(Number(m)); }}
-                                className={`w-full bg-transparent text-sm font-bold outline-none cursor-pointer appearance-none [&::-webkit-calendar-picker-indicator]:hidden ${theme.text}`}
-                            />
-                        </div>
-                    </div>
-
-                    <div
-                        onClick={() => openPicker(endMonthInputRef)}
-                        className={`flex-1 flex items-center gap-2 px-3 py-2 rounded-xl border cursor-pointer transition-colors hover:border-blue-400 ${currentTheme === 'dark' ? 'bg-zinc-950 border-zinc-800' : 'bg-gray-50 border-gray-200'}`}
-                    >
-                        <CalendarIcon className={`w-4 h-4 shrink-0 ${theme.textMuted}`} />
-                        <div className="min-w-0">
-                            <p className={`text-[9px] font-bold uppercase tracking-wider leading-none mb-0.5 ${theme.textMuted}`}>Até</p>
-                            <input
-                                ref={endMonthInputRef}
-                                type="month"
-                                value={`${endYear}-${String(endMonth).padStart(2, '0')}`}
-                                onChange={(e) => { const [y, m] = e.target.value.split('-'); setEndYear(Number(y)); setEndMonth(Number(m)); }}
-                                className={`w-full bg-transparent text-sm font-bold outline-none cursor-pointer appearance-none [&::-webkit-calendar-picker-indicator]:hidden ${theme.text}`}
-                            />
-                        </div>
-                    </div>
-                </div>
-
-                <div className="hidden lg:block w-px h-8 bg-gray-200 dark:bg-zinc-800"></div>
-
-                <button
-                    onClick={() => setIsolatePeriod(!isolatePeriod)}
-                    className={`flex items-center justify-center gap-2 text-xs font-bold px-3 py-2 rounded-xl transition-all shrink-0 ${isolatePeriod ? 'bg-blue-100 text-blue-600 dark:bg-blue-500/20 dark:text-blue-400' : theme.navInactive}`}
-                    title="Ligado: o Saldo Principal ignora tudo que veio antes e conta só este período. Desligado: soma tudo desde o começo até o fim do período."
-                >
-                    {isolatePeriod ? <ToggleRight className="w-5 h-5" /> : <ToggleLeft className="w-5 h-5" />}
-                    Começar do zero neste período
-                </button>
-                    </>
-                )}
-            </div>
-
-            <div className="flex gap-2 w-full md:w-auto">
-                <div className="relative flex-1 md:flex-none">
-                  <button onClick={() => setOpenMenu(openMenu === 'importar' ? null : 'importar')} disabled={!!uploadStatus} className={`w-full ${theme.buttonSecondary} active:scale-95 px-6 py-4 md:py-3 rounded-full font-bold text-sm shadow-sm flex items-center justify-center gap-2 transition-all border ${uploadStatus ? 'bg-purple-100 text-purple-600 border-purple-300' : ''}`}>
-                    {uploadStatus ? <Loader2 className="w-5 h-5 animate-spin text-purple-600" /> : <Upload className="w-5 h-5" />}
-                    {uploadStatus ? uploadStatus : "Importar"}
-                  </button>
-                  {openMenu === 'importar' && (
-                    <>
-                      <div className="fixed inset-0 z-40" onClick={() => setOpenMenu(null)} />
-                      <div className={`absolute left-0 bottom-full md:bottom-auto md:top-full mb-2 md:mb-0 md:mt-2 z-50 w-72 rounded-2xl border shadow-xl p-2 ${theme.card}`}>
-                        <button onClick={() => { setOpenMenu(null); csvInputRef.current?.click(); }} className={`w-full text-left flex items-start gap-3 px-3 py-2 rounded-xl transition-all ${theme.cardHover}`}>
-                          <FileText className="w-4 h-4 mt-0.5 shrink-0" />
-                          <span><span className="block text-sm font-bold">Extrato do banco (.csv)</span><span className={`block text-[11px] ${theme.textMuted}`}>Conta corrente, Asaas etc.</span></span>
-                        </button>
-                        <button onClick={() => { setOpenMenu(null); handleSyncAsaas(); }} className={`w-full text-left flex items-start gap-3 px-3 py-2 rounded-xl transition-all ${theme.cardHover}`}>
-                          <Repeat className="w-4 h-4 mt-0.5 shrink-0" />
-                          <span><span className="block text-sm font-bold">Sincronizar vendas do Asaas</span><span className={`block text-[11px] ${theme.textMuted}`}>Direto da API, no período selecionado</span></span>
-                        </button>
-                        <button onClick={() => { setOpenMenu(null); setIsCardInvoiceModalOpen(true); }} className={`w-full text-left flex items-start gap-3 px-3 py-2 rounded-xl transition-all ${theme.cardHover}`}>
-                          <CreditCard className="w-4 h-4 mt-0.5 shrink-0" />
-                          <span><span className="block text-sm font-bold">Fatura do cartão</span><span className={`block text-[11px] ${theme.textMuted}`}>.csv, .ofx ou .pdf — vai para o dono do cartão</span></span>
-                        </button>
-                      </div>
-                    </>
-                  )}
-                  <input ref={csvInputRef} type="file" accept=".csv" className="hidden" onChange={handleFileUpload} disabled={!!uploadStatus} />
-                </div>
-                <button onClick={() => { setEditingTransaction(null); setIsModalOpen(true); }} className={`flex-1 md:flex-none ${theme.button} active:scale-95 px-6 py-4 md:py-3 rounded-full font-bold text-sm shadow-lg flex items-center justify-center gap-2 transition-all`}><Plus className="w-5 h-5" /> Lançar</button>
-            </div>
-          </div>
-        </header>
-
-        {/* ÁREA DE IA E RELATÓRIOS */}
-        <div className="flex flex-col gap-4">
-          <div className="flex flex-wrap justify-end gap-2">
-             {!advice && (<button onClick={handleExportPDF} className={`flex-1 md:flex-none flex items-center justify-center gap-2 text-sm font-bold px-4 py-2.5 rounded-full border shadow-sm transition-all hover:scale-105 ${theme.buttonSecondary}`} title="Relatórios Executivos"><Download className={`w-4 h-4 ${!isPro && 'text-zinc-400'}`} /><span className="inline">Relatório PDF</span>{!isPro && <span className="text-[10px] bg-yellow-400 text-black px-1 rounded font-bold">PRO</span>}</button>)}
-             {!advice && (<button onClick={handleAnalyze} disabled={analyzing} className={`flex-1 md:flex-none flex items-center justify-center gap-2 text-sm font-bold px-5 py-2.5 rounded-full border shadow-sm transition-all hover:bg-blue-500 hover:text-white ${theme.buttonSecondary}`}>{analyzing ? <Loader2 className="w-4 h-4 animate-spin" /> : <MessageSquare className="w-4 h-4" />}{analyzing ? "Analisando..." : "Análise IA"}</button>)}
-          </div>
-          {advice && (
-            <div className={`${theme.card} p-6 rounded-2xl relative animate-in slide-in-from-top-4 fade-in duration-500`}>
-              <button onClick={() => setAdvice('')} className="absolute top-4 right-4 opacity-50 hover:opacity-100 transition-colors"><X className="w-5 h-5" /></button>
-              <div className="flex flex-col md:flex-row gap-4">
-                <div className={`p-3 rounded-xl h-fit w-fit ${theme.iconBg}`}><Briefcase className="w-8 h-8" /></div>
-                <div className="space-y-2">
-                  <h3 className="font-bold text-lg flex items-center gap-2">Parecer Técnico <span className={`text-[10px] px-2 py-0.5 rounded uppercase tracking-wider font-bold ${currentTheme === 'dark' ? 'bg-blue-600 text-white' : 'bg-black text-white'}`}>CFO Virtual</span></h3>
-                  <div className={`text-sm leading-relaxed whitespace-pre-line ${theme.textMuted}`}>{advice}</div>
-                </div>
-              </div>
+        <div className="pt-4">
+          {section === 'inicio' && (
+            <div className="space-y-6 pb-8">
+              {openBillsPanel(false)}
+              <MonthCloseChecklist theme={theme} checklist={checklist} onGo={goTo} />
+              <DashboardCards
+                theme={theme}
+                summary={processedData.summary}
+                selectedDay={selectedDay}
+                formatCurrency={formatCurrency}
+                incomeTxs={processedData.incomeTxs}
+                expenseTxs={processedData.expenseTxs}
+                investedTxs={processedData.investedTxs}
+                grossIncomeTxs={processedData.grossIncomeTxs}
+                grossExpenseTxs={processedData.grossExpenseTxs}
+                categories={rawData.allCategories}
+                startMonth={startMonth}
+                startYear={startYear}
+                endMonth={endMonth}
+                endYear={endYear}
+                isolatePeriod={isolatePeriod}
+                viewMode={viewMode}
+                onEditTransaction={handleEdit}
+                onHelp={openHelp}
+              />
+              <DashboardCharts theme={theme} processedData={processedData} currentTheme={currentTheme} formatCurrency={formatCurrency} setSelectedCategory={setSelectedCategory} setBudgetModalOpen={setBudgetModalOpen} />
             </div>
           )}
+
+          {section === 'lancamentos' && (
+            <TransactionsView
+              theme={theme} currentTheme={currentTheme} formatCurrency={formatCurrency} todayStr={todayStr}
+              txs={processedData.allTxs || []} categories={rawData.allCategories} owners={ownerList} accounts={rawData.accounts || []} cards={cardsOverview}
+              filters={txFilters} onFilters={setTxFilters}
+              onTogglePay={handleTogglePay} onEdit={handleEdit} onDelete={handleDelete} onChanged={loadData}
+            />
+          )}
+
+          {section === 'contas' && (
+            <AccountsView
+              theme={theme} currentTheme={currentTheme} formatCurrency={formatCurrency} todayStr={todayStr}
+              openBillsPanel={openBillsPanel(true)}
+              fixedExpenses={processedData.fixedExpenses} ownerName={ownerNameById} cards={viewCards} owners={ownerList} copying={copying}
+              onCopyMonth={handleCopyMonth} onTogglePay={handleTogglePay} onEdit={handleEdit} onDelete={handleDelete}
+              onViewInvoiceItems={(cardId: string, cycleKey: string) => setViewingInvoice({ cardId, cycleKey })}
+              onPayInvoice={handlePayInvoice}
+              onManageCards={() => setIsCreditCardsModalOpen(true)}
+              onImportInvoice={() => setIsCardInvoiceModalOpen(true)}
+            />
+          )}
+
+          {section === 'categorias' && (
+            <CategoriesView
+              theme={theme} formatCurrency={formatCurrency}
+              categories={rawData.allCategories} stats={processedData.categoryStats}
+              onOpenBudget={(cat: any) => { setSelectedCategory(cat); setBudgetModalOpen(true); }}
+              onViewTransactions={viewCategoryTransactions}
+              onManage={() => setIsCategoriesModalOpen(true)}
+            />
+          )}
+
+          {section === 'relatorios' && (
+            <ReportsView
+              theme={theme} currentTheme={currentTheme} isPro={isPro} analyzing={analyzing} advice={advice}
+              onPDF={handleExportPDF} onAnalyze={handleAnalyze} onClearAdvice={() => setAdvice('')}
+              viewLabel={viewLabel} periodLabel={periodLabel}
+            />
+          )}
         </div>
+      </AppShell>
 
-        {/* 🔥 "Previsão do Mês" foi removida daqui a pedido do usuário (deixava a
-            tela confusa) — o painel de Contas em Aberto abaixo já cobre o que
-            interessa: o que ainda falta pagar/receber, respeitando o período
-            selecionado acima. */}
-        <OpenBillsPanel theme={theme} formatCurrency={formatCurrency} onChanged={loadData} refreshKey={refreshKey} startMonth={startMonth} startYear={startYear} endMonth={endMonth} endYear={endYear} viewMode={viewMode} />
-
-        {/* COMPONENTES ISOLADOS */}
-        <DashboardCards
-          theme={theme}
-          summary={processedData.summary}
-          selectedDay={selectedDay}
-          formatCurrency={formatCurrency}
-          incomeTxs={processedData.incomeTxs}
-          expenseTxs={processedData.expenseTxs}
-          investedTxs={processedData.investedTxs}
-          grossIncomeTxs={processedData.grossIncomeTxs}
-          grossExpenseTxs={processedData.grossExpenseTxs}
-          categories={rawData.allCategories}
-          startMonth={startMonth}
-          startYear={startYear}
-          endMonth={endMonth}
-          endYear={endYear}
-          isolatePeriod={isolatePeriod}
-          viewMode={viewMode}
-          onEditTransaction={handleEdit}
-        />
-        <DashboardCharts theme={theme} processedData={processedData} currentTheme={currentTheme} formatCurrency={formatCurrency} setSelectedCategory={setSelectedCategory} setBudgetModalOpen={setBudgetModalOpen} />
-
-        {/* BARRA DE FILTRO DE CATEGORIAS */}
-        <div className="flex items-center justify-between mt-4">
-            <h2 className={`font-bold text-lg flex items-center gap-2 ${theme.text}`}>Extrato Detalhado</h2>
-            <div className="flex items-center gap-2">
-                <Filter className={`w-4 h-4 ${theme.textMuted}`} />
-                <select 
-                    value={filterCategory} 
-                    onChange={(e) => setFilterCategory(e.target.value)}
-                    className={`${theme.card} ${theme.text} border rounded-lg px-3 py-2 text-sm font-medium shadow-sm outline-none focus:ring-2 focus:ring-blue-500 transition-all cursor-pointer`}
-                >
-                    <option value="all">Todas as Categorias</option>
-                    {sortedCategories.map((c: any) => (
-                        <option key={c.id} value={c.id}>{c.name}</option>
-                    ))}
-                </select>
-            </div>
-        </div>
-
-        {/* LISTA DE CUSTOS FIXOS — Fluxo Variável foi removido daqui: os cards
-            clicáveis de Receita/Despesa acima já cobrem o mesmo detalhamento,
-            agora organizado por categoria. Quando uma categoria é escolhida no
-            filtro acima, aparece também, ao lado, a lista com TODOS os
-            lançamentos dessa categoria (fixos e variáveis, pagos e
-            pendentes) — antes o filtro só reduzia a lista de Custos Fixos. */}
-        <div className="pb-8">
-          <div className={`grid grid-cols-1 gap-6 ${filterCategory !== 'all' ? 'lg:grid-cols-2' : ''}`}>
-            <div className={`${theme.card} border rounded-2xl overflow-hidden flex flex-col ${filterCategory === 'all' ? 'max-w-2xl' : ''} min-w-0`}>
-              <div className={`p-4 border-b flex justify-between items-center gap-2 ${currentTheme === 'dark' ? 'bg-zinc-950/30 border-zinc-800' : 'bg-gray-50/50 border-gray-100'}`}>
-                <h3 className={`font-bold flex items-center gap-2 min-w-0 ${theme.text}`}><Clock className="w-4 h-4 text-orange-500 shrink-0" /> <span className="truncate">Custos Fixos</span> {filterCategory !== 'all' && <span className="text-[10px] bg-orange-100 text-orange-600 px-2 py-0.5 rounded-full ml-2 shrink-0">Filtrado</span>}</h3>
-                {processedData.fixedExpenses.length > 0 && (<button onClick={handleCopyMonth} disabled={copying} className={`text-xs flex items-center gap-1 px-3 py-1.5 rounded-lg transition-all border shrink-0 ${theme.buttonSecondary}`}>{copying ? <Loader2 className="w-3 h-3 animate-spin" /> : <Copy className="w-3 h-3" />} Virar Mês</button>)}
-              </div>
-              <div className="p-4 space-y-3">
-                {displayedFixedExpenses.map((tx: any) => {
-                  const today = new Date();
-                  const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
-                  const isLate = !tx.isPaid && tx.date < todayStr;
-                  const isToday = !tx.isPaid && tx.date === todayStr;
-                  // 🔥 NOVO: quando a conta tem um valor original registrado (vinda de
-                  // um molde de "Minhas Contas Fixas" ou digitado na hora), mostra a
-                  // diferença pro valor pago como juro (pagou mais) ou desconto (pagou menos).
-                  const hasOriginal = tx.originalAmount !== null && tx.originalAmount !== undefined;
-                  const diff = hasOriginal ? Number(tx.amount) - Number(tx.originalAmount) : 0;
-                  return (
-                    <div key={tx.id} className={`flex justify-between items-center gap-2 p-3 rounded-xl border transition-colors ${currentTheme === 'dark' ? 'bg-zinc-950 border-zinc-800 hover:border-zinc-700' : 'bg-white border-gray-100 hover:border-blue-200 shadow-sm'}`}>
-                      <div className="flex items-center gap-3 min-w-0">
-                        <button onClick={() => handleTogglePay(tx.id, tx.isPaid)} className={`p-2 rounded-full transition-all shrink-0 ${tx.isPaid ? 'text-emerald-600 bg-emerald-500/10' : 'text-slate-400 bg-slate-100/50 hover:text-orange-500'}`}>{tx.isPaid ? <CheckCircle2 className="w-5 h-5" /> : <Circle className="w-5 h-5" />}</button>
-                        <div className="min-w-0">
-                          <p className={`font-semibold text-sm truncate ${tx.isPaid ? 'text-zinc-500 line-through' : theme.text}`}>{tx.description}</p>
-                          <p className={`text-[10px] font-bold uppercase flex items-center gap-1 flex-wrap ${theme.textMuted}`}>{tx.entityType === 'pj' ? <Briefcase className="w-3 h-3 text-blue-500 shrink-0"/> : <User className="w-3 h-3 opacity-50 shrink-0"/>}{ownerNameById(tx.ownerId) && <span className="normal-case">{ownerNameById(tx.ownerId)}</span>}{isLate ? (<span className="flex items-center gap-1 text-red-500 animate-pulse"><AlertCircle className="w-3 h-3"/> VENCIDO (Dia {tx.date.split('-')[2]})</span>) : isToday ? (<span className="flex items-center gap-1 text-amber-500 font-bold"><Clock className="w-3 h-3"/> VENCE HOJE</span>) : (<span>Dia {tx.date.split('-')[2]}</span>)}</p>
-                          {hasOriginal && Math.abs(diff) > 0.009 && (
-                            <p className={`text-[9px] font-bold pt-0.5 ${diff > 0 ? 'text-red-400' : 'text-emerald-400'}`}>
-                              Original: {formatCurrency(Number(tx.originalAmount))} • {diff > 0 ? 'Juros' : 'Desconto'} de {formatCurrency(Math.abs(diff))}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-4 shrink-0">
-                        <div className="text-right"><p className={`font-bold font-mono text-sm ${theme.text}`}>{formatCurrency(Number(tx.amount))}</p><span className={`text-[9px] font-bold uppercase tracking-wider ${tx.isPaid ? 'text-emerald-600' : isLate ? 'text-red-500' : 'text-orange-500'}`}>{tx.isPaid ? 'PAGO' : 'PENDENTE'}</span></div>
-                        <div className="flex flex-col gap-1"><button onClick={() => handleEdit(tx)} className="p-1.5 hover:bg-blue-500/10 text-blue-500 rounded transition-colors"><Pencil className="w-3.5 h-3.5"/></button><button onClick={() => handleDelete(tx.id)} className="p-1.5 hover:bg-red-500/10 text-red-500 rounded transition-colors"><Trash2 className="w-3.5 h-3.5"/></button></div>
-                      </div>
-                    </div>
-                  )
-                })}
-                {displayedFixedExpenses.length === 0 && ( <p className={`text-sm text-center py-8 ${theme.textMuted}`}>Nenhuma conta encontrada.</p> )}
-              </div>
-            </div>
-
-            {/* 🔥 NOVO: com uma categoria selecionada no filtro acima, mostra
-                TODOS os lançamentos dela (não só os Custos Fixos) — inclui
-                receitas, despesas variáveis e fixas, pagas e pendentes. */}
-            {filterCategory !== 'all' && (
-              <div className={`${theme.card} border rounded-2xl overflow-hidden flex flex-col min-w-0`}>
-                <div className={`p-4 border-b flex justify-between items-center gap-2 ${currentTheme === 'dark' ? 'bg-zinc-950/30 border-zinc-800' : 'bg-gray-50/50 border-gray-100'}`}>
-                  <h3 className={`font-bold flex items-center gap-2 min-w-0 ${theme.text}`}><Tags className="w-4 h-4 text-blue-500 shrink-0" /> <span className="truncate">Todos os Lançamentos — {selectedCategoryObj?.name || ''}</span></h3>
-                </div>
-                <div className="p-4 space-y-3 max-h-[480px] overflow-y-auto custom-scrollbar">
-                  {categoryFilteredTxs.map((tx: any) => {
-                    const isExpense = tx.type === 'expense';
-                    return (
-                      <div key={tx.id} className={`flex justify-between items-center gap-2 p-3 rounded-xl border transition-colors ${currentTheme === 'dark' ? 'bg-zinc-950 border-zinc-800 hover:border-zinc-700' : 'bg-white border-gray-100 hover:border-blue-200 shadow-sm'}`}>
-                        <div className="flex items-center gap-3 min-w-0">
-                          <button onClick={() => handleTogglePay(tx.id, tx.isPaid)} className={`p-2 rounded-full transition-all shrink-0 ${tx.isPaid ? 'text-emerald-600 bg-emerald-500/10' : 'text-slate-400 bg-slate-100/50 hover:text-orange-500'}`}>{tx.isPaid ? <CheckCircle2 className="w-5 h-5" /> : <Circle className="w-5 h-5" />}</button>
-                          <div className="min-w-0">
-                            <p className={`font-semibold text-sm truncate ${tx.isPaid ? 'text-zinc-500 line-through' : theme.text}`}>{tx.description}</p>
-                            <p className={`text-[10px] font-bold uppercase flex items-center gap-1 flex-wrap ${theme.textMuted}`}>
-                              {tx.entityType === 'pj' ? <Briefcase className="w-3 h-3 text-blue-500 shrink-0"/> : <User className="w-3 h-3 opacity-50 shrink-0"/>}{ownerNameById(tx.ownerId) && <span className="normal-case">{ownerNameById(tx.ownerId)}</span>}
-                              <span>Dia {tx.date.split('-')[2]}/{tx.date.split('-')[1]}</span>
-                              {tx.isFixed && <span className="opacity-50">• Fixo</span>}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-4 shrink-0">
-                          <div className="text-right"><p className={`font-bold font-mono text-sm ${isExpense ? 'text-red-500' : 'text-emerald-500'}`}>{isExpense ? '-' : '+'}{formatCurrency(Math.abs(Number(tx.amount)))}</p><span className={`text-[9px] font-bold uppercase tracking-wider ${tx.isPaid ? 'text-emerald-600' : 'text-orange-500'}`}>{tx.isPaid ? 'PAGO' : 'PENDENTE'}</span></div>
-                          <div className="flex flex-col gap-1"><button onClick={() => handleEdit(tx)} className="p-1.5 hover:bg-blue-500/10 text-blue-500 rounded transition-colors"><Pencil className="w-3.5 h-3.5"/></button><button onClick={() => handleDelete(tx.id)} className="p-1.5 hover:bg-red-500/10 text-red-500 rounded transition-colors"><Trash2 className="w-3.5 h-3.5"/></button></div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                  {categoryFilteredTxs.length === 0 && ( <p className={`text-sm text-center py-8 ${theme.textMuted}`}>Nenhum lançamento nessa categoria no período.</p> )}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-      
       {/* MODAIS CLÁSSICOS */}
       {isModalOpen && (<TransactionModal categories={rawData.allCategories} transaction={editingTransaction} onClose={() => { setIsModalOpen(false); setEditingTransaction(null); loadData(); }} userPlan={rawData.planType} onRequestPremium={() => setShowPremium(true)} owners={rawData.owners} accounts={rawData.accounts} defaultOwnerId={owners.some((o) => o.id === viewMode) ? viewMode : undefined} />)}
       {budgetModalOpen && selectedCategory && (<BudgetModal category={selectedCategory} onClose={() => { setBudgetModalOpen(false); loadData(); }} />)}
@@ -694,7 +510,8 @@ export default function Dashboard() {
       {isCreditCardsModalOpen && (<CreditCardsModal onClose={() => { setIsCreditCardsModalOpen(false); loadData(); }} />)}
       {isCategoryRulesModalOpen && (<CategoryRulesModal onClose={() => setIsCategoryRulesModalOpen(false)} categories={rawData.allCategories} />)}
       {isCategoriesModalOpen && (<CategoriesModal onClose={() => { setIsCategoriesModalOpen(false); loadData(); }} />)}
-      <HelpAssistant theme={theme} rawData={rawData} viewMode={viewMode} isolatePeriod={isolatePeriod} formatCurrency={formatCurrency} viewLabel={viewOptions.find((o) => o.id === viewMode)?.label || 'Tudo'} />
+      <HelpAssistant theme={theme} rawData={rawData} viewMode={viewMode} isolatePeriod={isolatePeriod} formatCurrency={formatCurrency} viewLabel={viewLabel} open={helpOpen} onOpenChange={(v: boolean) => { setHelpOpen(v); if (!v) setHelpFocus(null); }} focusId={helpFocus} />
+      {viewingInvoice && (<InvoiceItemsModal cardId={viewingInvoice.cardId} cycleKey={viewingInvoice.cycleKey} onClose={() => setViewingInvoice(null)} onChanged={loadData} />)}
       {isOwnersModalOpen && (<OwnersAccountsModal onClose={() => { setIsOwnersModalOpen(false); loadData(); }} />)}
       {isFixedBillsModalOpen && (<FixedBillsModal categories={rawData.allCategories} onClose={() => { setIsFixedBillsModalOpen(false); loadData(); }} />)}
       {isCardInvoiceModalOpen && (<CardInvoiceImportModal categories={rawData.allCategories} pendingFixedBills={pendingFixedBills} onClose={() => { setIsCardInvoiceModalOpen(false); loadData(); }} />)}

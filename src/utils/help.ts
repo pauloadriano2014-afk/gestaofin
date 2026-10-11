@@ -25,6 +25,34 @@ export const HELP_ENTRIES: HelpEntry[] = [
     keywords: "saldo diferente nao bate receita despesa resultado conta",
   },
   {
+    id: "card-saldo",
+    question: "Card Saldo Principal: o que ele mostra?",
+    answer:
+      "Tudo que entrou menos tudo que saiu. No modo Mês isolado conta só aquele mês; no modo Período com \"começar do zero\" desligado soma tudo desde o início até o fim do período. Ficam de fora transferências e pagamento de fatura (as compras do cartão já contam no dia da compra). Clique no card para ver a lista que forma esse valor.",
+    keywords: "card saldo principal disponivel conta",
+  },
+  {
+    id: "card-receita",
+    question: "Card Receita Operacional: o que entra?",
+    answer:
+      "As entradas do período e da visão selecionada, sem investimentos (resgates), reembolsos/empréstimos e pagamento de fatura. É o que você realmente ganhou. Clique no card para ver a lista e, se quiser, incluir tudo no Bruto.",
+    keywords: "card receita operacional entradas ganhou bruto",
+  },
+  {
+    id: "card-despesas",
+    question: "Card Despesas de Fato: o que entra?",
+    answer:
+      "As saídas do período e da visão selecionada, sem aportes de investimento, reembolsos/empréstimos e pagamento de fatura do cartão (porque as compras já contam). É o que você realmente gastou. Clique no card para ver a lista por categoria.",
+    keywords: "card despesas de fato saidas gastou gasto",
+  },
+  {
+    id: "card-investido",
+    question: "Card Aportes / Investido: como é calculado?",
+    answer:
+      "Aportes (dinheiro que foi para investimento) menos resgates (que voltaram). Não conta como despesa nem como receita: é patrimônio que mudou de lugar. O que é investimento depende do tipo da categoria, que você muda em Cadastros > Categorias.",
+    keywords: "card aportes investido patrimonio alocado",
+  },
+  {
     id: "mes-isolado",
     question: "O que é Mês isolado e o que é Período?",
     answer:

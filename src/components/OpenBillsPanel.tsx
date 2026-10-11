@@ -11,20 +11,21 @@ import { todayDateStr } from '@/utils/dates'
 // selecionado. Agora respeita o mesmo range de mês/ano do filtro principal.
 const STORAGE_KEY = 'kore:openBillsExpanded'
 
-export function OpenBillsPanel({ theme, formatCurrency, onChanged, refreshKey, startMonth, startYear, endMonth, endYear, viewMode = 'all' }: any) {
+export function OpenBillsPanel({ theme, formatCurrency, onChanged, refreshKey, startMonth, startYear, endMonth, endYear, viewMode = 'all', startExpanded = false }: any) {
   const [bills, setBills] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   // Começa recolhido (o painel ocupava muito espaço); a escolha fica salva no navegador.
-  const [expanded, setExpanded] = useState(false)
+  const [expanded, setExpanded] = useState(!!startExpanded)
 
   useEffect(() => {
+    if (startExpanded) return
     try { setExpanded(localStorage.getItem(STORAGE_KEY) === '1') } catch { /* sem localStorage: segue recolhido */ }
-  }, [])
+  }, [startExpanded])
 
   function toggleExpanded() {
     setExpanded((prev) => {
       const next = !prev
-      try { localStorage.setItem(STORAGE_KEY, next ? '1' : '0') } catch { /* ignora */ }
+      if (!startExpanded) { try { localStorage.setItem(STORAGE_KEY, next ? '1' : '0') } catch { /* ignora */ } }
       return next
     })
   }

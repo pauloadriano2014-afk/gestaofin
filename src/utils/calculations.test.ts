@@ -227,3 +227,65 @@ test("tira-dúvidas: a busca acha a resposta mesmo sem acento", () => {
   assert.equal(searchHelp("o que e mes isolado")[0].id, "mes-isolado");
   assert.deepEqual(searchHelp("xx"), []);
 });
+
+import { filterTransactions, findDuplicateIds, summarizeTxs, EMPTY_FILTERS } from "./txFilters";
+
+const L = (id: string, o: any = {}) => ({ id, description: "Mercado Central", amount: "129.00", type: "expense", date: "2026-10-05", categoryId: "c1", ownerId: "p", isPaid: true, creditCardId: null, accountId: null, ...o });
+
+test("lançamentos: busca por texto, sem acento, e por valor", () => {
+  const txs = [L("1"), L("2", { description: "Padaria São João", amount: "35.50" }), L("3", { description: "Uber", amount: "129.00" })];
+  assert.deepEqual(filterTransactions(txs, { ...EMPTY_FILTERS, search: "sao joao" }).map((t) => t.id), ["2"]);
+  assert.deepEqual(filterTransactions(txs, { ...EMPTY_FILTERS, search: "129" }).map((t) => t.id), ["1", "3"]);
+  assert.deepEqual(filterTransactions(txs, { ...EMPTY_FILTERS, search: "mercado 129" }).map((t) => t.id), ["1"]);
+});
+
+test("lançamentos: filtros de tipo, status, origem e atalhos de conferência", () => {
+  const txs = [
+    L("1"),
+    L("2", { type: "income", categoryId: null }),
+    L("3", { isPaid: false, ownerId: null, creditCardId: "k" }),
+    L("4", { type: "transfer", categoryId: null }),
+  ];
+  const ids = (f: any) => filterTransactions(txs, { ...EMPTY_FILTERS, ...f }).map((t) => t.id);
+  assert.deepEqual(ids({ type: "income" }), ["2"]);
+  assert.deepEqual(ids({ status: "pending" }), ["3"]);
+  assert.deepEqual(ids({ origin: "card" }), ["3"]);
+  assert.deepEqual(ids({ quick: "sem-categoria" }), ["2"]);   // transferência não conta como "sem categoria"
+  assert.deepEqual(ids({ quick: "sem-dono" }), ["3"]);
+  assert.deepEqual(ids({ quick: "pendentes" }), ["3"]);
+});
+
+test("lançamentos: detecta duplicados e resume totais", () => {
+  const txs = [L("1"), L("2"), L("3", { amount: "10" })];
+  assert.deepEqual(Array.from(findDuplicateIds(txs)).sort(), ["1", "2"]);
+  assert.deepEqual(filterTransactions(txs, { ...EMPTY_FILTERS, quick: "duplicados" }).map((t) => t.id), ["1", "2"]);
+  assert.deepEqual(summarizeTxs([L("1", { type: "income", amount: "100" }), L("2", { amount: "40.5" })]), { count: 2, income: 100, expense: 40.5 });
+});
+
+import { monthChecklist } from "./closing";
+
+test("fechamento do mês: aponta pendências e respeita a visão", () => {
+  const data = { transactions: [
+    L("1", { isFixed: true, isPaid: false, amount: "100" }),
+    L("2", { categoryId: null, ownerId: "a" }),
+    L("3", { ownerId: null }),
+    L("4"), L("5"),
+  ] };
+  const r = monthChecklist(data, "all", [{ closedUnpaidCycles: [{}], closedUnpaidTotal: 500 }]);
+  const byId = Object.fromEntries(r.items.map((i) => [i.id, i]));
+  assert.equal(byId["contas-fixas"].ok, false);
+  assert.equal(byId["faturas"].ok, false);
+  assert.equal(byId["categorias"].ok, false);
+  assert.equal(byId["donos"].ok, false);
+  assert.equal(byId["duplicados"].ok, false);   // 4 e 5 são idênticos
+  assert.equal(r.done, 0);
+  assert.equal(r.total, 5);
+  // visão de um dono só: o lançamento sem dono sai da conta
+  const so = monthChecklist(data, "p", []);
+  assert.equal(so.items.find((i) => i.id === "donos")!.ok, true);
+});
+
+test("fechamento do mês: tudo certo", () => {
+  const r = monthChecklist({ transactions: [L("1")] }, "all", []);
+  assert.equal(r.done, r.total);
+});

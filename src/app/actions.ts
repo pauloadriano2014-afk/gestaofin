@@ -6,7 +6,7 @@ import { ensureOwners, resolveOwnership } from "@/db/owners";
 import { matchesView } from "@/utils/owners";
 import { inferKindFromName, buildKindSets, type CategoryKind } from "@/utils/categoryKinds";
 import { sumBalance } from "@/utils/balance";
-import { desc, asc, and, sql, eq, lte, gte } from "drizzle-orm";
+import { desc, asc, and, sql, eq, lte, gte, inArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { auth } from "@clerk/nextjs/server";
 import { resolveIsPro } from "@/db/planAccess";
@@ -670,6 +670,54 @@ export async function deleteTransaction(id: string) {
     revalidatePath("/");
     return { success: true };
   } catch (error) { return { success: false }; }
+}
+
+// --- AÇÕES EM MASSA (tela de Lançamentos) ---
+// Sempre restritas aos itens do próprio usuário (filtro por userId no WHERE).
+
+export async function deleteTransactions(ids: string[]) {
+  try {
+    const userId = await getUser();
+    if (!userId) return { success: false, message: "Login necessário." };
+    if (!Array.isArray(ids) || ids.length === 0) return { success: false, message: "Selecione pelo menos um item." };
+    const removed = await db.delete(transactions)
+      .where(and(eq(transactions.userId, userId), inArray(transactions.id, ids)))
+      .returning({ id: transactions.id });
+    revalidatePath("/");
+    return { success: true, removed: removed.length };
+  } catch (error) {
+    console.error("Erro ao excluir em massa:", error);
+    return { success: false, message: "Erro ao excluir os itens." };
+  }
+}
+
+export async function setTransactionsCategory(ids: string[], categoryId: string | null) {
+  try {
+    const userId = await getUser();
+    if (!userId) return { success: false, message: "Login necessário." };
+    if (!Array.isArray(ids) || ids.length === 0) return { success: false, message: "Selecione pelo menos um item." };
+
+    if (categoryId) {
+      const cat = (await db.select().from(categories).where(and(eq(categories.id, categoryId), eq(categories.userId, userId))))[0];
+      if (!cat) return { success: false, message: "Categoria não encontrada." };
+    }
+
+    const updated = await db.update(transactions).set({ categoryId: categoryId || null })
+      .where(and(eq(transactions.userId, userId), inArray(transactions.id, ids)))
+      .returning({ description: transactions.description });
+
+    // Aprende com a escolha (uma vez por descrição), igual ao lançamento manual.
+    if (categoryId) {
+      const unique = Array.from(new Set(updated.map((t) => t.description))).slice(0, 50);
+      for (const description of unique) await learnCategoryRule(userId, description, categoryId);
+    }
+
+    revalidatePath("/");
+    return { success: true, updated: updated.length };
+  } catch (error) {
+    console.error("Erro ao trocar categoria em massa:", error);
+    return { success: false, message: "Erro ao trocar a categoria." };
+  }
 }
 
 // --- EDITAR ---

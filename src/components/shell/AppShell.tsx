@@ -61,10 +61,13 @@ export function AppShell({
           ))}
         </div>
 
-        <div className="mt-auto flex items-center gap-3 flex-wrap">
-          {proSlot}
-          {userSlot}
-          {themeSlot}
+        <div className="mt-auto space-y-2">
+          <div className="flex items-center gap-3 flex-wrap">
+            {proSlot}
+            {userSlot}
+            {themeSlot}
+          </div>
+          <p className={`text-[10px] ${theme.textMuted}`}>versão {process.env.NEXT_PUBLIC_APP_VERSION || 'local'}</p>
         </div>
       </aside>
 
@@ -103,7 +106,7 @@ export function AppShell({
                 <span><span className="block text-sm font-bold">{item.label}</span><span className={`block text-[11px] ${theme.textMuted}`}>{item.hint}</span></span>
               </button>
             ))}
-            <div className="pt-2 flex items-center gap-3">{themeSlot}</div>
+            <div className="pt-2 flex items-center justify-between gap-3">{themeSlot}<span className={`text-[10px] ${theme.textMuted}`}>versão {process.env.NEXT_PUBLIC_APP_VERSION || 'local'}</span></div>
           </div>
         </div>
       )}

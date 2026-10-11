@@ -15,6 +15,11 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+// O app fica atrás de login: a página nunca deve ser guardada em cache (nem pelo
+// navegador, nem por CDN). Sem isso o Next gera a página inicial como arquivo
+// estático e uma cópia antiga pode continuar aparecendo depois de um deploy.
+export const dynamic = 'force-dynamic';
+
 export const metadata: Metadata = {
   title: "KORE - Inteligência Financeira",
   description: "Gestão financeira estratégica para PF e PJ.",

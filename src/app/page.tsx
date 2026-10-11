@@ -13,7 +13,7 @@ import { calculateDashboardData } from "@/utils/dashboardCalculations";
 import {
   Plus,
   Clock, CheckCircle2, Circle, Copy, Loader2,
-  Briefcase, User, Layers, MessageSquare, X, Palette, Pencil, Trash2, AlertCircle, Crown, FileText, Download, Filter, Calendar as CalendarIcon, ToggleLeft, ToggleRight, CreditCard, Tag, Tags, Repeat, Upload, Users
+  Briefcase, User, Layers, MessageSquare, X, Palette, Pencil, Trash2, AlertCircle, Crown, FileText, Download, Filter, Calendar as CalendarIcon, ToggleLeft, ToggleRight, CreditCard, Tag, Tags, Repeat, Upload, Users, Settings
 } from "lucide-react";
 import { PremiumModal } from "@/components/PremiumModal";
 import { OpenBillsPanel } from "@/components/OpenBillsPanel";
@@ -109,6 +109,8 @@ export default function Dashboard() {
   const [viewMode, setViewMode] = useState<string>('all');
   const [currentTheme, setCurrentTheme] = useState<'dark' | 'nubank' | 'green' | 'blue' | 'red'>('nubank');
   const [isThemeMenuOpen, setIsThemeMenuOpen] = useState(false); 
+  const [openMenu, setOpenMenu] = useState<'cadastros' | 'importar' | null>(null);
+  const csvInputRef = useRef<HTMLInputElement>(null);
   const [filterCategory, setFilterCategory] = useState<string>('all');
 
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
@@ -326,11 +328,28 @@ export default function Dashboard() {
                 <div className="flex items-center flex-wrap gap-3 w-full justify-center md:justify-end">
                     {!isPro && (<button onClick={() => setShowPremium(true)} className="bg-gradient-to-r from-yellow-400 to-orange-500 text-black font-bold px-3 py-2 rounded-full text-xs hover:scale-105 transition-all shadow-lg flex items-center gap-2 animate-pulse whitespace-nowrap"><Crown className="w-4 h-4"/> Seja PRO</button>)}
                     {isPro && (<span className="bg-gradient-to-r from-blue-500 to-purple-600 text-white font-bold px-3 py-1 rounded-full text-[10px] uppercase tracking-wider shadow-lg flex items-center gap-1 whitespace-nowrap"><Crown className="w-3 h-3"/> PRO</span>)}
-                    <button onClick={() => setIsCreditCardsModalOpen(true)} className={`p-2 rounded-full border transition-all shrink-0 ${theme.card}`} title="Meus Cartões"><CreditCard className="w-5 h-5" /></button>
-                    <button onClick={() => setIsCategoryRulesModalOpen(true)} className={`p-2 rounded-full border transition-all shrink-0 ${theme.card}`} title="Regras de Categorização"><Tag className="w-5 h-5" /></button>
-                    <button onClick={() => setIsCategoriesModalOpen(true)} className={`p-2 rounded-full border transition-all shrink-0 ${theme.card}`} title="Minhas Categorias"><Tags className="w-5 h-5" /></button>
-                    <button onClick={() => setIsOwnersModalOpen(true)} className={`p-2 rounded-full border transition-all shrink-0 ${theme.card}`} title="Pessoas e Contas"><Users className="w-5 h-5" /></button>
-                    <button onClick={() => setIsFixedBillsModalOpen(true)} className={`p-2 rounded-full border transition-all shrink-0 ${theme.card}`} title="Minhas Contas Fixas"><Repeat className="w-5 h-5" /></button>
+                    <div className="relative shrink-0">
+                        <button onClick={() => setOpenMenu(openMenu === 'cadastros' ? null : 'cadastros')} className={`px-3 py-2 rounded-full border transition-all flex items-center gap-2 text-xs font-bold ${openMenu === 'cadastros' ? theme.navActive : theme.card}`}><Settings className="w-4 h-4" /> Cadastros</button>
+                        {openMenu === 'cadastros' && (
+                          <>
+                            <div className="fixed inset-0 z-40" onClick={() => setOpenMenu(null)} />
+                            <div className={`absolute right-0 top-full mt-2 z-50 w-64 rounded-2xl border shadow-xl p-2 ${theme.card}`}>
+                              {[
+                                { label: 'Pessoas e Contas', hint: 'Paulo, Adri, Empresa, bancos', icon: Users, run: () => setIsOwnersModalOpen(true) },
+                                { label: 'Meus Cartões', hint: 'Faturas, fechamento e vencimento', icon: CreditCard, run: () => setIsCreditCardsModalOpen(true) },
+                                { label: 'Contas Fixas', hint: 'Aluguel, internet, assinaturas', icon: Repeat, run: () => setIsFixedBillsModalOpen(true) },
+                                { label: 'Categorias', hint: 'Metas e como cada uma entra nas contas', icon: Tags, run: () => setIsCategoriesModalOpen(true) },
+                                { label: 'Regras de Categorização', hint: 'Ensina o app a categorizar sozinho', icon: Tag, run: () => setIsCategoryRulesModalOpen(true) },
+                              ].map((item) => (
+                                <button key={item.label} onClick={() => { setOpenMenu(null); item.run(); }} className={`w-full text-left flex items-start gap-3 px-3 py-2 rounded-xl transition-all ${theme.cardHover}`}>
+                                  <item.icon className="w-4 h-4 mt-0.5 shrink-0" />
+                                  <span className="min-w-0"><span className="block text-sm font-bold">{item.label}</span><span className={`block text-[11px] ${theme.textMuted}`}>{item.hint}</span></span>
+                                </button>
+                              ))}
+                            </div>
+                          </>
+                        )}
+                    </div>
                     <div className="flex items-center justify-center bg-white/10 rounded-full p-1 shrink-0" title="Minha Conta"><UserButton afterSignOutUrl="/sign-in" /></div>
                     <div className="relative shrink-0">
                         <button onClick={() => setIsThemeMenuOpen(!isThemeMenuOpen)} className={`p-2 rounded-full border transition-all ${isThemeMenuOpen ? theme.navActive : theme.card}`}><Palette className="w-5 h-5" /></button>
@@ -416,12 +435,28 @@ export default function Dashboard() {
             </div>
 
             <div className="flex gap-2 w-full md:w-auto">
-                <label className={`flex-1 md:flex-none ${theme.buttonSecondary} cursor-pointer active:scale-95 px-6 py-4 md:py-3 rounded-full font-bold text-sm shadow-sm flex items-center justify-center gap-2 transition-all border ${uploadStatus ? 'bg-purple-100 text-purple-600 border-purple-300' : ''}`}>
-                  {uploadStatus ? <Loader2 className="w-5 h-5 animate-spin text-purple-600" /> : <FileText className="w-5 h-5" />} 
-                  {uploadStatus ? uploadStatus : "Importar CSV"}
-                  <input type="file" accept=".csv" className="hidden" onChange={handleFileUpload} disabled={!!uploadStatus} />
-                </label>
-                <button onClick={() => setIsCardInvoiceModalOpen(true)} className={`flex-1 md:flex-none ${theme.buttonSecondary} active:scale-95 px-6 py-4 md:py-3 rounded-full font-bold text-sm shadow-sm flex items-center justify-center gap-2 transition-all border`} title="Importar itens de uma fatura de cartão (.csv, .ofx ou .pdf)"><Upload className="w-5 h-5" /> Importar Fatura</button>
+                <div className="relative flex-1 md:flex-none">
+                  <button onClick={() => setOpenMenu(openMenu === 'importar' ? null : 'importar')} disabled={!!uploadStatus} className={`w-full ${theme.buttonSecondary} active:scale-95 px-6 py-4 md:py-3 rounded-full font-bold text-sm shadow-sm flex items-center justify-center gap-2 transition-all border ${uploadStatus ? 'bg-purple-100 text-purple-600 border-purple-300' : ''}`}>
+                    {uploadStatus ? <Loader2 className="w-5 h-5 animate-spin text-purple-600" /> : <Upload className="w-5 h-5" />}
+                    {uploadStatus ? uploadStatus : "Importar"}
+                  </button>
+                  {openMenu === 'importar' && (
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={() => setOpenMenu(null)} />
+                      <div className={`absolute left-0 bottom-full md:bottom-auto md:top-full mb-2 md:mb-0 md:mt-2 z-50 w-72 rounded-2xl border shadow-xl p-2 ${theme.card}`}>
+                        <button onClick={() => { setOpenMenu(null); csvInputRef.current?.click(); }} className={`w-full text-left flex items-start gap-3 px-3 py-2 rounded-xl transition-all ${theme.cardHover}`}>
+                          <FileText className="w-4 h-4 mt-0.5 shrink-0" />
+                          <span><span className="block text-sm font-bold">Extrato do banco (.csv)</span><span className={`block text-[11px] ${theme.textMuted}`}>Conta corrente, Asaas etc.</span></span>
+                        </button>
+                        <button onClick={() => { setOpenMenu(null); setIsCardInvoiceModalOpen(true); }} className={`w-full text-left flex items-start gap-3 px-3 py-2 rounded-xl transition-all ${theme.cardHover}`}>
+                          <CreditCard className="w-4 h-4 mt-0.5 shrink-0" />
+                          <span><span className="block text-sm font-bold">Fatura do cartão</span><span className={`block text-[11px] ${theme.textMuted}`}>.csv, .ofx ou .pdf — vai para o dono do cartão</span></span>
+                        </button>
+                      </div>
+                    </>
+                  )}
+                  <input ref={csvInputRef} type="file" accept=".csv" className="hidden" onChange={handleFileUpload} disabled={!!uploadStatus} />
+                </div>
                 <button onClick={() => { setEditingTransaction(null); setIsModalOpen(true); }} className={`flex-1 md:flex-none ${theme.button} active:scale-95 px-6 py-4 md:py-3 rounded-full font-bold text-sm shadow-lg flex items-center justify-center gap-2 transition-all`}><Plus className="w-5 h-5" /> Lançar</button>
             </div>
           </div>

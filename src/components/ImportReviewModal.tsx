@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
+import { looksLikeInvoicePayment } from "@/utils/invoiceLines";
 import { X, CheckCircle2, ArrowUpRight, ArrowDownRight, Briefcase, User, Loader2, Trash2 } from "lucide-react";
 
-export function ImportReviewModal({ isOpen, onClose, initialTransactions, categories, onConfirm, isSaving, pendingFixedBills = [], owners = [], defaultOwnerId }: any) {
+export function ImportReviewModal({ isOpen, onClose, initialTransactions, categories, onConfirm, isSaving, pendingFixedBills = [], owners = [], defaultOwnerId, flagInvoicePayments = false }: any) {
   const [transactions, setTransactions] = useState<any[]>([]);
 
   // Quando o modal abre, ele carrega os dados que vieram da IA
@@ -62,6 +63,20 @@ export function ImportReviewModal({ isOpen, onClose, initialTransactions, catego
 
         {/* CORPO / LISTA DE TRANSAÇÕES */}
         <div className="flex-1 overflow-y-auto p-4 custom-scrollbar bg-gray-50/50 dark:bg-zinc-950/50">
+          {flagInvoicePayments && transactions.some((t) => looksLikeInvoicePayment(t.description)) && (
+            <div className="mb-3 p-4 rounded-xl border border-amber-400/50 bg-amber-50 dark:bg-amber-500/10 flex flex-col sm:flex-row sm:items-center gap-3 justify-between">
+              <p className="text-sm text-amber-900 dark:text-amber-200">
+                <b>{transactions.filter((t) => looksLikeInvoicePayment(t.description)).length} item(ns) parecem o pagamento da fatura anterior</b> (por exemplo &quot;Pagamento recebido&quot;).
+                Isso não é receita nem gasto: as compras daquela fatura já foram contadas. Recomendo remover.
+              </p>
+              <button
+                onClick={() => setTransactions((prev) => prev.filter((t) => !looksLikeInvoicePayment(t.description)))}
+                className="shrink-0 text-xs font-bold px-3 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-white"
+              >
+                Remover esses itens
+              </button>
+            </div>
+          )}
           <div className="space-y-3">
             {transactions.map((tx, idx) => {
               const isLinked = !!tx.linkedFixedBillTxId;
@@ -90,6 +105,9 @@ export function ImportReviewModal({ isOpen, onClose, initialTransactions, catego
                     <p className="text-[11px] font-mono text-gray-500 dark:text-zinc-400 mt-0.5">
                       {tx.date.split('-').reverse().join('/')}
                     </p>
+                    {flagInvoicePayments && looksLikeInvoicePayment(tx.description) && (
+                      <p className="text-[10px] font-bold text-amber-600 dark:text-amber-400 mt-0.5">Parece pagamento da fatura anterior — não é receita</p>
+                    )}
                   </div>
                   <div className={`font-mono font-bold text-sm whitespace-nowrap ${tx.type === 'income' ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-900 dark:text-zinc-50'}`}>
                     {tx.type === 'expense' && '- '}{formatCurrency(Number(tx.amount))}

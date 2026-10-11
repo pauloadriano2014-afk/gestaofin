@@ -352,3 +352,15 @@ test("visões: o nome do grupo se adapta (Casal, Família, Empresas)", () => {
   assert.deepEqual(buildViewOptions([o("a", "pf"), o("b", "pf"), o("c", "pf")])[1].label, "Família");
   assert.deepEqual(buildViewOptions([o("a", "pf"), o("x", "pj"), o("y", "pj")]).map((v) => v.label), ["Tudo", "Empresas", "A", "X", "Y"]);
 });
+
+import { looksLikeInvoicePayment } from "./invoiceLines";
+
+test("fatura: reconhece o pagamento da fatura anterior, mas não compras nem estornos", () => {
+  assert.equal(looksLikeInvoicePayment("Pagamento recebido"), true);
+  assert.equal(looksLikeInvoicePayment("PAGAMENTO EFETUADO"), true);
+  assert.equal(looksLikeInvoicePayment("Pagamento Fatura Anterior"), true);
+  assert.equal(looksLikeInvoicePayment("Valor pendente do mês anterior"), true);
+  assert.equal(looksLikeInvoicePayment("Google One"), false);
+  assert.equal(looksLikeInvoicePayment("Estorno Uber"), false);
+  assert.equal(looksLikeInvoicePayment("Pagamento de salário funcionário"), false);
+});

@@ -288,6 +288,7 @@ export function CardInvoiceImportModal({ categories, onClose, pendingFixedBills 
         pendingFixedBills={pendingFixedBills}
         owners={owners}
         defaultOwnerId={selectedCard?.ownerId || undefined}
+        flagInvoicePayments
       />
     </>
   )

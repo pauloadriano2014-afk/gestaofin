@@ -917,3 +917,17 @@ test("resumo do mês: início + entrou - saiu = fim, ancorado no saldo do banco;
   const n = ownerMonthSummary(rows, sets, null, "2026-10-01", "2026-10-31", "2026-10-20");
   assert.deepEqual([n.opening, n.closing, n.net], [null, null, -3137.32]);
 });
+
+import { matchStatement, parseStatementCsv } from "./statementMatch";
+test("extrato: lê o CSV do Nubank e casa por data+valor, preferindo o lançamento já dessa conta", () => {
+  const csv = 'Data,Valor,Identificador,Descrição\n01/09/2026,-9.90,a,Pix ACADEMIA\n01/09/2026,-9.90,b,Pix ACADEMIA\n06/09/2026,127.00,c,"Recebida, Paulo"\n';
+  const stmt = parseStatementCsv(csv);
+  assert.deepEqual(stmt.map((r) => [r.date, r.amount]), [["2026-09-01", -9.9], ["2026-09-01", -9.9], ["2026-09-06", 127]]);
+  const txs = [
+    { id: "t1", date: "2026-09-01", amount: -9.9, cashOwnerId: "pj" },
+    { id: "t2", date: "2026-09-01", amount: -9.9, cashOwnerId: "pf" },
+  ];
+  const r = matchStatement(stmt, txs, "pf");
+  assert.deepEqual(r.pairs, [{ i: 0, id: "t2" }, { i: 1, id: "t1" }]); // 1ª pega a que já é do pf; a 2ª, a outra
+  assert.deepEqual(r.missing, [2]);
+});

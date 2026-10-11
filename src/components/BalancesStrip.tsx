@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { Wallet, Scale, User, Building2 } from 'lucide-react'
 import { ReconcileBalanceModal } from '@/components/ReconcileBalanceModal'
+import { StatementAlignModal } from '@/components/StatementAlignModal'
 
 const MONTHS = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro']
 
@@ -12,6 +13,7 @@ const MONTHS = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'jul
 // que você conferiu uma vez com o banco; sem conferência, mostramos só o que entrou e saiu.
 export function BalancesStrip({ theme, owners = [], monthByOwner = {}, checkpoints = {}, periodLabel = '', todayStr = '', formatCurrency, onChanged }: any) {
   const [reconcileOwner, setReconcileOwner] = useState<string | null>(null)
+  const [alignOwner, setAlignOwner] = useState<string | null>(null)
   if (owners.length === 0) return null
   const fmtDate = (d: string) => d.split('-').reverse().slice(0, 2).join('/')
   return (
@@ -60,11 +62,26 @@ export function BalancesStrip({ theme, owners = [], monthByOwner = {}, checkpoin
                   onClick={() => setReconcileOwner(o.id)}
                   className="self-start inline-flex items-center gap-1 text-[11px] font-semibold text-blue-500 hover:text-blue-400"
                 ><Scale className="w-3.5 h-3.5" /> {cp ? 'Conferir de novo' : 'Informar saldo do banco'}</button>
+                <button
+                  type="button"
+                  onClick={() => setAlignOwner(o.id)}
+                  className="self-start inline-flex items-center gap-1 text-[11px] font-semibold text-blue-500 hover:text-blue-400"
+                  title="Casa o extrato do banco com os lançamentos e acerta de qual conta cada um saiu"
+                >Alinhar com o extrato</button>
               </div>
             )
           })}
         </div>
       </div>
+      {alignOwner && (
+        <StatementAlignModal
+          owners={owners}
+          initialOwnerId={alignOwner}
+          formatCurrency={formatCurrency}
+          onClose={() => setAlignOwner(null)}
+          onDone={() => onChanged?.()}
+        />
+      )}
       {reconcileOwner && (
         <ReconcileBalanceModal
           owners={owners}

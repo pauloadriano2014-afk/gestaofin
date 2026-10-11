@@ -12,6 +12,7 @@ import { settleInvoice } from "@/db/invoices";
 import { loadUserRules, loadCategoryOwnerDefaults, loadBalanceCheckpoints } from "@/db/rules";
 import { mentionsOwner, looksLikeTransfer, bestExistingMatch, daysApart } from "@/utils/transfers";
 import { parseInvoiceText } from "@/utils/invoicePdf";
+import { matchStatement } from "@/utils/statementMatch";
 import { dedupeAgainstExisting, parseLinkedInvoice, looksLikeBankInvoicePayment } from "@/utils/invoiceLines";
 import { desc, asc, and, or, sql, eq, lte, gte, inArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
@@ -266,6 +267,77 @@ export async function setBalanceCheckpoint(ownerId: string, realBalance: number,
   } catch (error) {
     console.error("Erro ao salvar saldo conferido:", error);
     return { success: false, message: "Erro ao salvar. Rode a migração 'saldo_conferido' no banco." };
+  }
+}
+
+// --- ALINHAR LANÇAMENTOS COM O EXTRATO DE UMA CONTA ---
+// Você escolhe de quem é a conta (Paulo, Empresa...) e manda o extrato. Cada linha do extrato é
+// casada com um lançamento salvo (mesma data e valor) e esse lançamento passa a ter, como "conta
+// usada", a conta do extrato: o saldo de cada conta passa a refletir de onde o dinheiro realmente
+// entrou e saiu, mesmo que o gasto/receita seja de outro dono. Com apply=false só mostra o que mudaria.
+export async function alignStatementWithOwner(ownerId: string, rows: { date: string; amount: number; description: string }[], apply: boolean) {
+  try {
+    const userId = await getUser();
+    if (!userId) return { success: false as const, message: "Login necessário." };
+    if (!Array.isArray(rows) || rows.length === 0) return { success: false as const, message: "Não encontrei linhas no extrato." };
+    const ownerList = await getOwners(userId);
+    const owner = ownerList.find((o) => o.id === ownerId);
+    if (!owner) return { success: false as const, message: "Dono não encontrado." };
+
+    const clean = rows.filter((r) => /^\d{4}-\d{2}-\d{2}$/.test(r.date) && Number.isFinite(r.amount)).slice(0, 2000);
+    const dates = clean.map((r) => r.date).sort();
+    const from = dates[0];
+    const to = dates[dates.length - 1];
+
+    const txs = await db.select().from(transactions).where(and(
+      eq(transactions.userId, userId),
+      inArray(transactions.type, ["income", "expense"]),
+      sql`${transactions.creditCardId} is null`,
+      sql`coalesce(${transactions.isPaid}, true) = true`,
+      sql`coalesce(${transactions.paidAt}, ${transactions.date}) between ${from} and ${to}`
+    ));
+    const view = txs.map((t) => ({
+      t,
+      id: t.id,
+      date: String(t.paidAt || t.date),
+      amount: (t.type === "income" ? 1 : -1) * Math.abs(Number(t.amount)),
+      cashOwnerId: paidByFromTags(t.aiTags) || t.ownerId,
+    }));
+    const { pairs, missing } = matchStatement(clean, view.map(({ id, date, amount, cashOwnerId }) => ({ id, date, amount, cashOwnerId })), ownerId);
+
+    const toChange = pairs
+      .map((p) => view.find((v) => v.id === p.id)!)
+      .filter((v) => v.cashOwnerId !== ownerId);
+    if (apply) {
+      for (const v of toChange) {
+        const want = v.t.ownerId === ownerId ? null : ownerId;
+        await db.update(transactions).set({ aiTags: withPaidBy(v.t.aiTags, want) }).where(and(eq(transactions.id, v.id), eq(transactions.userId, userId)));
+      }
+      revalidatePath("/");
+    }
+
+    const matchedIds = new Set(pairs.map((p) => p.id));
+    // lançamentos desta conta (após o alinhamento) que NÃO estão no extrato do período
+    const extras = view
+      .filter((v) => !matchedIds.has(v.id) && v.cashOwnerId === ownerId)
+      .map((v) => ({ date: v.date, amount: v.amount, description: v.t.description.slice(0, 70) }));
+
+    const sum = (list: { amount: number }[]) => Math.round(list.reduce((a, r) => a + r.amount, 0) * 100) / 100;
+    return {
+      success: true as const,
+      applied: apply,
+      ownerName: owner.name,
+      statement: { count: clean.length, net: sum(clean), from, to },
+      matched: pairs.length,
+      changed: toChange.length,
+      missing: missing.slice(0, 80).map((i) => ({ date: clean[i].date, amount: clean[i].amount, description: clean[i].description.slice(0, 70) })),
+      missingCount: missing.length,
+      extras: extras.slice(0, 80),
+      extrasCount: extras.length,
+    };
+  } catch (error) {
+    console.error("Erro ao alinhar extrato:", error);
+    return { success: false as const, message: "Erro ao ler o extrato." };
   }
 }
 

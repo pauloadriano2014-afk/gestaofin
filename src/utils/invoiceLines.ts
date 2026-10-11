@@ -38,3 +38,30 @@ export function matchInvoiceByAmount<T extends { total: number }>(amount: number
   const hits = invoices.filter((i) => Math.abs(Math.abs(Number(i.total)) - Math.abs(amount)) < 0.011);
   return hits.length === 1 ? hits[0] : null;
 }
+
+// ---------------------------------------------------------------------------
+// IMPORTAR A MESMA FATURA DE NOVO NÃO DUPLICA
+// ---------------------------------------------------------------------------
+// Compara os itens do arquivo com os que o cartão já tem (mesma data, valor e
+// descrição) CONTANDO as repetições: se já existem 3 compras de R$ 5,00 no
+// mesmo dia e o arquivo traz 3, nenhuma entra; se traz 4, entra 1. Assim
+// compras idênticas legítimas não são perdidas, e importar a fatura inteira
+// depois de ter importado só uma parte só acrescenta o que faltava.
+
+interface KeyedItem { date: string; amount: string | number; description: string }
+
+const itemKey = (t: KeyedItem) => `${t.date}|${Math.abs(Number(t.amount)).toFixed(2)}|${norm(t.description).trim()}`;
+
+export function dedupeAgainstExisting<T extends KeyedItem>(existing: KeyedItem[], incoming: T[]): { fresh: T[]; skipped: T[] } {
+  const counts = new Map<string, number>();
+  for (const e of existing) counts.set(itemKey(e), (counts.get(itemKey(e)) || 0) + 1);
+
+  const fresh: T[] = [];
+  const skipped: T[] = [];
+  for (const t of incoming) {
+    const k = itemKey(t);
+    const left = counts.get(k) || 0;
+    if (left > 0) { counts.set(k, left - 1); skipped.push(t); } else { fresh.push(t); }
+  }
+  return { fresh, skipped };
+}

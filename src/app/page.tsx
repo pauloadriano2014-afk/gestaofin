@@ -360,10 +360,12 @@ export default function Dashboard() {
     return c.ownerId === viewMode;
   });
 
-  // Faturas fechadas e não pagas de todos os cartões: o extrato do banco pode dar baixa nelas.
-  const openInvoices = cardsOverview.flatMap((c: any) =>
-    (c.closedUnpaidCycles || []).map((cy: any) => ({ cardId: c.id, cardName: c.name, cycleKey: cy.cycleKey, dueDate: cy.dueDate, total: cy.total }))
-  );
+  // Faturas que um pagamento pode quitar: as fechadas e não pagas de todos os
+  // cartões, e a aberta quando já tem itens (pagamento adiantado).
+  const openInvoices = cardsOverview.flatMap((c: any) => [
+    ...(c.closedUnpaidCycles || []).map((cy: any) => ({ cardId: c.id, cardName: c.name, cycleKey: cy.cycleKey, dueDate: cy.dueDate, total: cy.total, isOpen: false })),
+    ...(c.openCycle && c.openCycle.total > 0 ? [{ cardId: c.id, cardName: c.name, cycleKey: c.openCycle.cycleKey, dueDate: c.openCycle.dueDate, total: c.openCycle.total, isOpen: true }] : []),
+  ]);
 
   const checklist = useMemo(() => monthChecklist(rawData, viewMode, viewCards), [rawData, viewMode, cardsOverview]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -507,7 +509,7 @@ export default function Dashboard() {
       </AppShell>
 
       {/* MODAIS CLÁSSICOS */}
-      {isModalOpen && (<TransactionModal categories={rawData.allCategories} transaction={editingTransaction} onClose={() => { setIsModalOpen(false); setEditingTransaction(null); loadData(); }} userPlan={rawData.planType} onRequestPremium={() => setShowPremium(true)} owners={rawData.owners} accounts={rawData.accounts} defaultOwnerId={owners.some((o) => o.id === viewMode) ? viewMode : undefined} />)}
+      {isModalOpen && (<TransactionModal categories={rawData.allCategories} transaction={editingTransaction} onClose={() => { setIsModalOpen(false); setEditingTransaction(null); loadData(); }} userPlan={rawData.planType} onRequestPremium={() => setShowPremium(true)} owners={rawData.owners} accounts={rawData.accounts} invoices={openInvoices} defaultOwnerId={owners.some((o) => o.id === viewMode) ? viewMode : undefined} />)}
       {budgetModalOpen && selectedCategory && (<BudgetModal category={selectedCategory} onClose={() => { setBudgetModalOpen(false); loadData(); }} />)}
       <PremiumModal isOpen={showPremium} onClose={() => setShowPremium(false)} />
       {isReportModalOpen && (<ReportModal onClose={() => setIsReportModalOpen(false)} userPlan={rawData.planType} onRequestPremium={() => setShowPremium(true)} />)}

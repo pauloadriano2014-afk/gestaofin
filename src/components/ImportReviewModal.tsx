@@ -153,7 +153,7 @@ export function ImportReviewModal({ isOpen, onClose, initialTransactions, catego
                         <option value="">Sem baixa em fatura</option>
                         {invoices.map((inv: any) => (
                           <option key={`${inv.cardId}|${inv.cycleKey}`} value={`${inv.cardId}|${inv.cycleKey}`}>
-                            Dar baixa: {inv.cardName} · vence {inv.dueDate.split('-').reverse().slice(0, 2).join('/')} ({formatCurrency(Number(inv.total))})
+                            Dar baixa: {inv.cardName}{inv.isOpen ? ' (aberta)' : ''} · vence {inv.dueDate.split('-').reverse().slice(0, 2).join('/')} ({formatCurrency(Number(inv.total))})
                           </option>
                         ))}
                       </select>

@@ -8,6 +8,7 @@ import { inferKindFromName, buildKindSets, type CategoryKind } from "@/utils/cat
 import { sumBalance } from "@/utils/balance";
 import { cycleKeyForDueMonth, withInvoiceTag } from "@/utils/creditCard";
 import { settleInvoice } from "@/db/invoices";
+import { dedupeAgainstExisting } from "@/utils/invoiceLines";
 import { desc, asc, and, sql, eq, lte, gte, inArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { auth } from "@clerk/nextjs/server";
@@ -273,6 +274,14 @@ export async function createTransaction(data: any) {
 
     const ownership = await resolveOwnership(userId, { ownerId: data.ownerId, entityType: data.entityType });
 
+    // Pagamento que quita uma fatura de cartão: o lançamento é salvo como
+    // "pagamento de fatura" (fora de Despesas e do Saldo, porque as compras já
+    // contam) e a fatura recebe baixa na data informada.
+    const linkedInvoice = typeof data.linkedInvoice === "string" && data.linkedInvoice.includes("|") ? data.linkedInvoice.split("|") : null;
+    const paymentCategoryId = linkedInvoice
+      ? buildKindSetsFirst(await db.select().from(categories).where(eq(categories.userId, userId)))
+      : null;
+
     for (let i = 0; i < installments; i++) {
       // 🔥 CORRIGIDO: somar meses direto no dia (ex: dia 31 + 1 mês) podia
       // gerar datas de calendário inválidas como "2026-02-31". Agora a data
@@ -289,7 +298,7 @@ export async function createTransaction(data: any) {
         userId: userId,
         description: description,
         amount: installmentAmounts[i],
-        categoryId: data.categoryId || null,
+        categoryId: (linkedInvoice && paymentCategoryId) ? paymentCategoryId : (data.categoryId || null),
         type: data.type,
         date: finalDateStr,
         isFixed: data.isFixed || false,
@@ -307,14 +316,21 @@ export async function createTransaction(data: any) {
       });
     }
 
+    let settledInvoice = false;
+    if (linkedInvoice && linkedInvoice.length === 2) {
+      const res = await settleInvoice(userId, linkedInvoice[0], linkedInvoice[1], baseDate);
+      settledInvoice = res.success;
+    }
+
     // 🔥 NOVO: aprende com a categoria escolhida, pra próxima importação/lançamento
     // com descrição parecida já vir sugerido sozinho.
-    if (data.categoryId) {
-      await learnCategoryRule(userId, data.description, data.categoryId);
+    const categoryToLearn = (linkedInvoice && paymentCategoryId) ? paymentCategoryId : data.categoryId;
+    if (categoryToLearn) {
+      await learnCategoryRule(userId, data.description, categoryToLearn);
     }
 
     revalidatePath("/");
-    return { success: true };
+    return { success: true, settledInvoice };
   } catch (error) { return { success: false, error: "Erro ao salvar no banco." }; }
 }
 
@@ -1188,7 +1204,27 @@ export async function saveBulkCardInvoiceTransactions(transactionsList: any[], c
       ? cycleKeyForDueMonth(dueMonth, card.closingDay, card.dueDay)
       : null;
 
-    for (const tx of transactionsList) {
+    // Importar a mesma fatura de novo (ou depois de ter importado só uma parte)
+    // não duplica: itens que o cartão já tem (mesma data, valor e descrição)
+    // são ignorados, contando repetições legítimas. Itens ligados a conta fixa
+    // não passam por aqui: eles só dão baixa, não criam lançamento.
+    const candidates = transactionsList.filter((t) => !t.linkedFixedBillTxId && t.date);
+    let skippedDuplicates = 0;
+    let toImport = transactionsList;
+    if (candidates.length > 0) {
+      const dates = candidates.map((t) => t.date).sort();
+      const existingItems = await db.select().from(transactions).where(
+        and(eq(transactions.userId, userId), eq(transactions.creditCardId, creditCardId), gte(transactions.date, dates[0]), lte(transactions.date, dates[dates.length - 1]))
+      );
+      const { skipped } = dedupeAgainstExisting(existingItems, candidates);
+      if (skipped.length > 0) {
+        const skipSet = new Set(skipped);
+        skippedDuplicates = skipped.length;
+        toImport = transactionsList.filter((t) => !skipSet.has(t));
+      }
+    }
+
+    for (const tx of toImport) {
       const ownership = await resolveOwnership(userId, { ownerId: tx.ownerId || card?.ownerId, entityType: tx.entityType });
       // 🔥 NOVO: mesmo tratamento do extrato bancário — se o item foi
       // vinculado a uma conta fixa pendente, dá baixa nela em vez de criar
@@ -1227,7 +1263,7 @@ export async function saveBulkCardInvoiceTransactions(transactionsList: any[], c
       }
     }
     revalidatePath("/");
-    return { success: true };
+    return { success: true, skippedDuplicates, imported: toImport.length };
   } catch (error) {
     console.error("Erro no saveBulkCardInvoiceTransactions:", error);
     return { success: false };

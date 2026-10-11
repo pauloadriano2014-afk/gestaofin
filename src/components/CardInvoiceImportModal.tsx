@@ -171,7 +171,10 @@ export function CardInvoiceImportModal({ categories, onClose, pendingFixedBills 
     setIsSaving(false)
 
     if (res.success) {
-      alert(`Sucesso! ${finalTransactions.length} itens da fatura salvos.`)
+      const dup = (res as any).skippedDuplicates || 0
+      alert(dup > 0
+        ? `Pronto! ${(res as any).imported ?? finalTransactions.length - dup} item(ns) novo(s) salvo(s). ${dup} já existiam neste cartão e foram ignorados (sem duplicar).`
+        : `Sucesso! ${finalTransactions.length} itens da fatura salvos.`)
       setIsReviewOpen(false)
       setReviewTransactions([])
       onClose()

@@ -438,3 +438,24 @@ test("tira-dúvidas: acha as respostas sobre cartão e baixa de fatura", () => {
   assert.equal(_searchHelp("extrato do banco da baixa na fatura")[0].id, "baixa-fatura-extrato");
   assert.equal(_searchHelp("item caiu na fatura errada")[0].id, "fatura-dividida");
 });
+
+import { dedupeAgainstExisting } from "./invoiceLines";
+
+test("importar a fatura de novo: só entra o que falta, contando repetidos legítimos", () => {
+  const item = (d: string, a: string, desc: string) => ({ date: d, amount: a, description: desc });
+  const existing = [item("2026-09-19", "5.00", "Asa*Pa Elite Team"), item("2026-09-19", "5.00", "Asa*Pa Elite Team"), item("2026-09-18", "96.99", "Google One")];
+  const incoming = [
+    item("2026-09-19", "5", "ASA*PA ELITE TEAM"),
+    item("2026-09-19", "5", "Asa*Pa Elite Team"),
+    item("2026-09-19", "5", "Asa*Pa Elite Team"),   // 3ª compra igual: é nova
+    item("2026-09-18", "96,99".replace(",", "."), "Google One"),
+    item("2026-09-25", "82.89", "Italo Supermercado"), // nova
+  ];
+  const r = dedupeAgainstExisting(existing, incoming);
+  assert.equal(r.skipped.length, 3);
+  assert.deepEqual(r.fresh.map((t) => t.description), ["Asa*Pa Elite Team", "Italo Supermercado"]);
+  // arquivo idêntico ao que já existe: nada novo
+  assert.equal(dedupeAgainstExisting(existing, existing).fresh.length, 0);
+  // nada existente: tudo entra
+  assert.equal(dedupeAgainstExisting([], incoming).fresh.length, 5);
+});

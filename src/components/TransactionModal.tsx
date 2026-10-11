@@ -14,7 +14,8 @@ export function TransactionModal({
   onRequestPremium,
   owners = [],
   accounts = [],
-  defaultOwnerId
+  defaultOwnerId,
+  invoices = []
 }: { 
   categories: any[], 
   onClose: () => void,
@@ -23,7 +24,8 @@ export function TransactionModal({
   onRequestPremium?: () => void,
   owners?: any[],
   accounts?: any[],
-  defaultOwnerId?: string
+  defaultOwnerId?: string,
+  invoices?: any[]
 }) {
   const [description, setDescription] = useState(transaction?.description || '')
   const [amount, setAmount] = useState(transaction?.amount ? Math.abs(Number(transaction.amount)).toString() : '')
@@ -51,6 +53,8 @@ export function TransactionModal({
   // entityType continua sendo enviado (derivado do dono) pra manter PF/PJ coerente.
   const entityType: 'pf' | 'pj' = selectedOwner?.kind || transaction?.entityType || 'pf'
   const [accountId, setAccountId] = useState<string>(transaction?.accountId || '')
+  // "cartão|AAAA-MM" da fatura que este lançamento quita (opcional)
+  const [linkedInvoice, setLinkedInvoice] = useState<string>('')
 
   const [loading, setLoading] = useState(false)
   const [isListening, setIsListening] = useState(false)
@@ -228,6 +232,7 @@ export function TransactionModal({
       ownerId: ownerId || null,
       accountId: type === 'expense' || type === 'income' ? (accountId || null) : null,
       creditCardId: type === 'expense' ? (creditCardId || null) : null,
+      linkedInvoice: type === 'expense' && !creditCardId && !transaction?.id ? (linkedInvoice || null) : null,
       fixedBillId: isFixed && !creditCardId ? (fixedBillId || null) : null,
       originalAmount: isFixed && !creditCardId ? (originalAmount || null) : null,
     };
@@ -403,6 +408,33 @@ export function TransactionModal({
                       <option key={card.id} value={card.id}>Cartão: {card.name}</option>
                     ))}
                   </select>
+                  {!creditCardId && !transaction?.id && invoices.length > 0 && (
+                    <div className="mt-2 space-y-1">
+                      <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block">Este pagamento quita uma fatura de cartão? (opcional)</label>
+                      <select
+                        className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-white outline-none focus:border-blue-600 transition-all appearance-none"
+                        value={linkedInvoice}
+                        onChange={(e) => {
+                          const v = e.target.value
+                          setLinkedInvoice(v)
+                          const inv = invoices.find((i: any) => `${i.cardId}|${i.cycleKey}` === v)
+                          if (inv) {
+                            if (!amount) setAmount(Math.abs(Number(inv.total)).toFixed(2))
+                            if (!description.trim()) setDescription(`Pagamento fatura ${inv.cardName}`)
+                            setIsPaid(true)
+                          }
+                        }}
+                      >
+                        <option value="">Não, é um gasto comum</option>
+                        {invoices.map((i: any) => (
+                          <option key={`${i.cardId}|${i.cycleKey}`} value={`${i.cardId}|${i.cycleKey}`}>
+                            Sim: fatura {i.cardName}{i.isOpen ? ' (aberta)' : ''} · vence {i.dueDate.split('-').reverse().slice(0, 2).join('/')} · {Math.abs(Number(i.total)).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                          </option>
+                        ))}
+                      </select>
+                      {linkedInvoice && <p className="text-[10px] text-blue-400">Os itens da fatura serão marcados como pagos na data deste lançamento, e este valor não conta como gasto (as compras já contaram).</p>}
+                    </div>
+                  )}
                   {!creditCardId && accounts.length > 0 && (
                     <select
                       className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-white outline-none focus:border-blue-600 transition-all appearance-none mt-2"

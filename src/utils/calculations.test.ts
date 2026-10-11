@@ -652,3 +652,11 @@ test("fatura: estorno/crédito (entrada) abate o total em vez de somar", () => {
   assert.equal(invoiceAmount(items[1]), -775.98);
   assert.equal(summarizeInvoice(items, [{ id: "a", name: "A" }])[0].total, -625.98);
 });
+
+import { parseBrDate } from "./dates";
+test("parseBrDate: dd/mm/aaaa vira ISO e rejeita data inválida", () => {
+  assert.equal(parseBrDate("10/10/2026"), "2026-10-10");
+  assert.equal(parseBrDate("9/10", "2026-10-11"), "2026-10-09");
+  assert.equal(parseBrDate("31/02/2026"), null);
+  assert.equal(parseBrDate("abc"), null);
+});

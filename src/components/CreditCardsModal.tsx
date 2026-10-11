@@ -1,5 +1,6 @@
 'use client'
 
+import { todayDateStr, parseBrDate } from '@/utils/dates'
 import { useState, useEffect } from 'react'
 import { getOwnersAndAccounts } from '@/app/ownerActions'
 import { InvoiceItemsModal } from './InvoiceItemsModal'
@@ -96,8 +97,12 @@ export function CreditCardsModal({ onClose }: { onClose: () => void }) {
   }
 
   async function handlePayInvoice(cardId: string, cycleKey: string, total: number) {
-    if (!confirm(`Confirmar pagamento da fatura de ${formatCurrency(total)}?`)) return
-    const res = await payCreditCardInvoice(cardId, cycleKey)
+    const today = todayDateStr()
+    const typed = window.prompt(`Confirmar pagamento da fatura de ${formatCurrency(total)}.\nEm que dia ela foi paga? (dd/mm/aaaa)`, today.split('-').reverse().join('/'))
+    if (typed === null) return
+    const paidAt = parseBrDate(typed, today)
+    if (!paidAt) { alert('Data inválida. Use dd/mm/aaaa, por exemplo 10/10/2026.'); return }
+    const res = await payCreditCardInvoice(cardId, cycleKey, paidAt)
     if (res.success) {
       loadCards()
     } else {

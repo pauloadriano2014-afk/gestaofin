@@ -33,7 +33,7 @@ import { buildViewOptions } from "@/utils/owners";
 import { OwnerSetupModal } from "@/components/OwnerSetupModal";
 import { monthChecklist } from "@/utils/closing";
 import { EMPTY_FILTERS, type TxFilters } from "@/utils/txFilters";
-import { todayDateStr } from "@/utils/dates";
+import { todayDateStr, parseBrDate } from "@/utils/dates";
 import { HelpAssistant } from "@/components/HelpAssistant";
 import { OwnersAccountsModal } from "@/components/OwnersAccountsModal";
 import { FixedBillsModal } from "@/components/FixedBillsModal";
@@ -380,8 +380,12 @@ export default function Dashboard() {
   function openHelp(entryId?: string) { setHelpFocus(entryId || null); setHelpOpen(true); }
 
   async function handlePayInvoice(cardId: string, cycleKey: string, total: number) {
-    if (!confirm(`Dar baixa na fatura inteira (${formatCurrency(total)})? Todos os itens dela serão marcados como pagos.`)) return;
-    const res = await payCreditCardInvoice(cardId, cycleKey);
+    // A data do pagamento importa: é nela que o dinheiro sai do saldo.
+    const typed = window.prompt(`Dar baixa na fatura inteira (${formatCurrency(total)}).\nEm que dia ela foi paga? (dd/mm/aaaa)`, todayStr.split('-').reverse().join('/'));
+    if (typed === null) return;
+    const paidAt = parseBrDate(typed, todayStr);
+    if (!paidAt) { alert('Data inválida. Use dd/mm/aaaa, por exemplo 10/10/2026.'); return; }
+    const res = await payCreditCardInvoice(cardId, cycleKey, paidAt);
     alert(res.message);
     if (res.success) loadData();
   }

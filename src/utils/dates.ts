@@ -54,3 +54,16 @@ export function addDays(dateStr: string, days: number): string {
   const dt = new Date(utcMs);
   return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`;
 }
+
+// "11/10/2026" (ou "11/10", assumindo o ano atual) -> "2026-10-11"; null se inválida.
+export function parseBrDate(text: string, today: string = todayDateStr()): string | null {
+  const m = (text || "").trim().match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?$/);
+  if (!m) return null;
+  const day = Number(m[1]);
+  const month = Number(m[2]);
+  let year = m[3] ? Number(m[3]) : Number(today.slice(0, 4));
+  if (year < 100) year += 2000;
+  const dt = new Date(Date.UTC(year, month - 1, day));
+  if (dt.getUTCFullYear() !== year || dt.getUTCMonth() !== month - 1 || dt.getUTCDate() !== day) return null;
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}

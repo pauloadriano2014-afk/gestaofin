@@ -1,5 +1,6 @@
 'use client'
 
+import { paidByLabel } from '@/utils/paidBy'
 import { useMemo, useState } from 'react'
 import { Search, X, Loader2, ArrowRightLeft, Tag, Trash2, Filter, CreditCard, ChevronDown, Check } from 'lucide-react'
 import { TransactionRow } from '@/components/TransactionRow'
@@ -166,7 +167,7 @@ export function TransactionsView({
             return (
               <TransactionRow
                 key={tx.id} tx={tx} theme={theme} currentTheme={currentTheme} formatCurrency={formatCurrency} todayStr={todayStr}
-                ownerName={ownerName(tx.ownerId)} cardName={tx.creditCardId ? cardName(tx.creditCardId) : ''}
+                ownerName={ownerName(tx.ownerId)} paidByName={paidByLabel(tx, ownerName)} cardName={tx.creditCardId ? cardName(tx.creditCardId) : ''}
                 onTogglePay={onTogglePay} onEdit={onEdit} onDelete={onDelete}
                 selectable selected={selected.has(tx.id)} onSelect={toggle} signedAmount
               />
@@ -197,7 +198,7 @@ export function TransactionsView({
                   {g.items.map((tx: any) => (
                     <TransactionRow
                       key={tx.id} tx={tx} theme={theme} currentTheme={currentTheme} formatCurrency={formatCurrency} todayStr={todayStr}
-                      ownerName={ownerName(tx.ownerId)} onTogglePay={onTogglePay} onEdit={onEdit} onDelete={onDelete}
+                      ownerName={ownerName(tx.ownerId)} paidByName={paidByLabel(tx, ownerName)} onTogglePay={onTogglePay} onEdit={onEdit} onDelete={onDelete}
                       selectable selected={selected.has(tx.id)} onSelect={toggle} signedAmount
                     />
                   ))}

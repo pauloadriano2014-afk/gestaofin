@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { effectivePaidBy } from "@/utils/paidBy";
 import { looksLikeInvoicePaymentLine, looksLikeBankInvoicePayment, matchInvoiceByAmount } from "@/utils/invoiceLines";
 import { X, CheckCircle2, ArrowUpRight, ArrowDownRight, Briefcase, User, Loader2, Trash2, Scissors } from "lucide-react";
 import { looksLikeTransfer, pairWithinList, rankFixedBills } from "@/utils/transfers";
@@ -110,6 +111,13 @@ export function ImportReviewModal({ isOpen, onClose, initialTransactions, catego
     const owner = owners.find((o: any) => o.id === acc.ownerId);
     setTransactions((prev) => prev.map((t) => ({ ...t, accountId: acc.id, ...(owner ? { ownerId: owner.id, entityType: owner.kind } : {}) })));
   };
+
+  // Dono da conta/cartão deste arquivo: o dinheiro sai (ou entra) nela. Na fatura é
+  // o dono do cartão; no extrato, o dono da conta escolhida em "Este extrato é da conta".
+  const statementOwnerId: string | null = flagInvoicePayments
+    ? (defaultOwnerId || null)
+    : (accounts.find((a: any) => a.id === importAccountId)?.ownerId || null);
+  const rowPaidBy = (t: any) => effectivePaidBy(t, statementOwnerId) || 'self';
 
   const formatCurrency = (val: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
 
@@ -270,6 +278,19 @@ export function ImportReviewModal({ isOpen, onClose, initialTransactions, catego
                             {owners.map((o: any) => <option key={o.id} value={o.id}>{o.name}</option>)}
                           </select>
                         )}
+
+                        {/* Conta usada: quando o dinheiro sai da conta de outro dono (ex: mercado do Paulo no cartão da Empresa) */}
+                        {owners.length > 1 && (
+                          <select
+                            value={rowPaidBy(tx)}
+                            onChange={(e) => handleUpdate(idx, 'paidByOwnerId', e.target.value)}
+                            title="De qual conta o dinheiro saiu (ou entrou). O gasto continua sendo do dono escolhido ao lado."
+                            className={`border text-[11px] font-semibold rounded-lg px-2 py-2.5 shrink-0 outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer max-w-[9.5rem] ${rowPaidBy(tx) === 'self' ? 'bg-gray-50 dark:bg-zinc-950 border-gray-200 dark:border-zinc-800 text-gray-500 dark:text-zinc-400' : 'bg-amber-50 dark:bg-amber-500/10 border-amber-400/60 text-amber-800 dark:text-amber-300'}`}
+                          >
+                            <option value="self">Conta: do próprio dono</option>
+                            {owners.filter((o: any) => o.id !== tx.ownerId).map((o: any) => <option key={o.id} value={o.id}>Conta: {o.name}</option>)}
+                          </select>
+                        )}
                       </>
                     )}
 
@@ -351,7 +372,7 @@ export function ImportReviewModal({ isOpen, onClose, initialTransactions, catego
             Cancelar
           </button>
           <button
-            onClick={() => onConfirm(transactions)}
+            onClick={() => onConfirm(transactions.map((t) => ({ ...t, paidByOwnerId: rowPaidBy(t) })))}
             disabled={isSaving || transactions.length === 0}
             className="px-6 py-2.5 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-full shadow-lg transition-all flex items-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
           >

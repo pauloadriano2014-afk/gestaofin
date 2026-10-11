@@ -26,6 +26,13 @@ export const HELP_ENTRIES: HelpEntry[] = [
     keywords: "saldo diferente nao bate receita despesa resultado conta",
   },
   {
+    id: "conta-usada",
+    question: "Gastei pessoal no cartão ou débito da empresa: de quem é?",
+    answer:
+      "O gasto é de quem consumiu (mercado de casa = Paulo ou Adri), mas o dinheiro saiu da conta da empresa. Por isso cada lançamento tem \"Conta usada\": o gasto fica no dono escolhido (Despesas e relatórios corretos) e o saldo que cai é o da conta usada (a Empresa), batendo com o banco. Na importação ela já vem preenchida com a conta/cartão do arquivo; é só trocar o dono do gasto.",
+    keywords: "conta usada pessoal empresa cartao debito pj pf mercado retirada socio pago pela conta",
+  },
+  {
     id: "saldo-vs-banco",
     question: "Por que o saldo do app não bate com o do banco?",
     answer:

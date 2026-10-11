@@ -7,6 +7,7 @@ import { getUserCreditCards } from '@/app/creditCardActions'
 import { getInvoiceCycleForDate } from '@/utils/creditCard'
 import { resolveCategoryKind } from '@/utils/categoryKinds'
 import { looksLikeBankInvoicePayment } from '@/utils/invoiceLines'
+import { paidByFromTags } from '@/utils/paidBy'
 
 export function TransactionModal({ 
   categories, 
@@ -52,9 +53,20 @@ export function TransactionModal({
     transaction?.ownerId || defaultOwnerId || owners.find((o: any) => o.kind === (transaction?.entityType || 'pf'))?.id || owners[0]?.id || ''
   )
   const selectedOwner = owners.find((o: any) => o.id === ownerId)
+  // Ao trocar o dono do gasto, se a conta/cartão escolhido é de outro dono, o
+  // dinheiro continua saindo dela (conta usada); senão volta a ser o do próprio dono.
+  const changeOwner = (id: string) => {
+    setOwnerId(id)
+    const cardOwner = userCreditCards.find((c: any) => c.id === creditCardId)?.ownerId
+    const accOwner = accounts.find((a: any) => a.id === accountId)?.ownerId
+    const src = creditCardId ? cardOwner : accOwner
+    setPaidBy(src && src !== id ? src : '')
+  }
   // entityType continua sendo enviado (derivado do dono) pra manter PF/PJ coerente.
   const entityType: 'pf' | 'pj' = selectedOwner?.kind || transaction?.entityType || 'pf'
   const [accountId, setAccountId] = useState<string>(transaction?.accountId || '')
+  // Conta usada: de quem é o dinheiro, quando difere do dono do gasto ('' = o próprio dono)
+  const [paidBy, setPaidBy] = useState<string>(paidByFromTags(transaction?.aiTags) || '')
   // "cartão|AAAA-MM" da fatura que este lançamento quita (opcional)
   const [linkedInvoices, setLinkedInvoices] = useState<string[]>([])
   // último valor que o próprio formulário preencheu (soma das faturas), para só
@@ -235,6 +247,7 @@ export function TransactionModal({
       installments: Number(installments),
       entityType,
       ownerId: ownerId || null,
+      paidByOwnerId: paidBy && paidBy !== ownerId ? paidBy : 'self',
       accountId: type === 'expense' || type === 'income' ? (accountId || null) : null,
       creditCardId: type === 'expense' ? (creditCardId || null) : null,
       linkedInvoice: type === 'expense' && !creditCardId && !transaction?.id && linkedInvoices.length > 0 ? linkedInvoices.join(',') : null,
@@ -283,7 +296,7 @@ export function TransactionModal({
                 {owners.map((o: any) => (
                   <button
                     key={o.id}
-                    onClick={() => setOwnerId(o.id)}
+                    onClick={() => changeOwner(o.id)}
                     className={`flex-1 py-2 px-3 text-xs font-bold rounded-lg flex items-center justify-center gap-2 transition-all ${ownerId === o.id ? (o.kind === 'pj' ? 'bg-blue-900/30 text-blue-400 shadow-sm border border-blue-500/20' : 'bg-zinc-800 text-white shadow-sm') : 'text-zinc-500 hover:text-zinc-300'}`}
                   >
                     {o.kind === 'pj' ? <Building2 className="w-4 h-4" /> : <User className="w-4 h-4" />} {o.name}
@@ -291,6 +304,21 @@ export function TransactionModal({
                 ))}
               </div>
             ) : null}
+
+            {owners.length > 1 && (
+              <div className="-mt-3">
+                <label className="text-[11px] font-bold text-zinc-500 flex items-center gap-1 mb-1"><Wallet className="w-3 h-3" /> De qual conta o dinheiro saiu (ou entrou)?</label>
+                <select
+                  className={`w-full border rounded-xl p-2.5 text-sm outline-none focus:border-blue-600 appearance-none ${paidBy && paidBy !== ownerId ? 'bg-amber-500/10 border-amber-500/40 text-amber-300' : 'bg-zinc-950 border-zinc-800 text-zinc-300'}`}
+                  value={paidBy && paidBy !== ownerId ? paidBy : ''}
+                  onChange={(e) => setPaidBy(e.target.value)}
+                >
+                  <option value="">A conta do próprio dono</option>
+                  {owners.filter((o: any) => o.id !== ownerId).map((o: any) => <option key={o.id} value={o.id}>Conta de: {o.name}</option>)}
+                </select>
+                {paidBy && paidBy !== ownerId && <p className="text-[10px] text-zinc-500 mt-1">O gasto é de {selectedOwner?.name}, mas o dinheiro sai do saldo de {owners.find((o: any) => o.id === paidBy)?.name}.</p>}
+              </div>
+            )}
 
             <div className="flex bg-zinc-950 p-1 rounded-xl border border-zinc-800">
               <button 

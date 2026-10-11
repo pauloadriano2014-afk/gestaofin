@@ -1,5 +1,6 @@
 'use client'
 
+import { paidByLabel } from '@/utils/paidBy'
 import { Clock, Copy, Loader2, Upload, Settings2 } from 'lucide-react'
 import { TransactionRow } from '@/components/TransactionRow'
 import { CardsOverview } from '@/components/CardsOverview'
@@ -33,7 +34,7 @@ export function AccountsView({
         <div className="space-y-2 max-w-3xl">
           {fixedExpenses.map((tx: any) => (
             <TransactionRow key={tx.id} tx={tx} theme={theme} currentTheme={currentTheme} formatCurrency={formatCurrency} todayStr={todayStr}
-              ownerName={ownerName(tx.ownerId)} onTogglePay={onTogglePay} onEdit={onEdit} onDelete={onDelete} />
+              ownerName={ownerName(tx.ownerId)} paidByName={paidByLabel(tx, ownerName)} onTogglePay={onTogglePay} onEdit={onEdit} onDelete={onDelete} />
           ))}
           {fixedExpenses.length === 0 && <p className={`text-sm text-center py-8 ${theme.textMuted}`}>Nenhuma conta fixa neste período.</p>}
         </div>

@@ -660,3 +660,30 @@ test("parseBrDate: dd/mm/aaaa vira ISO e rejeita data inválida", () => {
   assert.equal(parseBrDate("31/02/2026"), null);
   assert.equal(parseBrDate("abc"), null);
 });
+
+import { paidByFromTags, withPaidBy, toCashRow, effectivePaidBy } from "./paidBy";
+test("conta usada: etiqueta, linha de caixa e padrão da revisão", () => {
+  const owners = [{ id: "p", kind: "pf" }, { id: "e", kind: "pj" }];
+  assert.equal(paidByFromTags(["x", "pagopor:e"]), "e");
+  assert.deepEqual(withPaidBy(["x", "pagopor:p"], "e"), ["x", "pagopor:e"]);
+  assert.deepEqual(withPaidBy(["x", "pagopor:p"], null), ["x"]);
+  const row = { ownerId: "p", entityType: "pf", aiTags: ["pagopor:e"] };
+  assert.deepEqual({ o: toCashRow(row, owners).ownerId, k: toCashRow(row, owners).entityType }, { o: "e", k: "pj" });
+  assert.equal(toCashRow({ ownerId: "p", entityType: "pf", aiTags: [] }, owners).ownerId, "p");
+  assert.equal(effectivePaidBy({ ownerId: "p" }, "e"), "e");
+  assert.equal(effectivePaidBy({ ownerId: "e" }, "e"), null);
+  assert.equal(effectivePaidBy({ ownerId: "p", paidByOwnerId: "self" }, "e"), null);
+  assert.equal(effectivePaidBy({ ownerId: "p", paidByOwnerId: "a" }, "e"), "a");
+});
+
+test("conta usada: o gasto é do Paulo, mas o saldo que cai é o da Empresa", () => {
+  const owners = [{ id: "p", kind: "pf" }, { id: "e", kind: "pj" }];
+  const rows = [
+    { type: "income", amount: "1000", ownerId: "e", entityType: "pj", categoryId: null, isPaid: true, date: "2026-10-01", paidAt: null, aiTags: [] },
+    { type: "expense", amount: "138.03", ownerId: "p", entityType: "pf", categoryId: null, isPaid: true, date: "2026-10-03", paidAt: null, aiTags: ["pagopor:e"] },
+  ].map((r) => toCashRow(r, owners));
+  const sets = buildKindSets([]);
+  const bal = (id: string) => balanceForPeriod(rows.filter((r) => r.ownerId === id), sets, "2026-10-01", "2026-10-31").paid;
+  assert.equal(bal("e"), 861.97);
+  assert.equal(bal("p"), 0);
+});

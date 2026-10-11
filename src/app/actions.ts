@@ -7,6 +7,7 @@ import { matchesView } from "@/utils/owners";
 import { inferKindFromName, buildKindSets, type CategoryKind } from "@/utils/categoryKinds";
 import { balanceForPeriod, classifyForPeriod, adjustmentFor, FOREVER_START } from "@/utils/balance";
 import { cycleKeyForDueMonth, withInvoiceTag } from "@/utils/creditCard";
+import { paidByFromTags, withPaidBy, toCashRow } from "@/utils/paidBy";
 import { settleInvoice } from "@/db/invoices";
 import { dedupeAgainstExisting } from "@/utils/invoiceLines";
 import { bestExistingMatch, daysApart } from "@/utils/transfers";
@@ -28,6 +29,13 @@ export async function getUser() {
     return null;
   }
   return session.userId;
+}
+
+// Conta usada informada na tela -> dono válido da conta (ou null = o próprio dono).
+// Só aceita donos que existem para este usuário.
+function pickPaidBy(raw: unknown, ownerId: string | null | undefined, ownerList: { id: string }[]): string | null {
+  if (typeof raw !== "string" || !raw || raw === "self" || raw === ownerId) return null;
+  return ownerList.some((o) => o.id === raw) ? raw : null;
 }
 
 // --- BUSCAR DADOS DA DASHBOARD ---
@@ -72,9 +80,9 @@ export async function getDashboardData(startMonth: number, startYear: number, en
 
     // Com as etapas acima prontas, as leituras também são independentes:
     // categorias, transações do período e (no modo acumulado) o saldo da vida toda.
-    type BalanceRow = { type: string; amount: string; entityType: string | null; ownerId: string | null; categoryId: string | null; isPaid: boolean | null; date: string; paidAt: string | null };
+    type BalanceRow = { type: string; amount: string; entityType: string | null; ownerId: string | null; categoryId: string | null; isPaid: boolean | null; date: string; paidAt: string | null; aiTags: string[] | null };
     const balanceStart = isolatePeriod ? startDateStr : FOREVER_START;
-    const [allCategories, currentTransactions, balanceRows] = await Promise.all([
+    const [allCategories, currentTransactions, rawBalanceRows] = await Promise.all([
       db.select().from(categories).where(eq(categories.userId, userId)),
       db.select().from(transactions)
         .where(and(eq(transactions.userId, userId), gte(transactions.date, startDateStr), lte(transactions.date, endDateStr)))
@@ -82,7 +90,7 @@ export async function getDashboardData(startMonth: number, startYear: number, en
       // Linhas que mexem no saldo: a vida toda até o fim do período (data ou
       // pagamento até lá). Delas saem o saldo do período (mês isolado ou
       // acumulado) E o "dinheiro acumulado", usado para conferir com o banco.
-      db.select({ type: transactions.type, amount: transactions.amount, entityType: transactions.entityType, ownerId: transactions.ownerId, categoryId: transactions.categoryId, isPaid: transactions.isPaid, date: transactions.date, paidAt: transactions.paidAt })
+      db.select({ type: transactions.type, amount: transactions.amount, entityType: transactions.entityType, ownerId: transactions.ownerId, categoryId: transactions.categoryId, isPaid: transactions.isPaid, date: transactions.date, paidAt: transactions.paidAt, aiTags: transactions.aiTags })
         .from(transactions)
         .where(and(
           eq(transactions.userId, userId),
@@ -94,6 +102,8 @@ export async function getDashboardData(startMonth: number, startYear: number, en
     // fora, ver utils/balance.ts). Com "isolatePeriod" só conta a janela
     // selecionada; senão, a vida toda até o fim do período.
 
+    // O saldo olha o DINHEIRO: a linha conta na conta usada (ver utils/paidBy.ts).
+    const balanceRows = rawBalanceRows.map((t) => toCashRow(t, ownerList));
     const kindSets = buildKindSets(allCategories);
     // Saldo = só o que já foi pago; o que ainda falta pagar/receber vem à parte
     // (pending) e o previsto é a soma dos dois. Ver utils/balance.ts.
@@ -195,7 +205,8 @@ export async function getBalanceBreakdown(startMonth: number, startYear: number,
     // Mesma regra do saldo (ver utils/balance.ts): transferência e pagamento de
     // fatura ficam de fora, pra a lista somar exatamente o valor do card.
     const kindSets = buildKindSets(await db.select().from(categories).where(eq(categories.userId, userId)));
-    const filtered = rows.filter((t) => matchesView(t, viewMode))
+    const ownersForCash = await getOwners(userId);
+    const filtered = rows.filter((t) => matchesView(toCashRow(t, ownersForCash), viewMode))
       .filter((t) => t.type === 'income' || t.type === 'expense')
       .filter((t) => !(t.categoryId && kindSets.card_payment.has(t.categoryId)))
       .filter((t) => classifyForPeriod(t, startDateStr, endDateStr) === 'paid') // só o que foi pago no período
@@ -218,18 +229,22 @@ const notAdjustment = sql`NOT (coalesce(${transactions.aiTags}, ARRAY[]::text[])
 // sem contar ajustes de conciliação antigos. É o número que deve ser igual ao
 // saldo que aparece no app do banco.
 async function accumulatedForOwner(userId: string, ownerId: string, untilDate: string) {
-  const [cats, rows] = await Promise.all([
+  const payerTag = `pagopor:${ownerId}`;
+  const [cats, ownerList, rows] = await Promise.all([
     db.select().from(categories).where(eq(categories.userId, userId)),
-    db.select({ type: transactions.type, amount: transactions.amount, categoryId: transactions.categoryId, isPaid: transactions.isPaid, date: transactions.date, paidAt: transactions.paidAt })
+    getOwners(userId),
+    db.select({ type: transactions.type, amount: transactions.amount, categoryId: transactions.categoryId, isPaid: transactions.isPaid, date: transactions.date, paidAt: transactions.paidAt, ownerId: transactions.ownerId, entityType: transactions.entityType, aiTags: transactions.aiTags })
       .from(transactions)
       .where(and(
         eq(transactions.userId, userId),
-        eq(transactions.ownerId, ownerId),
+        // do dono, ou pago pela conta dele (ver utils/paidBy.ts)
+        or(eq(transactions.ownerId, ownerId), sql`coalesce(${transactions.aiTags}, ARRAY[]::text[]) @> ARRAY[${payerTag}::text]`),
         notAdjustment,
         or(lte(transactions.date, untilDate), lte(transactions.paidAt, untilDate))
       )),
   ]);
-  return balanceForPeriod(rows, buildKindSets(cats), FOREVER_START, untilDate).paid;
+  const mine = rows.map((t) => toCashRow(t, ownerList)).filter((t) => t.ownerId === ownerId);
+  return balanceForPeriod(mine, buildKindSets(cats), FOREVER_START, untilDate).paid;
 }
 
 export async function getOwnerAccumulated(ownerId: string, untilDate: string) {
@@ -400,6 +415,14 @@ export async function createTransaction(data: any) {
     }
 
     const ownership = await resolveOwnership(userId, { ownerId: data.ownerId, entityType: data.entityType });
+    // Conta usada (quando o dinheiro sai da conta de outro dono). Compra no
+    // cartão de outro dono assume o dono do cartão, se nada foi escolhido.
+    const ownerListForPaidBy = await getOwners(userId);
+    let paidBy = pickPaidBy(data.paidByOwnerId, ownership.ownerId, ownerListForPaidBy);
+    if (data.paidByOwnerId === undefined && data.creditCardId) {
+      const card = (await db.select().from(creditCards).where(and(eq(creditCards.id, data.creditCardId), eq(creditCards.userId, userId))))[0];
+      paidBy = pickPaidBy(card?.ownerId, ownership.ownerId, ownerListForPaidBy);
+    }
 
     // Pagamento que quita uma fatura de cartão: o lançamento é salvo como
     // "pagamento de fatura" (fora de Despesas e do Saldo, porque as compras já
@@ -442,7 +465,7 @@ export async function createTransaction(data: any) {
         // juro ou desconto).
         fixedBillId: data.fixedBillId || null,
         originalAmount: data.originalAmount ? Math.abs(Number(data.originalAmount)).toString() : null,
-        aiTags: [],
+        aiTags: withPaidBy([], paidBy),
       });
     }
 
@@ -887,7 +910,14 @@ export async function updateTransaction(id: string, data: any) {
     }
 
     const ownership = await resolveOwnership(userId, { ownerId: data.ownerId, entityType: data.entityType });
+    // Conta usada: só mexe nas etiquetas quando a tela mandou o campo.
+    let tagsPatch: { aiTags: string[] } | Record<string, never> = {};
+    if (data.paidByOwnerId !== undefined) {
+      const current = (await db.select({ aiTags: transactions.aiTags }).from(transactions).where(and(eq(transactions.id, id), eq(transactions.userId, userId))))[0];
+      tagsPatch = { aiTags: withPaidBy(current?.aiTags, pickPaidBy(data.paidByOwnerId, ownership.ownerId, await getOwners(userId))) };
+    }
     await db.update(transactions).set({
+        ...tagsPatch,
         // 🔥 CORRIGIDO: categoryId é uma coluna uuid — mandar "" (categoria
         // vazia, ex: ao editar uma Transferência) quebrava com erro de UUID
         // inválido. Agora vira null igual já acontecia ao criar um lançamento.
@@ -1228,6 +1258,7 @@ export async function saveBulkTransactions(transactionsList: any[]) {
             : null;
         let settledInvoices = 0;
 
+        const ownerListForPaidBy = await getOwners(userId);
         for (const tx of transactionsList) {
             const ownership = await resolveOwnership(userId, { ownerId: tx.ownerId, entityType: tx.entityType });
             if (tx.pairedExistingId && refundCategoryId) {
@@ -1266,7 +1297,7 @@ export async function saveBulkTransactions(transactionsList: any[]) {
                 entityType: ownership.entityType,
                 ownerId: ownership.ownerId,
                 accountId: tx.accountId || null,
-                aiTags: tx.aiTags
+                aiTags: withPaidBy(tx.aiTags, pickPaidBy(tx.paidByOwnerId, ownership.ownerId, ownerListForPaidBy))
             });
 
             if (linked && linked.length === 2) {
@@ -1398,8 +1429,11 @@ export async function saveBulkCardInvoiceTransactions(transactionsList: any[], c
       }
     }
 
+    const ownerListForPaidBy = await getOwners(userId);
     for (const tx of toImport) {
       const ownership = await resolveOwnership(userId, { ownerId: tx.ownerId || card?.ownerId, entityType: tx.entityType });
+      // Compra de outro dono no cartão: o dinheiro sai da conta do dono do cartão.
+      const paidBy = pickPaidBy(tx.paidByOwnerId ?? card?.ownerId, ownership.ownerId, ownerListForPaidBy);
       // 🔥 NOVO: mesmo tratamento do extrato bancário — se o item foi
       // vinculado a uma conta fixa pendente, dá baixa nela em vez de criar
       // um lançamento novo (evita duplicar).
@@ -1429,7 +1463,7 @@ export async function saveBulkCardInvoiceTransactions(transactionsList: any[], c
         entityType: ownership.entityType,
         ownerId: ownership.ownerId,
         creditCardId: creditCardId,
-        aiTags: invoiceCycleKey ? withInvoiceTag(tx.aiTags, invoiceCycleKey) : tx.aiTags,
+        aiTags: withPaidBy(invoiceCycleKey ? withInvoiceTag(tx.aiTags, invoiceCycleKey) : tx.aiTags, paidBy),
       });
 
       if (tx.categoryId) {

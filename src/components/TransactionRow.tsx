@@ -5,7 +5,7 @@ import { Clock, CheckCircle2, Circle, Pencil, Trash2, AlertCircle, Briefcase, Us
 // Uma linha de lançamento, usada em Lançamentos, Contas e Categorias.
 // Sem regra de negócio: só mostra e dispara os callbacks recebidos.
 export function TransactionRow({
-  tx, theme, currentTheme, formatCurrency, ownerName, cardName, todayStr,
+  tx, theme, currentTheme, formatCurrency, ownerName, paidByName, cardName, todayStr,
   onTogglePay, onEdit, onDelete, selectable, selected, onSelect, signedAmount,
 }: any) {
   const isLate = !tx.isPaid && tx.date < todayStr
@@ -36,6 +36,7 @@ export function TransactionRow({
           <p className={`text-[10px] font-bold uppercase flex items-center gap-1.5 flex-wrap ${theme.textMuted}`}>
             {tx.entityType === 'pj' ? <Briefcase className="w-3 h-3 text-blue-500 shrink-0" /> : <User className="w-3 h-3 opacity-50 shrink-0" />}
             {ownerName && <span className="normal-case">{ownerName}</span>}
+            {paidByName && <span className="normal-case text-amber-600 dark:text-amber-400" title="O gasto é do dono acima, mas o dinheiro saiu desta conta">· conta {paidByName}</span>}
             {cardName && <span className="normal-case flex items-center gap-0.5"><CreditCard className="w-3 h-3" />{cardName}</span>}
             {isLate ? (
               <span className="flex items-center gap-1 text-red-500"><AlertCircle className="w-3 h-3" /> VENCIDO (Dia {dd})</span>

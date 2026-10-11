@@ -645,3 +645,10 @@ test("fatura: entrada 'Pagamento' é quitação da fatura anterior", () => {
   assert.equal(looksLikeInvoicePaymentLine({ description: "Pagamento de boleto", type: "expense" }), false);
   assert.equal(looksLikeInvoicePaymentLine({ description: "Google Play", type: "expense" }), false);
 });
+
+import { invoiceAmount, summarizeByOwner as summarizeInvoice } from "./invoice";
+test("fatura: estorno/crédito (entrada) abate o total em vez de somar", () => {
+  const items = [{ amount: "100", type: "expense", ownerId: "a" }, { amount: "775.98", type: "income", ownerId: "a" }, { amount: "50", type: "expense", ownerId: "a" }];
+  assert.equal(invoiceAmount(items[1]), -775.98);
+  assert.equal(summarizeInvoice(items, [{ id: "a", name: "A" }])[0].total, -625.98);
+});

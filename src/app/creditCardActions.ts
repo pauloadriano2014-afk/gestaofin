@@ -1,6 +1,7 @@
 'use server'
 
 import { db } from "@/db";
+import { invoiceAmount } from "@/utils/invoice";
 import { creditCards, transactions, creditCardInvoiceOverrides } from "@/db/schema";
 import { and, eq, inArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
@@ -126,11 +127,11 @@ export async function getCreditCardsOverview() {
       const cycleKey = cycleKeyOfTransaction(p, card);
       const cycle = { cycleKey, ...getCycleDatesForCycleKey(cycleKey, card.closingDay, card.dueDay) };
       const existing = cycles.get(cycle.cycleKey) || { ...cycle, total: 0, count: 0, isManual: false, byOwner: {} };
-      existing.total += Math.abs(Number(p.amount));
+      existing.total += invoiceAmount(p);
       existing.count += 1;
       // quanto da fatura é de cada dono (a chave 'none' agrupa itens sem dono)
       const ownerKey = p.ownerId || 'none';
-      existing.byOwner[ownerKey] = (existing.byOwner[ownerKey] || 0) + Math.abs(Number(p.amount));
+      existing.byOwner[ownerKey] = (existing.byOwner[ownerKey] || 0) + invoiceAmount(p);
       cycles.set(cycle.cycleKey, existing);
     }
 
@@ -258,7 +259,7 @@ export async function getInvoiceItems(cardId: string, cycleKey: string) {
   for (const t of rows) {
     const k = cycleKeyOfTransaction(t, card);
     const cur = byCycle.get(k) || { total: 0, count: 0 };
-    cur.total += Math.abs(Number(t.amount)); cur.count += 1;
+    cur.total += invoiceAmount(t); cur.count += 1;
     byCycle.set(k, cur);
   }
   const [cy, cm] = cycleKey.split("-").map(Number);

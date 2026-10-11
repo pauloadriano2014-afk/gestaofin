@@ -3,7 +3,14 @@
 
 export interface InvoiceItemLike {
   amount: string | number;
+  type?: string;
   ownerId?: string | null;
+}
+
+// Valor de um item na fatura: compra soma, crédito/estorno (entrada) abate.
+export function invoiceAmount(it: { amount: string | number; type?: string }): number {
+  const v = Math.abs(Number(it.amount));
+  return it.type === "income" ? -v : v;
 }
 
 export function summarizeByOwner(
@@ -14,7 +21,7 @@ export function summarizeByOwner(
   for (const it of items) {
     const key = it.ownerId ?? null;
     const cur = map.get(key) ?? { total: 0, count: 0 };
-    cur.total += Math.abs(Number(it.amount));
+    cur.total += invoiceAmount(it);
     cur.count += 1;
     map.set(key, cur);
   }

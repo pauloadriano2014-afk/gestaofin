@@ -4,7 +4,8 @@ import { useState, useEffect, useMemo } from 'react'
 import { X, Loader2, Receipt, ArrowRightLeft, CheckCircle2, Circle } from 'lucide-react'
 import { getInvoiceItems, reassignTransactions, getUserCreditCards, moveItemsToInvoice } from '@/app/creditCardActions'
 import { getOwnersAndAccounts } from '@/app/ownerActions'
-import { summarizeByOwner } from '@/utils/invoice'
+import { deleteTransactions } from '@/app/actions'
+import { summarizeByOwner, invoiceAmount } from '@/utils/invoice'
 
 const formatCurrency = (v: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v)
 const formatDate = (s: string) => s.split('-').reverse().join('/')
@@ -34,9 +35,9 @@ export function InvoiceItemsModal({ cardId, cycleKey, onClose, onChanged }: {
   useEffect(() => { load() }, [cardId, cycleKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const items: any[] = data?.items || []
-  const total = items.reduce((s, t) => s + Math.abs(Number(t.amount)), 0)
+  const total = items.reduce((s, t) => s + invoiceAmount(t), 0)
   const byOwner = useMemo(() => summarizeByOwner(items, owners), [items, owners])
-  const selectedTotal = items.filter((t) => selected.has(t.id)).reduce((s, t) => s + Math.abs(Number(t.amount)), 0)
+  const selectedTotal = items.filter((t) => selected.has(t.id)).reduce((s, t) => s + invoiceAmount(t), 0)
   const ownerName = (id: string | null) => owners.find((o) => o.id === id)?.name || '—'
 
   function toggle(id: string) {
@@ -53,6 +54,15 @@ export function InvoiceItemsModal({ cardId, cycleKey, onClose, onChanged }: {
     setSaving(false)
     if (res.success) { setTargetOwner(''); setTargetCard(''); await load(); onChanged() }
     else alert(res.message || 'Erro ao mover.')
+  }
+
+  async function removeSelected() {
+    if (!confirm(`Excluir ${selected.size} item(ns) desta fatura? Isso apaga os lançamentos.`)) return
+    setSaving(true)
+    const res = await deleteTransactions(Array.from(selected))
+    setSaving(false)
+    if (res.success) { await load(); onChanged() }
+    else alert(res.message || 'Erro ao excluir.')
   }
 
   async function moveInvoice() {
@@ -112,7 +122,7 @@ export function InvoiceItemsModal({ cardId, cycleKey, onClose, onChanged }: {
                       <span className="block text-sm text-white truncate">{t.description}</span>
                       <span className="block text-[10px] text-zinc-500">{formatDate(t.date)} · {ownerName(t.ownerId)}{t.isPaid ? ' · paga' : ''}</span>
                     </span>
-                    <span className="font-mono text-sm text-white shrink-0">{formatCurrency(Math.abs(Number(t.amount)))}</span>
+                    <span className={`font-mono text-sm shrink-0 ${t.type === 'income' ? 'text-emerald-400' : 'text-white'}`}>{t.type === 'income' ? '− ' : ''}{formatCurrency(Math.abs(Number(t.amount)))}</span>
                   </button>
                 ))}
               </div>
@@ -137,6 +147,7 @@ export function InvoiceItemsModal({ cardId, cycleKey, onClose, onChanged }: {
                     ))}
                   </select>
                   <button onClick={moveInvoice} disabled={saving || !targetInvoice} className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 disabled:opacity-40 text-white text-sm font-bold px-4 py-2 rounded-lg">Mover de fatura</button>
+                  <button onClick={removeSelected} disabled={saving} className="flex items-center gap-2 bg-red-600/90 hover:bg-red-600 disabled:opacity-50 text-white text-sm font-bold px-4 py-2 rounded-lg">Excluir</button>
                   <button onClick={move} disabled={saving} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-bold px-4 py-2 rounded-lg">
                     {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowRightLeft className="w-4 h-4" />} Mover
                   </button>

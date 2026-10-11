@@ -291,7 +291,10 @@ export async function createTransaction(data: any) {
     // Pagamento que quita uma fatura de cartão: o lançamento é salvo como
     // "pagamento de fatura" (fora de Despesas e do Saldo, porque as compras já
     // contam) e a fatura recebe baixa na data informada.
-    const linkedInvoice = typeof data.linkedInvoice === "string" && data.linkedInvoice.includes("|") ? data.linkedInvoice.split("|") : null;
+    const linkedInvoices: string[][] = typeof data.linkedInvoice === "string" && data.linkedInvoice
+      ? data.linkedInvoice.split(",").map((x: string) => x.split("|")).filter((x: string[]) => x.length === 2 && x[0] && x[1])
+      : [];
+    const linkedInvoice = linkedInvoices.length > 0 ? linkedInvoices[0] : null;
     const paymentCategoryId = linkedInvoice
       ? buildKindSetsFirst(await db.select().from(categories).where(eq(categories.userId, userId)))
       : null;
@@ -331,9 +334,10 @@ export async function createTransaction(data: any) {
     }
 
     let settledInvoice = false;
-    if (linkedInvoice && linkedInvoice.length === 2) {
-      const res = await settleInvoice(userId, linkedInvoice[0], linkedInvoice[1], baseDate);
-      settledInvoice = res.success;
+    // um pagamento pode quitar mais de uma fatura (ex: uma fatura dividida em duas)
+    for (const [cardId, cycleKey] of linkedInvoices) {
+      const res = await settleInvoice(userId, cardId, cycleKey, baseDate);
+      if (res.success) settledInvoice = true;
     }
 
     // 🔥 NOVO: aprende com a categoria escolhida, pra próxima importação/lançamento

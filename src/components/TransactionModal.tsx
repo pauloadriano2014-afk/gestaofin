@@ -56,7 +56,10 @@ export function TransactionModal({
   const entityType: 'pf' | 'pj' = selectedOwner?.kind || transaction?.entityType || 'pf'
   const [accountId, setAccountId] = useState<string>(transaction?.accountId || '')
   // "cartão|AAAA-MM" da fatura que este lançamento quita (opcional)
-  const [linkedInvoice, setLinkedInvoice] = useState<string>('')
+  const [linkedInvoices, setLinkedInvoices] = useState<string[]>([])
+  // último valor que o próprio formulário preencheu (soma das faturas), para só
+  // sobrescrever o valor se a pessoa não o tiver editado
+  const [autoAmount, setAutoAmount] = useState<string>('')
 
   const [loading, setLoading] = useState(false)
   const [isListening, setIsListening] = useState(false)
@@ -234,7 +237,7 @@ export function TransactionModal({
       ownerId: ownerId || null,
       accountId: type === 'expense' || type === 'income' ? (accountId || null) : null,
       creditCardId: type === 'expense' ? (creditCardId || null) : null,
-      linkedInvoice: type === 'expense' && !creditCardId && !transaction?.id ? (linkedInvoice || null) : null,
+      linkedInvoice: type === 'expense' && !creditCardId && !transaction?.id && linkedInvoices.length > 0 ? linkedInvoices.join(',') : null,
       fixedBillId: isFixed && !creditCardId ? (fixedBillId || null) : null,
       originalAmount: isFixed && !creditCardId ? (originalAmount || null) : null,
     };
@@ -411,30 +414,49 @@ export function TransactionModal({
                     ))}
                   </select>
                   {!creditCardId && !transaction?.id && invoices.length > 0 && (
-                    <div className="mt-2 space-y-1">
-                      <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block">Este pagamento quita uma fatura de cartão? (opcional)</label>
-                      <select
-                        className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-white outline-none focus:border-blue-600 transition-all appearance-none"
-                        value={linkedInvoice}
-                        onChange={(e) => {
-                          const v = e.target.value
-                          setLinkedInvoice(v)
-                          const inv = invoices.find((i: any) => `${i.cardId}|${i.cycleKey}` === v)
-                          if (inv) {
-                            if (!amount) setAmount(Math.abs(Number(inv.total)).toFixed(2))
-                            if (!description.trim()) setDescription(`Pagamento fatura ${inv.cardName}`)
-                            setIsPaid(true)
-                          }
-                        }}
-                      >
-                        <option value="">Não, é um gasto comum</option>
-                        {invoices.map((i: any) => (
-                          <option key={`${i.cardId}|${i.cycleKey}`} value={`${i.cardId}|${i.cycleKey}`}>
-                            Sim: fatura {i.cardName}{i.isOpen ? ' (aberta)' : ''} · vence {i.dueDate.split('-').reverse().slice(0, 2).join('/')} · {Math.abs(Number(i.total)).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                          </option>
-                        ))}
-                      </select>
-                      {linkedInvoice && <p className="text-[10px] text-blue-400">Os itens da fatura serão marcados como pagos na data deste lançamento, e este valor não conta como gasto (as compras já contaram).</p>}
+                    <div className="mt-2 space-y-2">
+                      <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block">Este pagamento quita fatura(s) de cartão? (opcional)</label>
+                      <div className="space-y-1.5">
+                        {invoices.map((i: any) => {
+                          const key = `${i.cardId}|${i.cycleKey}`
+                          const checked = linkedInvoices.includes(key)
+                          return (
+                            <label key={key} className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all ${checked ? 'border-blue-500/60 bg-blue-500/10' : 'border-zinc-800 bg-zinc-950 hover:border-zinc-700'}`}>
+                              <input
+                                type="checkbox"
+                                className="accent-blue-600 w-4 h-4"
+                                checked={checked}
+                                onChange={() => {
+                                  const next = checked ? linkedInvoices.filter((k) => k !== key) : [...linkedInvoices, key]
+                                  setLinkedInvoices(next)
+                                  const chosen = invoices.filter((x: any) => next.includes(`${x.cardId}|${x.cycleKey}`))
+                                  const total = chosen.reduce((sum: number, x: any) => sum + Math.abs(Number(x.total)), 0)
+                                  // só preenche o valor se estiver vazio ou ainda for o que o formulário preencheu
+                                  if (!amount || amount === autoAmount) {
+                                    const v = chosen.length > 0 ? total.toFixed(2) : ''
+                                    setAmount(v); setAutoAmount(v)
+                                  }
+                                  if (chosen.length > 0) {
+                                    if (!description.trim() || description.startsWith('Pagamento fatura ')) {
+                                      setDescription(`Pagamento fatura ${Array.from(new Set(chosen.map((x: any) => x.cardName))).join(' + ')}`)
+                                    }
+                                    setIsPaid(true)
+                                  }
+                                }}
+                              />
+                              <span className="flex-1 text-sm text-white">
+                                {i.cardName}{i.isOpen ? ' (aberta)' : ''} · vence {i.dueDate.split('-').reverse().slice(0, 2).join('/')}
+                              </span>
+                              <span className="font-mono text-sm text-zinc-300">{Math.abs(Number(i.total)).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
+                            </label>
+                          )
+                        })}
+                      </div>
+                      {linkedInvoices.length > 0 && (
+                        <p className="text-[10px] text-blue-400">
+                          {linkedInvoices.length} fatura(s) serão marcadas como pagas na data deste lançamento, e este valor não conta como gasto (as compras já contaram). Marque todas as faturas que este pagamento quitou.
+                        </p>
+                      )}
                     </div>
                   )}
                   {!creditCardId && accounts.length > 0 && (

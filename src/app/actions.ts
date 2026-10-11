@@ -5,12 +5,12 @@ import { categories, transactions, userSettings, categoryRules, fixedBills, acco
 import { getOwners, resolveOwnership, ownerSetupNeeded } from "@/db/owners";
 import { matchesView } from "@/utils/owners";
 import { inferKindFromName, buildKindSets, type CategoryKind } from "@/utils/categoryKinds";
-import { sumBalance, balanceSplit } from "@/utils/balance";
+import { balanceForPeriod, classifyForPeriod, FOREVER_START } from "@/utils/balance";
 import { cycleKeyForDueMonth, withInvoiceTag } from "@/utils/creditCard";
 import { settleInvoice } from "@/db/invoices";
 import { dedupeAgainstExisting } from "@/utils/invoiceLines";
 import { bestExistingMatch, daysApart } from "@/utils/transfers";
-import { desc, asc, and, sql, eq, lte, gte, inArray } from "drizzle-orm";
+import { desc, asc, and, or, sql, eq, lte, gte, inArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { auth } from "@clerk/nextjs/server";
 import { resolveIsPro } from "@/db/planAccess";
@@ -72,28 +72,35 @@ export async function getDashboardData(startMonth: number, startYear: number, en
 
     // Com as etapas acima prontas, as leituras também são independentes:
     // categorias, transações do período e (no modo acumulado) o saldo da vida toda.
-    type BalanceRow = { type: string; amount: string; entityType: string | null; ownerId: string | null; categoryId: string | null; isPaid: boolean | null };
-    const [allCategories, currentTransactions, lifetimeRows] = await Promise.all([
+    type BalanceRow = { type: string; amount: string; entityType: string | null; ownerId: string | null; categoryId: string | null; isPaid: boolean | null; date: string; paidAt: string | null };
+    const balanceStart = isolatePeriod ? startDateStr : FOREVER_START;
+    const [allCategories, currentTransactions, balanceRows] = await Promise.all([
       db.select().from(categories).where(eq(categories.userId, userId)),
       db.select().from(transactions)
         .where(and(eq(transactions.userId, userId), gte(transactions.date, startDateStr), lte(transactions.date, endDateStr)))
         .orderBy(desc(transactions.date)),
-      isolatePeriod
-        ? Promise.resolve(null)
-        : db.select({ type: transactions.type, amount: transactions.amount, entityType: transactions.entityType, ownerId: transactions.ownerId, categoryId: transactions.categoryId, isPaid: transactions.isPaid })
-            .from(transactions)
-            .where(and(eq(transactions.userId, userId), lte(transactions.date, endDateStr))),
+      // Linhas que mexem no saldo do período: as de DATA dentro dele (inclui as pendentes)
+      // e as PAGAS dentro dele, mesmo que a data da compra seja de outro mês
+      // (ex: fatura de setembro paga em outubro). No acumulado o início é "desde sempre".
+      db.select({ type: transactions.type, amount: transactions.amount, entityType: transactions.entityType, ownerId: transactions.ownerId, categoryId: transactions.categoryId, isPaid: transactions.isPaid, date: transactions.date, paidAt: transactions.paidAt })
+        .from(transactions)
+        .where(and(
+          eq(transactions.userId, userId),
+          or(
+            and(gte(transactions.date, balanceStart), lte(transactions.date, endDateStr)),
+            and(gte(transactions.paidAt, balanceStart), lte(transactions.paidAt, endDateStr))
+          )
+        )),
     ]);
 
     // Saldo = entradas - saídas (transferência e pagamento de fatura ficam de
     // fora, ver utils/balance.ts). Com "isolatePeriod" só conta a janela
     // selecionada; senão, a vida toda até o fim do período.
-    const balanceRows: BalanceRow[] = lifetimeRows ?? currentTransactions;
 
     const kindSets = buildKindSets(allCategories);
     // Saldo = só o que já foi pago; o que ainda falta pagar/receber vem à parte
     // (pending) e o previsto é a soma dos dois. Ver utils/balance.ts.
-    const split = (rows: BalanceRow[]) => balanceSplit(rows, kindSets);
+    const split = (rows: BalanceRow[]) => balanceForPeriod(rows, kindSets, balanceStart, endDateStr);
     const gAll = split(balanceRows);
     const gPF = split(balanceRows.filter(t => t.entityType === 'pf'));
     const gPJ = split(balanceRows.filter(t => t.entityType === 'pj'));
@@ -136,7 +143,7 @@ export async function getDashboardData(startMonth: number, startYear: number, en
       owners: ownerList,
       needsOwnerSetup,
       accounts: accountList,
-      summary: { balance, income, expense, globalBalance, globalBalancePF, globalBalancePJ, balanceByOwner, globalPending, globalPendingPF, globalPendingPJ, pendingByOwner },
+      summary: { cashBasis: true, balance, income, expense, globalBalance, globalBalancePF, globalBalancePJ, balanceByOwner, globalPending, globalPendingPF, globalPendingPJ, pendingByOwner },
       categoryStats, 
       pieData: categoryStats, 
       dailyData: [], 
@@ -168,17 +175,15 @@ export async function getBalanceBreakdown(startMonth: number, startYear: number,
     const lastDayOfEndMonth = new Date(endYear, endMonth, 0).getDate();
     const endDateStr = `${endYear}-${String(endMonth).padStart(2, '0')}-${String(lastDayOfEndMonth).padStart(2, '0')}`;
 
-    let rows;
-    if (isolatePeriod) {
-      const startDateStr = `${startYear}-${String(startMonth).padStart(2, '0')}-01`;
-      rows = await db.select().from(transactions).where(
-        and(eq(transactions.userId, userId), gte(transactions.date, startDateStr), lte(transactions.date, endDateStr))
-      );
-    } else {
-      rows = await db.select().from(transactions).where(
-        and(eq(transactions.userId, userId), lte(transactions.date, endDateStr))
-      );
-    }
+    const startDateStr = isolatePeriod ? `${startYear}-${String(startMonth).padStart(2, '0')}-01` : FOREVER_START;
+    // Mesmas linhas do saldo: as de data no período e as pagas no período.
+    const rows = await db.select().from(transactions).where(and(
+      eq(transactions.userId, userId),
+      or(
+        and(gte(transactions.date, startDateStr), lte(transactions.date, endDateStr)),
+        and(gte(transactions.paidAt, startDateStr), lte(transactions.paidAt, endDateStr))
+      )
+    ));
 
     // Mesma regra do saldo (ver utils/balance.ts): transferência e pagamento de
     // fatura ficam de fora, pra a lista somar exatamente o valor do card.
@@ -186,8 +191,8 @@ export async function getBalanceBreakdown(startMonth: number, startYear: number,
     const filtered = rows.filter((t) => matchesView(t, viewMode))
       .filter((t) => t.type === 'income' || t.type === 'expense')
       .filter((t) => !(t.categoryId && kindSets.card_payment.has(t.categoryId)))
-      .filter((t) => t.isPaid !== false) // pendente não diminui o saldo
-      .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+      .filter((t) => classifyForPeriod(t, startDateStr, endDateStr) === 'paid') // só o que foi pago no período
+      .sort((a, b) => { const da = a.paidAt || a.date; const db2 = b.paidAt || b.date; return da < db2 ? 1 : da > db2 ? -1 : 0; });
 
     return filtered;
   } catch (error) {

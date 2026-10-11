@@ -47,3 +47,57 @@ export function balanceSplit(rows: BalanceRowLike[], kindSets: ReturnType<typeof
   const pending = sumBalance(rows, kindSets, "pending");
   return { paid, pending, projected: Math.round((paid + pending) * 100) / 100 };
 }
+
+// ---------------------------------------------------------------------------
+// SALDO POR PERÍODO: o que vale é a data em que o dinheiro MEXEU
+// ---------------------------------------------------------------------------
+// Uma compra de setembro paga em outubro tira o dinheiro da conta em OUTUBRO.
+// Então, para o saldo:
+//   - "pago" entra no período em que foi PAGO (paidAt; sem paidAt, a data do
+//     lançamento), seja a conta fixa paga com atraso, a parcela ou os itens de
+//     uma fatura que recebeu baixa;
+//   - "pendente" é o que tem data dentro do período e ainda não foi pago até o
+//     fim dele (inclui o que só foi pago depois do período).
+// Receita e Despesas continuam por data da compra/competência, de propósito.
+
+export interface PeriodRowLike extends BalanceRowLike {
+  date: string;
+  paidAt?: string | null;
+}
+
+export type PeriodClass = "paid" | "pending" | null;
+
+export function classifyForPeriod(t: PeriodRowLike, start: string, end: string): PeriodClass {
+  const settled = isSettled(t);
+  const cashDate = t.paidAt || t.date;
+  if (settled && cashDate >= start && cashDate <= end) return "paid";
+  const inRange = t.date >= start && t.date <= end;
+  if (inRange && (!settled || (t.paidAt && t.paidAt > end))) return "pending";
+  return null;
+}
+
+// Mesmas exclusões de sempre (transferência e pagamento de fatura), por período.
+export function balanceForPeriod(
+  rows: PeriodRowLike[],
+  kindSets: ReturnType<typeof buildKindSets>,
+  start: string,
+  end: string
+) {
+  let paid = 0;
+  let pending = 0;
+  for (const t of rows) {
+    if (t.categoryId && kindSets.card_payment.has(t.categoryId)) continue;
+    const v = Math.abs(Number(t.amount));
+    const signed = t.type === "income" ? v : t.type === "expense" ? -v : 0;
+    if (signed === 0) continue;
+    const c = classifyForPeriod(t, start, end);
+    if (c === "paid") paid += signed;
+    else if (c === "pending") pending += signed;
+  }
+  paid = Math.round(paid * 100) / 100;
+  pending = Math.round(pending * 100) / 100;
+  return { paid, pending, projected: Math.round((paid + pending) * 100) / 100 };
+}
+
+// "Desde o começo": início do período = o menor valor possível.
+export const FOREVER_START = "0001-01-01";

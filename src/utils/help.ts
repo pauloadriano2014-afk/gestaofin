@@ -4,6 +4,7 @@
 
 import { buildKindSets } from "./categoryKinds";
 import { matchesView } from "./owners";
+import { calculateDashboardData } from "./dashboardCalculations";
 
 // ---------------------------------------------------------------------------
 // 1) PERGUNTAS E RESPOSTAS
@@ -21,14 +22,14 @@ export const HELP_ENTRIES: HelpEntry[] = [
     id: "saldo-vs-resultado",
     question: "Por que o Saldo é diferente de Receita menos Despesas?",
     answer:
-      "Receita e Despesas são do período e contam o que foi gasto e ganho \"de verdade\" (ficam de fora investimentos, reembolsos e pagamento de fatura), pago ou não. O Saldo é o dinheiro de verdade: só conta o que JÁ FOI PAGO ou recebido. Conta pendente, mesmo atrasada, só diminui o saldo quando você dá baixa; ela aparece embaixo do saldo como \"a pagar\", junto com o saldo previsto. O Saldo também deixa de fora transferências e pagamento de fatura. No modo \"Mês isolado\" o saldo é só daquele mês; no modo \"Período\" com a chave desligada ele soma tudo desde o começo. Use \"Explicar meus números\" para ver a conta feita com os seus dados.",
+      "Receita e Despesas são do período e contam o que foi gasto e ganho \"de verdade\" (ficam de fora investimentos, reembolsos e pagamento de fatura), pago ou não. O Saldo é o dinheiro de verdade: só conta o que JÁ FOI PAGO ou recebido, no mês em que foi PAGO (uma fatura de setembro paga em outubro diminui o saldo de outubro). Conta pendente, mesmo atrasada, só diminui o saldo quando você dá baixa; ela aparece embaixo do saldo como \"a pagar\", junto com o saldo previsto. O Saldo também deixa de fora transferências e pagamento de fatura. No modo \"Mês isolado\" o saldo é só daquele mês; no modo \"Período\" com a chave desligada ele soma tudo desde o começo. Use \"Explicar meus números\" para ver a conta feita com os seus dados.",
     keywords: "saldo diferente nao bate receita despesa resultado conta",
   },
   {
     id: "card-saldo",
     question: "Card Saldo Principal: o que ele mostra?",
     answer:
-      "O dinheiro de verdade: tudo que já entrou menos tudo que já saiu. Só conta o que foi PAGO: conta fixa pendente, parcela futura ou compra de cartão com fatura em aberto não diminuem o saldo (mesmo atrasadas) até você dar baixa. O que falta pagar aparece embaixo, com o saldo previsto. No modo Mês isolado conta só aquele mês; no modo Período com \"começar do zero\" desligado soma tudo desde o início até o fim do período. Ficam de fora transferências e pagamento de fatura (as compras do cartão já contam no dia da compra). Clique no card para ver a lista que forma esse valor.",
+      "O dinheiro de verdade: tudo que já entrou menos tudo que já saiu. Só conta o que foi PAGO, no mês do pagamento (a fatura de setembro paga em outubro diminui o saldo de outubro): conta fixa pendente, parcela futura ou compra de cartão com fatura em aberto não diminuem o saldo (mesmo atrasadas) até você dar baixa. O que falta pagar aparece embaixo, com o saldo previsto. No modo Mês isolado conta só aquele mês; no modo Período com \"começar do zero\" desligado soma tudo desde o início até o fim do período. Ficam de fora transferências e pagamento de fatura (as compras do cartão já contam no dia da compra). Clique no card para ver a lista que forma esse valor.",
     keywords: "card saldo principal disponivel conta",
   },
   {
@@ -268,13 +269,24 @@ export function explainNumbers(raw: any, viewMode: string, isolatePeriod: boolea
 
   if (!isolatePeriod) alertas.push("Você está no modo acumulado: o Saldo soma também os meses anteriores ao período, que não aparecem nesta conta. Para ver só este período, use Mês isolado.");
 
+  // Quando os dados vêm do servidor (saldo por data de PAGAMENTO, que considera
+  // também itens de outros meses pagos neste período), usa exatamente os números
+  // do card, para a explicação nunca divergir dele.
+  let saldoFinal = saldoDoPeriodo;
+  let aPagarFinal = aPagar;
+  if (raw?.summary?.cashBasis === true) {
+    const sm = calculateDashboardData(raw, viewMode, null).summary as any;
+    saldoFinal = sm.balance;
+    aPagarFinal = sm.pending;
+  }
+
   return {
     mode: isolatePeriod ? "isolado" : "acumulado",
     despesas: { operacional: total(expenses.filter((t: any) => !isExcluded(t))), bruto: total(expenses), excluidos: exclSide(expenses) },
     receita: { operacional: total(incomes.filter((t: any) => !isExcluded(t))), bruto: total(incomes), excluidos: exclSide(incomes) },
-    saldoDoPeriodo,
-    aPagar,
-    saldoPrevisto: Math.round((saldoDoPeriodo + aPagar) * 100) / 100,
+    saldoDoPeriodo: saldoFinal,
+    aPagar: aPagarFinal,
+    saldoPrevisto: Math.round((saldoFinal + aPagarFinal) * 100) / 100,
     ignoradosNoSaldo,
     alertas,
   };

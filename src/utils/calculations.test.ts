@@ -572,3 +572,47 @@ test("tira-dúvidas: 'Meus números' separa saldo pago e o que falta pagar", () 
   assert.equal(e.saldoPrevisto, 1400);
   assert.equal(e.saldoDoPeriodo, sumBalance(dados.transactions as any, buildKindSets(categories)));
 });
+
+import { balanceForPeriod, classifyForPeriod, FOREVER_START } from "./balance";
+
+test("saldo por período: fatura de setembro paga em outubro tira o dinheiro em OUTUBRO", () => {
+  const sets = buildKindSets(categories);
+  // 2 itens do cartão (31/08 e 20/09) pagos em 11/10
+  const rows = [
+    { type: "expense", amount: "27.99", categoryId: CAT.mercado, date: "2026-08-31", isPaid: true, paidAt: "2026-10-11" },
+    { type: "expense", amount: "765.58", categoryId: CAT.mercado, date: "2026-09-20", isPaid: true, paidAt: "2026-10-11" },
+    { type: "income", amount: "5000", categoryId: CAT.vendas, date: "2026-10-03", isPaid: true, paidAt: null },
+  ];
+  const out = balanceForPeriod(rows, sets, "2026-10-01", "2026-10-31");
+  assert.equal(out.paid, 5000 - 793.57);   // o dinheiro saiu em outubro
+  assert.equal(out.pending, 0);
+  // em setembro o dinheiro AINDA não tinha saído: o que ficou para depois aparece como "a pagar"
+  const set = balanceForPeriod(rows, sets, "2026-09-01", "2026-09-30");
+  assert.equal(set.paid, 0);
+  assert.equal(set.pending, -765.58);
+  // desde o começo até hoje: tudo já pago
+  const tudo = balanceForPeriod(rows, sets, FOREVER_START, "2026-10-31");
+  assert.equal(tudo.paid, 5000 - 793.57);
+  assert.equal(tudo.pending, 0);
+});
+
+test("saldo por período: conta fixa de outubro paga em novembro ainda é 'a pagar' em outubro", () => {
+  const conta = { type: "expense", amount: "500", categoryId: CAT.mercado, date: "2026-10-05", isPaid: true, paidAt: "2026-11-02" };
+  assert.equal(classifyForPeriod(conta, "2026-10-01", "2026-10-31"), "pending");
+  assert.equal(classifyForPeriod(conta, "2026-11-01", "2026-11-30"), "paid");
+  const aberta = { ...conta, isPaid: false, paidAt: null };
+  assert.equal(classifyForPeriod(aberta, "2026-10-01", "2026-10-31"), "pending");
+  assert.equal(classifyForPeriod(aberta, "2026-11-01", "2026-11-30"), null);
+  // lançamento comum, pago na própria data (sem paidAt): conta no mês dele
+  const comum = { type: "expense", amount: "10", categoryId: null, date: "2026-10-09", isPaid: true, paidAt: null };
+  assert.equal(classifyForPeriod(comum, "2026-10-01", "2026-10-31"), "paid");
+  assert.equal(classifyForPeriod(comum, "2026-09-01", "2026-09-30"), null);
+});
+
+test("tira-dúvidas: quando o saldo vem do servidor (por data de pagamento), a explicação usa o número do card", () => {
+  const dados = { allCategories: categories, transactions: [], summary: { cashBasis: true, globalBalance: 4206.43, globalPending: -120, balanceByOwner: {}, pendingByOwner: {} } };
+  const e = explainNumbers(dados as any, "all", true);
+  assert.equal(e.saldoDoPeriodo, 4206.43);
+  assert.equal(e.aPagar, -120);
+  assert.equal(e.saldoPrevisto, 4086.43);
+});

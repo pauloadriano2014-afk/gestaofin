@@ -75,7 +75,7 @@ export function ReconcileBalanceModal({
         </div>
         <p className="text-xs text-zinc-400 mb-4">
           O app só sabe do que foi lançado ou importado, então o dinheiro dele pode diferir do banco (ex: o saldo que você já tinha antes do primeiro lançamento).
-          Informe o saldo que aparece no banco e o app cria um único lançamento de ajuste com a diferença. Ele não conta como receita nem despesa.
+          Informe o saldo que aparece no banco e o app cria um único saldo inicial com a diferença, datado antes do seu primeiro lançamento. Assim ele não mexe no movimento de nenhum mês. Não conta como receita nem despesa, e conciliar de novo substitui o anterior.
         </p>
 
         <label className="block text-[11px] font-bold text-zinc-400 mb-1">De quem é a conta?</label>
@@ -87,7 +87,7 @@ export function ReconcileBalanceModal({
         <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={`${field} mb-3`} />
 
         <div className="flex items-center justify-between bg-zinc-950 border border-zinc-800 rounded-xl p-3 mb-3">
-          <span className="text-xs text-zinc-400">Dinheiro no app até esse dia</span>
+          <span className="text-xs text-zinc-400">Dinheiro no app até esse dia (sem ajuste anterior)</span>
           {current === null ? <Loader2 className="w-4 h-4 animate-spin text-zinc-500" /> : <b className="font-mono text-white">{formatCurrency(current)}</b>}
         </div>
 
@@ -97,7 +97,7 @@ export function ReconcileBalanceModal({
         {ready && (
           <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-3 mb-3 text-xs text-zinc-300">
             {adj
-              ? <>Vou lançar um ajuste de <b className={adj.type === 'income' ? 'text-emerald-400' : 'text-red-400'}>{adj.type === 'income' ? '+' : '−'} {formatCurrency(adj.amount)}</b> para o app ficar em <b className="text-white">{formatCurrency(real)}</b>.</>
+              ? <>Vou lançar um saldo inicial de <b className={adj.type === 'income' ? 'text-emerald-400' : 'text-red-400'}>{adj.type === 'income' ? '+' : '−'} {formatCurrency(adj.amount)}</b> para o app ficar em <b className="text-white">{formatCurrency(real)}</b>.</>
               : <>Já está batendo com o banco. Nada a ajustar.</>}
           </div>
         )}

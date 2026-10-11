@@ -8,6 +8,7 @@ import { getInvoiceCycleForDate } from '@/utils/creditCard'
 import { resolveCategoryKind } from '@/utils/categoryKinds'
 import { looksLikeBankInvoicePayment } from '@/utils/invoiceLines'
 import { paidByFromTags } from '@/utils/paidBy'
+import { pickRefundCategory } from '@/utils/categoryKinds'
 
 export function TransactionModal({ 
   categories, 
@@ -65,6 +66,11 @@ export function TransactionModal({
   // entityType continua sendo enviado (derivado do dono) pra manter PF/PJ coerente.
   const entityType: 'pf' | 'pj' = selectedOwner?.kind || transaction?.entityType || 'pf'
   const [accountId, setAccountId] = useState<string>(transaction?.accountId || '')
+  // Transferência nova: sai de um dono e entra em outro (cria as duas pontas, com a categoria
+  // "Transferência entre contas"; o saldo de cada um se move, Receita e Despesas não).
+  const [fromOwner, setFromOwner] = useState<string>(defaultOwnerId || owners[0]?.id || '')
+  const [toOwner, setToOwner] = useState<string>(owners.find((o: any) => o.id !== (defaultOwnerId || owners[0]?.id))?.id || owners[0]?.id || '')
+  const isNewTransfer = type === 'transfer' && !transaction?.id
   // Conta usada: de quem é o dinheiro, quando difere do dono do gasto ('' = o próprio dono)
   const [paidBy, setPaidBy] = useState<string>(paidByFromTags(transaction?.aiTags) || '')
   // "cartão|AAAA-MM" da fatura que este lançamento quita (opcional)
@@ -235,6 +241,22 @@ export function TransactionModal({
       return;
     }
 
+    if (isNewTransfer) {
+      const cat = pickRefundCategory(categories, 'transfer')
+      if (!cat) { alert('Crie a categoria "Transferência entre contas" em Categorias (tipo Transferência / reembolso / empréstimo).'); return }
+      if (!fromOwner || !toOwner) { alert('Escolha de quem sai e para quem vai.'); return }
+      const fromName = owners.find((o: any) => o.id === fromOwner)?.name || ''
+      const toName = owners.find((o: any) => o.id === toOwner)?.name || ''
+      const base = { amount, categoryId: cat.id, date, isFixed: false, isPaid: true, installments: 1, paidByOwnerId: 'self' as const }
+      setLoading(true)
+      const out = await createTransaction({ ...base, description: `${description} (para ${toName})`, type: 'expense', ownerId: fromOwner, entityType: owners.find((o: any) => o.id === fromOwner)?.kind || 'pf' })
+      const inn = await createTransaction({ ...base, description: `${description} (de ${fromName})`, type: 'income', ownerId: toOwner, entityType: owners.find((o: any) => o.id === toOwner)?.kind || 'pf' })
+      setLoading(false)
+      if (!out?.success || !inn?.success) { alert('Não consegui salvar as duas pontas da transferência. Confira em Lançamentos.'); return }
+      onClose()
+      return
+    }
+
     setLoading(true);
     const payload = {
       description,
@@ -291,7 +313,7 @@ export function TransactionModal({
         </div>
 
         <div className="space-y-6"> 
-            {owners.length > 0 ? (
+            {owners.length > 0 && !isNewTransfer ? (
               <div className="flex flex-wrap bg-zinc-950 p-1 rounded-xl border border-zinc-800 gap-1">
                 {owners.map((o: any) => (
                   <button
@@ -305,7 +327,7 @@ export function TransactionModal({
               </div>
             ) : null}
 
-            {owners.length > 1 && (
+            {owners.length > 1 && !isNewTransfer && (
               <div className="-mt-3">
                 <label className="text-[11px] font-bold text-zinc-500 flex items-center gap-1 mb-1"><Wallet className="w-3 h-3" /> De qual conta o dinheiro saiu (ou entrou)?</label>
                 <select
@@ -333,17 +355,37 @@ export function TransactionModal({
               >
                 Entrada
               </button>
+              {(!transaction?.id || transaction?.type === 'transfer') && (
               <button
                 onClick={() => { setType('transfer'); setCategoryId(''); setCreditCardId(''); }}
                 className={`flex-1 py-3 text-sm font-bold rounded-lg transition-all duration-300 ${type === 'transfer' ? 'bg-blue-500/10 text-blue-400 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
               >
                 Transferência
               </button>
+              )}
             </div>
 
             {type === 'transfer' && (
-              <div className="bg-blue-500/5 border border-blue-500/20 rounded-xl p-3 text-xs text-blue-300 leading-relaxed">
-                Pra dinheiro que só mudou de lugar: entre suas próprias contas (ex: Asaas → Nubank) ou acerto de contas com quem mora com você. Não conta como gasto nem receita no seu resumo — é só um registro pra você lembrar que o dinheiro mudou de lugar.
+              <div className="bg-blue-500/5 border border-blue-500/20 rounded-xl p-3 text-xs text-blue-300 leading-relaxed space-y-3">
+                {isNewTransfer ? (
+                  <>
+                    <p>Dinheiro que só mudou de lugar (ex: Asaas → Nubank, você → Adri). Cria as duas pontas: <b>sai de um e entra no outro</b>. Não conta como gasto nem receita, mas o saldo de cada um se move.</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <label className="text-[10px] font-bold text-zinc-400 uppercase">Sai de
+                        <select value={fromOwner} onChange={(e) => setFromOwner(e.target.value)} className="mt-1 w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2 text-sm text-white normal-case font-medium outline-none">
+                          {owners.map((o: any) => <option key={o.id} value={o.id}>{o.name}</option>)}
+                        </select>
+                      </label>
+                      <label className="text-[10px] font-bold text-zinc-400 uppercase">Entra em
+                        <select value={toOwner} onChange={(e) => setToOwner(e.target.value)} className="mt-1 w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2 text-sm text-white normal-case font-medium outline-none">
+                          {owners.map((o: any) => <option key={o.id} value={o.id}>{o.name}</option>)}
+                        </select>
+                      </label>
+                    </div>
+                  </>
+                ) : (
+                  <p>Registro antigo de transferência: ele não mexe no saldo de ninguém. Se quiser que mexa, troque para Gasto ou Entrada com a categoria <b>Transferência entre contas</b>.</p>
+                )}
               </div>
             )}
 

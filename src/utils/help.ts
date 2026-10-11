@@ -29,7 +29,7 @@ export const HELP_ENTRIES: HelpEntry[] = [
     id: "transferencia-ou-reembolso",
     question: "Transferência entre minhas contas: que categoria uso?",
     answer:
-      "Dinheiro que só mudou de lugar (Nubank PF <-> Nubank PJ, Asaas/Cakto -> Nubank, entre você e a Adri) vai em \"Transferência entre contas\": não é receita nem gasto, mas o saldo de cada dono (e de cada conta) se move. \"Reembolsos / Empréstimos\" é para quando alguém te devolve ou você empresta de verdade. As duas são neutras em Receita e Despesas. \"Ajuste de saldo\" é só do botão Conciliar. Evite o tipo \"Transferência\" do botão Lançar para isso: ele não mexe no saldo de ninguém.",
+      "Dinheiro que só mudou de lugar (Nubank PF <-> Nubank PJ, Asaas/Cakto -> Nubank, entre você e a Adri) vai em \"Transferência entre contas\": não é receita nem gasto, mas o saldo de cada dono (e de cada conta) se move. \"Reembolsos / Empréstimos\" é para quando alguém te devolve ou você empresta de verdade. As duas são neutras em Receita e Despesas. \"Ajuste de saldo\" é só do botão Conciliar. No botão Lançar, a aba \"Transferência\" já faz isso por você: escolha de quem sai e para quem vai, e ela cria as duas pontas com essa categoria. Nos extratos importados, é só escolher a categoria \"Transferência entre contas\".",
     keywords: "transferencia entre contas reembolso emprestimo nubank pj pf asaas cakto saque categoria neutra",
   },
   {

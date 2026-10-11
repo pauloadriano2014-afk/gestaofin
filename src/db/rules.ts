@@ -1,5 +1,5 @@
 import { db } from "@/db";
-import { categoryRules, categories, categoryOwnerDefaults } from "@/db/schema";
+import { categoryRules, categories, categoryOwnerDefaults, balanceCheckpoints } from "@/db/schema";
 import { and, eq } from "drizzle-orm";
 import { resolveCategoryKind } from "@/utils/categoryKinds";
 
@@ -22,6 +22,17 @@ export async function loadCategoryOwnerDefaults(userId: string): Promise<Record<
   try {
     const rows = await db.select().from(categoryOwnerDefaults).where(eq(categoryOwnerDefaults.userId, userId));
     return Object.fromEntries(rows.map((r) => [r.categoryId, r.ownerId]));
+  } catch {
+    return {};
+  }
+}
+
+// Saldo conferido com o banco por dono ({ ownerId: { date, amount } }). Sem a tabela
+// (migração não rodada), devolve vazio.
+export async function loadBalanceCheckpoints(userId: string): Promise<Record<string, { date: string; amount: number }>> {
+  try {
+    const rows = await db.select().from(balanceCheckpoints).where(eq(balanceCheckpoints.userId, userId));
+    return Object.fromEntries(rows.map((r) => [r.ownerId, { date: r.date, amount: Number(r.amount) }]));
   } catch {
     return {};
   }

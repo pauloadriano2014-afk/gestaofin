@@ -447,7 +447,7 @@ export default function Dashboard() {
             <div className="space-y-6 pb-8">
               {openBillsPanel(false)}
               <MonthCloseChecklist theme={theme} checklist={checklist} onGo={goTo} />
-              <BalancesStrip theme={theme} owners={ownerList} todayByOwner={rawData.summary?.todayByOwner} formatCurrency={formatCurrency} onChanged={loadData} />
+              <BalancesStrip theme={theme} owners={ownerList} todayByOwner={rawData.summary?.todayByOwner} checkpoints={rawData.summary?.checkpoints} formatCurrency={formatCurrency} onChanged={loadData} />
               <DashboardCards
                 theme={theme}
                 summary={processedData.summary}
@@ -467,8 +467,6 @@ export default function Dashboard() {
                 viewMode={viewMode}
                 onEditTransaction={handleEdit}
                 onHelp={openHelp}
-                owners={ownerList}
-                onReconciled={loadData}
               />
               <DashboardCharts theme={theme} processedData={processedData} currentTheme={currentTheme} formatCurrency={formatCurrency} setSelectedCategory={setSelectedCategory} setBudgetModalOpen={setBudgetModalOpen} />
             </div>

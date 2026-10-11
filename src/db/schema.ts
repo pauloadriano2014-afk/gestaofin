@@ -47,6 +47,19 @@ export const categoryOwnerDefaults = pgTable("category_owner_defaults", {
   ownerId: uuid("owner_id").notNull().references(() => owners.id, { onDelete: "cascade" }),
 }, (t) => [primaryKey({ columns: [t.userId, t.categoryId] })]);
 
+// --- NOVA TABELA: SALDO CONFERIDO COM O BANCO ---
+// Um ponto de partida por dono: "no dia X o banco mostrava R$ Y". O saldo de hoje é
+// esse valor + o que foi pago DEPOIS dessa data; o histórico anterior não entra mais
+// na conta (e não cria nenhum lançamento). Tabela própria: sem a migração só esta
+// função falha, o resto do app segue.
+export const balanceCheckpoints = pgTable("balance_checkpoints", {
+  userId: text("user_id").notNull(),
+  ownerId: uuid("owner_id").notNull().references(() => owners.id, { onDelete: "cascade" }),
+  date: date("date").notNull(),
+  amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [primaryKey({ columns: [t.userId, t.ownerId] })]);
+
 // --- NOVA TABELA: CONTAS (corrente, gateway de vendas, caixa) ---
 // Cartões de crédito continuam na tabela credit_cards. Aqui ficam as contas
 // onde o dinheiro de fato entra e sai: Itaú, Caixa, Asaas, Nubank conta etc.

@@ -113,3 +113,16 @@ export function adjustmentFor(current: number, real: number): { type: "income" |
   if (Math.abs(delta) < 0.005) return null;
   return { type: delta > 0 ? "income" : "expense", amount: Math.abs(delta) };
 }
+
+// SALDO HOJE a partir de um saldo conferido: valor do banco naquele dia + o que foi
+// PAGO depois dele (até hoje). Nada anterior à conferência entra na conta.
+export function balanceFromCheckpoint(
+  rows: PeriodRowLike[],
+  kindSets: ReturnType<typeof buildKindSets>,
+  checkpoint: { date: string; amount: number },
+  today: string
+): number {
+  const next = new Date(Date.parse(checkpoint.date + "T00:00:00Z") + 86400000).toISOString().slice(0, 10);
+  const after = balanceForPeriod(rows, kindSets, next, today).paid;
+  return Math.round((checkpoint.amount + after) * 100) / 100;
+}

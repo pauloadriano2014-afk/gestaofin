@@ -764,3 +764,17 @@ test("pickRefundCategory: prefere transferência ou reembolso conforme o caso", 
   assert.equal(pickRefundCategory([cats[0], cats[1]], "transfer")?.id, "re");
   assert.equal(resolveCategoryKind({ name: "Transferência entre contas" }), "refund");
 });
+
+import { balanceFromCheckpoint } from "./balance";
+test("saldo hoje: valor conferido + só o que foi pago depois (histórico antigo não entra)", () => {
+  const sets = buildKindSets([]);
+  const row = (type: string, amount: string, date: string, isPaid = true) => ({ type, amount, date, isPaid, paidAt: null, categoryId: null });
+  const rows = [
+    row("income", "55000", "2026-03-10"),     // histórico antigo: não pesa
+    row("expense", "100", "2026-10-11"),      // no próprio dia da conferência: já está no valor do banco
+    row("expense", "20.50", "2026-10-12"),    // depois: entra
+    row("income", "300", "2026-10-13"),       // depois: entra
+    row("expense", "999", "2026-10-14", false) // pendente: não entra
+  ];
+  assert.equal(balanceFromCheckpoint(rows, sets, { date: "2026-10-11", amount: 73.77 }, "2026-10-20"), 353.27);
+});

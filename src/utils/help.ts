@@ -43,8 +43,8 @@ export const HELP_ENTRIES: HelpEntry[] = [
     id: "saldo-vs-banco",
     question: "Por que o saldo do app não bate com o do banco?",
     answer:
-      "O app só conhece o que foi lançado ou importado. Três causas comuns: (1) a visão: \"Tudo\" soma Paulo, Adri e Empresa; para comparar com a conta pessoal, escolha só o dono dessa conta; (2) o Mês isolado mostra só o movimento do mês, sem o que já existia antes; olhe a linha \"Dinheiro acumulado até aqui\", que é o que deve se parecer com o banco; (3) faltam lançamentos antigos (o saldo que você já tinha antes do primeiro lançamento, por exemplo). Para fechar a diferença, use \"Conciliar com o banco\" no card de Saldo: informe o saldo do banco e o app lança um ajuste que não conta como receita nem despesa.",
-    keywords: "saldo banco bate conciliar conciliacao diferente ajuste acumulado real conta corrente",
+      "O app só conhece o que foi lançado ou importado, e quase sempre falta histórico. Por isso o painel \"Saldo hoje\" (no Início) não soma o passado: você informa uma vez o saldo que o banco mostra (\"Informar saldo do banco\") e o app passa a mostrar esse valor mais o que for PAGO depois. Nenhum lançamento é criado e o histórico antigo deixa de pesar. Confira de novo quando quiser (a nova conferência substitui a anterior). O card \"Saldo Principal\" é outra coisa: é o movimento do período escolhido (no Mês isolado, só o mês).",
+    keywords: "saldo banco bate conferir conferencia conciliar diferente real conta corrente saldo hoje",
   },
   {
     id: "card-saldo",

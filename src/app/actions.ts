@@ -1,15 +1,15 @@
 'use server'
 
 import { db } from "@/db";
-import { categories, transactions, userSettings, categoryRules, fixedBills, accounts, creditCards } from "@/db/schema";
+import { categories, transactions, balanceCheckpoints, userSettings, categoryRules, fixedBills, accounts, creditCards } from "@/db/schema";
 import { getOwners, resolveOwnership, ownerSetupNeeded } from "@/db/owners";
 import { matchesView } from "@/utils/owners";
 import { inferKindFromName, buildKindSets, resolveCategoryKind, pickRefundCategory, type CategoryKind } from "@/utils/categoryKinds";
-import { balanceForPeriod, classifyForPeriod, adjustmentFor, FOREVER_START } from "@/utils/balance";
+import { balanceForPeriod, balanceFromCheckpoint, classifyForPeriod, FOREVER_START } from "@/utils/balance";
 import { cycleKeyForDueMonth, withInvoiceTag } from "@/utils/creditCard";
 import { paidByFromTags, withPaidBy, toCashRow } from "@/utils/paidBy";
 import { settleInvoice } from "@/db/invoices";
-import { loadUserRules, loadCategoryOwnerDefaults } from "@/db/rules";
+import { loadUserRules, loadCategoryOwnerDefaults, loadBalanceCheckpoints } from "@/db/rules";
 import { mentionsOwner, looksLikeTransfer, bestExistingMatch, daysApart } from "@/utils/transfers";
 import { dedupeAgainstExisting, parseLinkedInvoice, looksLikeBankInvoicePayment } from "@/utils/invoiceLines";
 import { desc, asc, and, or, sql, eq, lte, gte, inArray } from "drizzle-orm";
@@ -85,7 +85,7 @@ export async function getDashboardData(startMonth: number, startYear: number, en
     const balanceStart = isolatePeriod ? startDateStr : FOREVER_START;
     const todayForBalance = todayDateStr();
     const reachDateStr = endDateStr > todayForBalance ? endDateStr : todayForBalance;
-    const [categoryRows, currentTransactions, rawBalanceRows, ownerDefaults] = await Promise.all([
+    const [categoryRows, currentTransactions, rawBalanceRows, ownerDefaults, checkpoints] = await Promise.all([
       db.select().from(categories).where(eq(categories.userId, userId)),
       db.select().from(transactions)
         .where(and(eq(transactions.userId, userId), gte(transactions.date, startDateStr), lte(transactions.date, endDateStr)))
@@ -101,6 +101,7 @@ export async function getDashboardData(startMonth: number, startYear: number, en
           or(lte(transactions.date, reachDateStr), lte(transactions.paidAt, reachDateStr))
         )),
       loadCategoryOwnerDefaults(userId),
+      loadBalanceCheckpoints(userId),
     ]);
     // dono padrão de cada categoria (ex: Transporte -> Empresa), usado na importação e no lançamento
     const allCategories = categoryRows.map((c) => ({ ...c, defaultOwnerId: ownerDefaults[c.id] ?? null }));
@@ -138,7 +139,9 @@ export async function getDashboardData(startMonth: number, startYear: number, en
     const todayByOwner: Record<string, number> = {};
     for (const o of ownerList) {
       const rows = balanceRows.filter(t => t.ownerId === o.id);
-      todayByOwner[o.id] = balanceForPeriod(rows, kindSets, FOREVER_START, todayForBalance).paid;
+      // só existe valor para quem já conferiu o saldo com o banco (senão, a soma do histórico enganaria)
+      const cp = checkpoints[o.id];
+      if (cp) todayByOwner[o.id] = balanceFromCheckpoint(rows, kindSets, cp, todayForBalance);
       const g = split(rows);
       balanceByOwner[o.id] = g.paid;
       pendingByOwner[o.id] = g.pending;
@@ -170,7 +173,7 @@ export async function getDashboardData(startMonth: number, startYear: number, en
       owners: ownerList,
       needsOwnerSetup,
       accounts: accountList,
-      summary: { cashBasis: true, balance, income, expense, globalBalance, globalBalancePF, globalBalancePJ, balanceByOwner, globalPending, globalPendingPF, globalPendingPJ, pendingByOwner, accumulated, accumulatedPF, accumulatedPJ, accumulatedByOwner, todayByOwner },
+      summary: { cashBasis: true, balance, income, expense, globalBalance, globalBalancePF, globalBalancePJ, balanceByOwner, globalPending, globalPendingPF, globalPendingPJ, pendingByOwner, accumulated, accumulatedPF, accumulatedPJ, accumulatedByOwner, todayByOwner, checkpoints },
       categoryStats, 
       pieData: categoryStats, 
       dailyData: [], 
@@ -229,108 +232,36 @@ export async function getBalanceBreakdown(startMonth: number, startYear: number,
   }
 }
 
-// --- CONCILIAÇÃO COM O BANCO ---
-// Ajustes de conciliação anteriores (tag) ficam de fora da conta: cada nova
-// conciliação SUBSTITUI a anterior em vez de somar por cima.
+// --- SALDO CONFERIDO COM O BANCO ---
+// Você informa o saldo que o banco mostra (de um dono, numa data). O "Saldo hoje" passa a ser
+// esse valor + o que foi pago depois (ver balanceFromCheckpoint). Não cria lançamento nenhum;
+// o histórico anterior deixa de entrar na conta. Ajustes das versões antigas dessa função
+// (lançamentos "Ajuste de saldo" / "Saldo inicial") são apagados, para não inflar nada.
 const ADJUST_TAG = "ajuste_saldo";
-const notAdjustment = sql`NOT (coalesce(${transactions.aiTags}, ARRAY[]::text[]) @> ARRAY[${ADJUST_TAG}::text])`;
 
-// Dinheiro acumulado de um dono (só o que já foi pago, desde sempre, até a data),
-// sem contar ajustes de conciliação antigos. É o número que deve ser igual ao
-// saldo que aparece no app do banco.
-async function accumulatedForOwner(userId: string, ownerId: string, untilDate: string) {
-  const payerTag = `pagopor:${ownerId}`;
-  const [cats, ownerList, rows] = await Promise.all([
-    db.select().from(categories).where(eq(categories.userId, userId)),
-    getOwners(userId),
-    db.select({ type: transactions.type, amount: transactions.amount, categoryId: transactions.categoryId, isPaid: transactions.isPaid, date: transactions.date, paidAt: transactions.paidAt, ownerId: transactions.ownerId, entityType: transactions.entityType, aiTags: transactions.aiTags })
-      .from(transactions)
-      .where(and(
-        eq(transactions.userId, userId),
-        // do dono, ou pago pela conta dele (ver utils/paidBy.ts)
-        or(eq(transactions.ownerId, ownerId), sql`coalesce(${transactions.aiTags}, ARRAY[]::text[]) @> ARRAY[${payerTag}::text]`),
-        notAdjustment,
-        or(lte(transactions.date, untilDate), lte(transactions.paidAt, untilDate))
-      )),
-  ]);
-  const mine = rows.map((t) => toCashRow(t, ownerList)).filter((t) => t.ownerId === ownerId);
-  return balanceForPeriod(mine, buildKindSets(cats), FOREVER_START, untilDate).paid;
-}
-
-export async function getOwnerAccumulated(ownerId: string, untilDate: string) {
-  try {
-    const userId = await getUser();
-    if (!userId) return { success: false as const, message: "Login necessário." };
-    const owner = (await getOwners(userId)).find((o) => o.id === ownerId);
-    if (!owner) return { success: false as const, message: "Dono não encontrado." };
-    return { success: true as const, accumulated: await accumulatedForOwner(userId, ownerId, untilDate) };
-  } catch (error) {
-    console.error("Erro ao calcular saldo acumulado:", error);
-    return { success: false as const, message: "Erro ao calcular." };
-  }
-}
-
-// Lança UM ajuste com a diferença entre o saldo do app e o do banco. É um SALDO
-// INICIAL: fica datado no dia anterior ao primeiro lançamento do dono, então
-// entra no "dinheiro acumulado" mas NÃO suja o movimento de nenhum mês (o Mês
-// isolado continua mostrando só o que aconteceu naquele mês). Fica na categoria
-// "Ajuste de saldo" (tipo reembolso: não vira receita nem despesa). Conciliar de
-// novo substitui o ajuste anterior.
-export async function reconcileOwnerBalance(ownerId: string, realBalance: number, untilDate: string) {
+export async function setBalanceCheckpoint(ownerId: string, realBalance: number, date: string) {
   try {
     const userId = await getUser();
     if (!userId) return { success: false, message: "Login necessário." };
     if (!Number.isFinite(realBalance)) return { success: false, message: "Informe o saldo do banco." };
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return { success: false, message: "Data inválida." };
     const owner = (await getOwners(userId)).find((o) => o.id === ownerId);
     if (!owner) return { success: false, message: "Dono não encontrado." };
 
-    const current = await accumulatedForOwner(userId, ownerId, untilDate);
-    const adj = adjustmentFor(current, realBalance);
+    await db.insert(balanceCheckpoints).values({ userId, ownerId, date, amount: realBalance.toFixed(2) })
+      .onConflictDoUpdate({ target: [balanceCheckpoints.userId, balanceCheckpoints.ownerId], set: { date, amount: realBalance.toFixed(2), updatedAt: new Date() } });
 
-    const oldAdjustments = and(eq(transactions.userId, userId), eq(transactions.ownerId, ownerId), sql`coalesce(${transactions.aiTags}, ARRAY[]::text[]) @> ARRAY[${ADJUST_TAG}::text]`);
-    if (!adj) {
-      await db.delete(transactions).where(oldAdjustments);
-      revalidatePath("/");
-      return { success: true, adjusted: false, message: "Já está batendo com o banco." };
-    }
-
-    const cats = await db.select().from(categories).where(eq(categories.userId, userId));
-    let cat = cats.find((c) => c.name.trim().toLowerCase() === "ajuste de saldo");
-    if (!cat) {
-      cat = (await db.insert(categories).values({ userId, name: "Ajuste de saldo", type: "expense", kind: "refund" }).returning())[0];
-    } else if (cat.kind !== "refund") {
-      await db.update(categories).set({ kind: "refund" }).where(eq(categories.id, cat.id));
-    }
-
-    // dia anterior ao primeiro lançamento do dono (sem contar ajustes antigos)
-    const [first] = await db.select({ d: sql<string | null>`min(least(${transactions.date}, coalesce(${transactions.paidAt}, ${transactions.date})))` })
-      .from(transactions)
-      .where(and(eq(transactions.userId, userId), eq(transactions.ownerId, ownerId), notAdjustment));
-    const adjDate = first?.d && first.d <= untilDate ? addDays(first.d, -1) : addDays(untilDate, -1);
-
-    const ownership = await resolveOwnership(userId, { ownerId });
-    const [created] = await db.insert(transactions).values({
-      userId,
-      description: `Saldo inicial / ajuste (conciliação com o banco em ${untilDate.split("-").reverse().join("/")})`,
-      amount: adj.amount.toFixed(2),
-      categoryId: cat.id,
-      type: adj.type,
-      date: adjDate,
-      isFixed: false,
-      isPaid: true,
-      paidAt: adjDate,
-      entityType: ownership.entityType,
-      ownerId: ownership.ownerId,
-      aiTags: [ADJUST_TAG],
-    }).returning({ id: transactions.id });
-
-    // só depois de gravar o novo, remove os ajustes antigos
-    await db.delete(transactions).where(and(oldAdjustments, sql`${transactions.id} <> ${created.id}`));
+    // limpa ajustes antigos criados por versões anteriores da conciliação
+    await db.delete(transactions).where(and(
+      eq(transactions.userId, userId),
+      eq(transactions.ownerId, ownerId),
+      sql`coalesce(${transactions.aiTags}, ARRAY[]::text[]) @> ARRAY[${ADJUST_TAG}::text]`
+    ));
     revalidatePath("/");
-    return { success: true, adjusted: true, type: adj.type, amount: adj.amount };
+    return { success: true };
   } catch (error) {
-    console.error("Erro ao conciliar saldo:", error);
-    return { success: false, message: "Erro ao salvar o ajuste." };
+    console.error("Erro ao salvar saldo conferido:", error);
+    return { success: false, message: "Erro ao salvar. Rode a migração 'saldo_conferido' no banco." };
   }
 }
 

@@ -4,45 +4,62 @@ import { useState } from 'react'
 import { Wallet, Scale, User, Building2 } from 'lucide-react'
 import { ReconcileBalanceModal } from '@/components/ReconcileBalanceModal'
 
-// "Saldo hoje": quanto cada pessoa/empresa tem na conta AGORA. É o saldo que você conferiu
-// com o banco + o que foi pago depois. Sem conferência não mostramos número nenhum (somar
-// um histórico incompleto enganaria). Não depende do mês escolhido.
-export function BalancesStrip({ theme, owners = [], todayByOwner = {}, checkpoints = {}, formatCurrency, onChanged }: any) {
+const MONTHS = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro']
+
+// Uma coluna por pessoa/empresa com o MÊS escolhido:
+//   Saldo no início do mês  +  Entrou  −  Saiu  =  Saldo no fim do mês (ou hoje)
+// Entrou e Saiu são só do mês: outros meses não interferem. O saldo (início e fim) vem do saldo
+// que você conferiu uma vez com o banco; sem conferência, mostramos só o que entrou e saiu.
+export function BalancesStrip({ theme, owners = [], monthByOwner = {}, checkpoints = {}, periodLabel = '', todayStr = '', formatCurrency, onChanged }: any) {
   const [reconcileOwner, setReconcileOwner] = useState<string | null>(null)
   if (owners.length === 0) return null
+  const fmtDate = (d: string) => d.split('-').reverse().slice(0, 2).join('/')
   return (
     <>
       <div className={`${theme.card} rounded-2xl border p-4`}>
-        <div className="flex items-center justify-between gap-2 mb-3">
-          <h3 className={`text-sm font-bold flex items-center gap-2 ${theme.text}`}><Wallet className="w-4 h-4 text-blue-500" /> Saldo hoje</h3>
-          <span className={`text-[11px] ${theme.textMuted}`}>saldo do banco + o que foi pago depois · não depende do mês</span>
+        <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
+          <h3 className={`text-sm font-bold flex items-center gap-2 ${theme.text}`}><Wallet className="w-4 h-4 text-blue-500" /> Contas em {periodLabel || 'o período'}</h3>
+          <span className={`text-[11px] ${theme.textMuted}`}>só o que foi pago · o que entrou e saiu é só do mês</span>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {owners.map((o: any) => {
+            const m = monthByOwner[o.id]
             const cp = checkpoints[o.id]
-            const has = cp !== undefined && todayByOwner[o.id] !== undefined
-            const v = Number(todayByOwner[o.id] || 0)
+            if (!m) return null
+            const hasBalance = m.opening !== null && m.closing !== null
+            const closingIsToday = m.closingDate === todayStr
+            const row = (label: string, value: number, tone: string) => (
+              <div className="flex items-baseline justify-between gap-2 text-xs">
+                <span className={theme.textMuted}>{label}</span>
+                <b className={`font-mono ${tone}`}>{formatCurrency(value)}</b>
+              </div>
+            )
             return (
-              <div key={o.id} className="rounded-xl border border-black/5 dark:border-white/10 p-3 flex flex-col gap-1">
+              <div key={o.id} className="rounded-xl border border-black/5 dark:border-white/10 p-3 flex flex-col gap-1.5">
                 <p className={`text-xs font-bold flex items-center gap-1.5 ${theme.textMuted}`}>
                   {o.kind === 'pj' ? <Building2 className="w-3.5 h-3.5" /> : <User className="w-3.5 h-3.5" />} {o.name}
                 </p>
-                {has ? (
-                  <>
-                    <p className={`text-xl font-bold font-mono ${v < 0 ? 'text-red-500' : theme.text}`}>{formatCurrency(v)}</p>
-                    <p className={`text-[10px] ${theme.textMuted}`}>conferido em {cp.date.split('-').reverse().join('/')} com {formatCurrency(cp.amount)}</p>
-                  </>
+                {hasBalance && row('Saldo no início do mês', m.opening, m.opening < 0 ? 'text-red-500' : theme.text)}
+                {row('Entrou', m.inflow, 'text-emerald-500')}
+                {row('Saiu', -m.outflow, 'text-red-500')}
+                {hasBalance ? (
+                  <div className="border-t border-black/5 dark:border-white/10 pt-1.5 mt-0.5">
+                    <p className={`text-[10px] ${theme.textMuted}`}>{closingIsToday ? 'Saldo hoje' : `Saldo em ${fmtDate(m.closingDate)}`}</p>
+                    <p className={`text-xl font-bold font-mono ${m.closing < 0 ? 'text-red-500' : theme.text}`}>{formatCurrency(m.closing)}</p>
+                  </div>
                 ) : (
-                  <>
-                    <p className={`text-sm font-semibold ${theme.textMuted}`}>Ainda não conferido</p>
-                    <p className={`text-[10px] ${theme.textMuted}`}>Informe o saldo do banco para ver o valor real.</p>
-                  </>
+                  <div className="border-t border-black/5 dark:border-white/10 pt-1.5 mt-0.5">
+                    <p className={`text-[10px] ${theme.textMuted}`}>Resultado do mês (entrou − saiu)</p>
+                    <p className={`text-xl font-bold font-mono ${m.net < 0 ? 'text-red-500' : theme.text}`}>{formatCurrency(m.net)}</p>
+                    <p className={`text-[10px] ${theme.textMuted}`}>Informe o saldo do banco uma vez para ver o saldo de cada mês.</p>
+                  </div>
                 )}
+                {cp && <p className={`text-[10px] ${theme.textMuted}`}>saldo do banco conferido em {fmtDate(cp.date)}: {formatCurrency(cp.amount)}</p>}
                 <button
                   type="button"
                   onClick={() => setReconcileOwner(o.id)}
                   className="self-start inline-flex items-center gap-1 text-[11px] font-semibold text-blue-500 hover:text-blue-400"
-                ><Scale className="w-3.5 h-3.5" /> {has ? 'Conferir de novo' : 'Informar saldo do banco'}</button>
+                ><Scale className="w-3.5 h-3.5" /> {cp ? 'Conferir de novo' : 'Informar saldo do banco'}</button>
               </div>
             )
           })}

@@ -5,7 +5,7 @@ import { categories, transactions, balanceCheckpoints, userSettings, categoryRul
 import { getOwners, resolveOwnership, ownerSetupNeeded } from "@/db/owners";
 import { matchesView } from "@/utils/owners";
 import { inferKindFromName, buildKindSets, resolveCategoryKind, pickRefundCategory, type CategoryKind } from "@/utils/categoryKinds";
-import { balanceForPeriod, balanceFromCheckpoint, classifyForPeriod, FOREVER_START } from "@/utils/balance";
+import { balanceForPeriod, balanceFromCheckpoint, classifyForPeriod, ownerMonthSummary, FOREVER_START } from "@/utils/balance";
 import { cycleKeyForDueMonth, withInvoiceTag } from "@/utils/creditCard";
 import { paidByFromTags, withPaidBy, toCashRow } from "@/utils/paidBy";
 import { settleInvoice } from "@/db/invoices";
@@ -138,11 +138,14 @@ export async function getDashboardData(startMonth: number, startYear: number, en
     const accumulatedByOwner: Record<string, number> = {};
     // Saldo de HOJE por dono: dinheiro de verdade (só o pago), desde sempre até hoje.
     const todayByOwner: Record<string, number> = {};
+    const monthByOwner: Record<string, ReturnType<typeof ownerMonthSummary>> = {};
     for (const o of ownerList) {
       const rows = balanceRows.filter(t => t.ownerId === o.id);
       // só existe valor para quem já conferiu o saldo com o banco (senão, a soma do histórico enganaria)
       const cp = checkpoints[o.id];
       if (cp) todayByOwner[o.id] = balanceFromCheckpoint(rows, kindSets, cp, todayForBalance);
+      // resumo do período olhado: início, entrou, saiu e fim (fluxo só do período; saldo ancorado no banco)
+      monthByOwner[o.id] = ownerMonthSummary(rows, kindSets, cp, startDateStr, endDateStr, todayForBalance);
       const g = split(rows);
       balanceByOwner[o.id] = g.paid;
       pendingByOwner[o.id] = g.pending;
@@ -174,7 +177,7 @@ export async function getDashboardData(startMonth: number, startYear: number, en
       owners: ownerList,
       needsOwnerSetup,
       accounts: accountList,
-      summary: { cashBasis: true, balance, income, expense, globalBalance, globalBalancePF, globalBalancePJ, balanceByOwner, globalPending, globalPendingPF, globalPendingPJ, pendingByOwner, accumulated, accumulatedPF, accumulatedPJ, accumulatedByOwner, todayByOwner, checkpoints },
+      summary: { cashBasis: true, balance, income, expense, globalBalance, globalBalancePF, globalBalancePJ, balanceByOwner, globalPending, globalPendingPF, globalPendingPJ, pendingByOwner, accumulated, accumulatedPF, accumulatedPJ, accumulatedByOwner, todayByOwner, monthByOwner, checkpoints },
       categoryStats, 
       pieData: categoryStats, 
       dailyData: [], 

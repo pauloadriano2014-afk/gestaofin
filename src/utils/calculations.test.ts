@@ -895,3 +895,25 @@ test("importar de novo: mesmo item com nome escrito diferente não duplica; repe
   assert.equal(r.skipped.length, 3);
   assert.deepEqual(r.fresh.map((x) => x.description), ["Asa*Pa Elite Team", "Dl*Google Capcut"]);
 });
+
+import { ownerMonthSummary } from "./balance";
+test("resumo do mês: início + entrou - saiu = fim, ancorado no saldo do banco; outros meses não entram no fluxo", () => {
+  const sets = buildKindSets([]);
+  const row = (type: string, amount: string, date: string) => ({ type, amount, date, isPaid: true, paidAt: null, categoryId: null });
+  const rows = [
+    row("income", "5000", "2026-09-10"),   // setembro: não entra no fluxo de outubro
+    row("income", "1242.07", "2026-10-05"),
+    row("expense", "4369.39", "2026-10-09"),
+    row("expense", "10", "2026-10-12"),    // depois da conferência
+  ];
+  const cp = { date: "2026-10-11", amount: 73.77 };
+  const r = ownerMonthSummary(rows, sets, cp, "2026-10-01", "2026-10-31", "2026-10-20");
+  assert.equal(r.inflow, 1242.07);
+  assert.equal(r.outflow, 4379.39);
+  assert.equal(r.closing, 63.77);       // 73,77 - 10,00 pago depois da conferência (até hoje, 20/10)
+  assert.equal(r.closingDate, "2026-10-20");
+  assert.equal(r.opening, 3201.09);     // 73,77 + 4369,39 - 1242,07
+  // sem saldo conferido: só o fluxo do mês
+  const n = ownerMonthSummary(rows, sets, null, "2026-10-01", "2026-10-31", "2026-10-20");
+  assert.deepEqual([n.opening, n.closing, n.net], [null, null, -3137.32]);
+});

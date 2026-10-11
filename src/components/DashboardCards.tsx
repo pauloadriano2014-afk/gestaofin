@@ -51,29 +51,7 @@ export function DashboardCards({
 
   return (
     <>
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-
-        {/* Card 1: Saldo */}
-        <div
-          role="button"
-          tabIndex={0}
-          onClick={handleOpenBalance}
-          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleOpenBalance(); }}
-          className={`${theme.card} p-4 md:p-6 rounded-2xl border flex flex-col justify-between transition-colors cursor-pointer ${theme.cardHover}`}
-        >
-          <div className="flex items-center justify-between mb-2 md:mb-4">
-            <h3 className={`text-xs md:text-sm font-bold flex items-center gap-2 ${theme.textMuted}`}><Wallet className="w-4 h-4 text-blue-500" /> {isolatePeriod ? 'Resultado do mês (caixa)' : 'Resultado do período (caixa)'}</h3>
-            {onHelp && <button type="button" onClick={(e) => { e.stopPropagation(); onHelp('card-saldo'); }} className={`p-1 rounded-full hover:bg-black/5 ${theme.textMuted}`} title="Como esse número é calculado?" aria-label="Ajuda sobre este card"><HelpCircle className="w-4 h-4" /></button>}
-          </div>
-          <p className={`text-lg md:text-3xl font-bold font-mono tracking-tight ${theme.text}`}>{formatCurrency(summary.balance)}</p>
-          <p className={`text-[10px] md:text-xs mt-2 ${theme.textMuted}`}>{selectedDay ? `Em ${selectedDay}` : (isolatePeriod ? 'O que entrou menos o que saiu da conta neste mês (só o pago). Não é o saldo da conta: veja "Saldo hoje".' : 'Entradas menos saídas pagas no período, desde o começo.')}</p>
-          {Math.abs(summary.pending || 0) >= 0.005 && (
-            <p className={`text-[10px] md:text-xs mt-1 ${theme.textMuted}`}>
-              {summary.pending < 0 ? 'Falta pagar' : 'Falta receber'} <b className={`whitespace-nowrap ${summary.pending < 0 ? 'text-red-500' : 'text-emerald-500'}`}>{formatCurrency(Math.abs(summary.pending))}</b>
-              {' · '}previsto <b className={`whitespace-nowrap ${summary.projected < 0 ? 'text-red-500' : theme.text}`}>{formatCurrency(summary.projected)}</b>
-            </p>
-          )}
-        </div>
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
 
         {/* Card 2: Receita Operacional */}
         <div

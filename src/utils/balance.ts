@@ -126,3 +126,72 @@ export function balanceFromCheckpoint(
   const after = balanceForPeriod(rows, kindSets, next, today).paid;
   return Math.round((checkpoint.amount + after) * 100) / 100;
 }
+
+// ---------------------------------------------------------------------------
+// RESUMO DO MÊS DE UM DONO: início, entrou, saiu, fim
+// ---------------------------------------------------------------------------
+// Entrou/saiu são SÓ do período olhado (o histórico de outros meses não interfere). O saldo no
+// início e no fim do período vem do saldo conferido com o banco (uma vez): andando para trás
+// ou para frente com os movimentos pagos entre a data da conferência e a data pedida.
+// Assim, início + entrou - saiu = fim, e o fim de hoje é o saldo do banco.
+
+const addDay = (d: string, n: number) => new Date(Date.parse(d + "T00:00:00Z") + n * 86400000).toISOString().slice(0, 10);
+
+export function cashFlowForPeriod(
+  rows: PeriodRowLike[],
+  kindSets: ReturnType<typeof buildKindSets>,
+  start: string,
+  end: string
+): { inflow: number; outflow: number; net: number } {
+  let inflow = 0;
+  let outflow = 0;
+  for (const t of rows) {
+    if (t.categoryId && kindSets.card_payment.has(t.categoryId)) continue;
+    const v = Math.abs(Number(t.amount));
+    if (t.type !== "income" && t.type !== "expense") continue;
+    if (classifyForPeriod(t, start, end) !== "paid") continue;
+    if (t.type === "income") inflow += v; else outflow += v;
+  }
+  inflow = Math.round(inflow * 100) / 100;
+  outflow = Math.round(outflow * 100) / 100;
+  return { inflow, outflow, net: Math.round((inflow - outflow) * 100) / 100 };
+}
+
+// Saldo no FIM do dia `date`, a partir do saldo conferido.
+export function balanceAt(
+  rows: PeriodRowLike[],
+  kindSets: ReturnType<typeof buildKindSets>,
+  cp: { date: string; amount: number },
+  date: string
+): number {
+  if (date >= cp.date) return Math.round((cp.amount + balanceForPeriod(rows, kindSets, addDay(cp.date, 1), date).paid) * 100) / 100;
+  return Math.round((cp.amount - balanceForPeriod(rows, kindSets, addDay(date, 1), cp.date).paid) * 100) / 100;
+}
+
+export interface OwnerMonthSummary {
+  inflow: number;
+  outflow: number;
+  net: number;
+  opening: number | null;   // saldo no início do período (null sem saldo conferido)
+  closing: number | null;   // saldo no fim do período (ou hoje, se o período ainda não acabou)
+  closingDate: string;      // data a que o "closing" se refere
+}
+
+export function ownerMonthSummary(
+  rows: PeriodRowLike[],
+  kindSets: ReturnType<typeof buildKindSets>,
+  checkpoint: { date: string; amount: number } | null | undefined,
+  start: string,
+  end: string,
+  today: string
+): OwnerMonthSummary {
+  const flow = cashFlowForPeriod(rows, kindSets, start, end);
+  const closingDate = end > today ? today : end;
+  if (!checkpoint) return { ...flow, opening: null, closing: null, closingDate };
+  return {
+    ...flow,
+    opening: balanceAt(rows, kindSets, checkpoint, addDay(start, -1)),
+    closing: balanceAt(rows, kindSets, checkpoint, closingDate),
+    closingDate,
+  };
+}

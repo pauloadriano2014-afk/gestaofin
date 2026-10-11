@@ -447,7 +447,7 @@ export default function Dashboard() {
             <div className="space-y-6 pb-8">
               {openBillsPanel(false)}
               <MonthCloseChecklist theme={theme} checklist={checklist} onGo={goTo} />
-              <BalancesStrip theme={theme} owners={ownerList} todayByOwner={rawData.summary?.todayByOwner} checkpoints={rawData.summary?.checkpoints} formatCurrency={formatCurrency} onChanged={loadData} />
+              <BalancesStrip theme={theme} owners={ownerList} monthByOwner={rawData.summary?.monthByOwner} checkpoints={rawData.summary?.checkpoints} periodLabel={isolatePeriod || (startMonth === endMonth && startYear === endYear) ? ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'][startMonth - 1] + (startYear !== new Date().getFullYear() ? ' de ' + startYear : '') : 'o período'} todayStr={todayStr} formatCurrency={formatCurrency} onChanged={loadData} />
               <DashboardCards
                 theme={theme}
                 summary={processedData.summary}

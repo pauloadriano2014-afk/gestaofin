@@ -1,7 +1,7 @@
 'use server'
 
 import { db } from "@/db";
-import { categoryRules } from "@/db/schema";
+import { categoryRules, categories } from "@/db/schema";
 import { and, desc, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { getUser } from "./actions";
@@ -17,6 +17,10 @@ export async function learnCategoryRule(userId: string, description: string, cat
     if (!description || !categoryId) return;
     const pattern = normalizeDescriptionPattern(description);
     if (pattern.length < 3) return; // padrão curto demais não vale a pena guardar
+
+    // "Ajuste de saldo" é só da conciliação com o banco: nunca vira regra automática.
+    const cat = (await db.select({ name: categories.name }).from(categories).where(eq(categories.id, categoryId)))[0];
+    if (cat?.name.trim().toLowerCase() === "ajuste de saldo") return;
 
     const existing = await db.select().from(categoryRules).where(
       and(eq(categoryRules.userId, userId), eq(categoryRules.pattern, pattern))

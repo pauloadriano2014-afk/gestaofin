@@ -741,3 +741,14 @@ test("vínculo de fatura: vazio ou incompleto não conta (bug do ''.split)", () 
   assert.equal(parseLinkedInvoice(undefined), null);
   assert.deepEqual(parseLinkedInvoice("k1|2026-09"), ["k1", "2026-09"]);
 });
+
+import { pickRefundCategory } from "./categoryKinds";
+test("transferência usa Reembolsos/Empréstimos, nunca Ajuste de saldo (ambas são do tipo reembolso)", () => {
+  const cats = [
+    { id: "aj", name: "Ajuste de saldo", kind: "refund" },
+    { id: "re", name: "Reembolsos / Empréstimos", kind: "refund" },
+    { id: "me", name: "Mercado", kind: "operational" },
+  ];
+  assert.equal(pickRefundCategory(cats)?.id, "re");
+  assert.equal(pickRefundCategory([cats[0], cats[2]]), null);
+});

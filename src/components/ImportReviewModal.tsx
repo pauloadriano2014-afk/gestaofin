@@ -4,7 +4,7 @@ import { findReversalPairs } from "@/utils/reversals";
 import { looksLikeInvoicePaymentLine, looksLikeBankInvoicePayment, matchInvoiceByAmount } from "@/utils/invoiceLines";
 import { X, CheckCircle2, ArrowUpRight, ArrowDownRight, Briefcase, User, Loader2, Trash2, Scissors } from "lucide-react";
 import { looksLikeTransfer, pairWithinList, rankFixedBills, mentionsOwner } from "@/utils/transfers";
-import { resolveCategoryKind } from "@/utils/categoryKinds";
+import { resolveCategoryKind, pickRefundCategory } from "@/utils/categoryKinds";
 import { findTransferMatches } from "@/app/actions";
 
 export function ImportReviewModal({ isOpen, onClose, initialTransactions, categories, onConfirm, isSaving, pendingFixedBills = [], owners = [], defaultOwnerId, flagInvoicePayments = false, headerExtra = null, invoices = [], accounts = [] }: any) {
@@ -35,7 +35,7 @@ export function ImportReviewModal({ isOpen, onClose, initialTransactions, catego
       }));
       // Transferência que cita um dos donos (você, a Adri...) é dinheiro entre os donos:
       // já vem como Reembolso / Empréstimo (neutro), se a categoria ainda é "normal".
-      const refundCat = (categories || []).find((c: any) => resolveCategoryKind(c) === 'refund');
+      const refundCat = pickRefundCategory(categories || []);
       const ownerAware = mapped.map((t: any) => {
         if (!refundCat || flagInvoicePayments || !mentionsOwner(t.description, owners)) return t;
         const cur = (categories || []).find((c: any) => c.id === t.categoryId);
@@ -78,7 +78,7 @@ export function ImportReviewModal({ isOpen, onClose, initialTransactions, catego
     setTransactions((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const refundCategoryId: string | null = (categories || []).find((c: any) => resolveCategoryKind(c) === 'refund')?.id || null;
+  const refundCategoryId: string | null = pickRefundCategory(categories || [])?.id || null;
   const pairs = pairWithinList(transactions as any);
   const reversalPairs = findReversalPairs(transactions as any);
   const shortDate = (d: string) => d.split('-').reverse().slice(0, 2).join('/');
@@ -309,7 +309,7 @@ export function ImportReviewModal({ isOpen, onClose, initialTransactions, catego
                           className="flex-1 min-w-[9rem] md:max-w-[13rem] bg-gray-50 dark:bg-zinc-950 border border-gray-200 dark:border-zinc-800 text-gray-900 dark:text-zinc-50 text-xs rounded-lg px-2 py-2.5 outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
                         >
                           <option value="">Geral (Sem Categoria)</option>
-                          {categories.map((c: any) => (
+                          {categories.filter((c: any) => c.name.trim().toLowerCase() !== 'ajuste de saldo' || c.id === tx.categoryId).map((c: any) => (
                             <option key={c.id} value={c.id}>{c.name}</option>
                           ))}
                         </select>

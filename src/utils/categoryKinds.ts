@@ -56,3 +56,11 @@ export function isOperational(
   if (!categoryId) return true;
   return !sets.investment.has(categoryId) && !sets.refund.has(categoryId) && !sets.card_payment.has(categoryId);
 }
+
+// Categoria de reembolso/empréstimo para transferências entre contas e pessoas.
+// "Ajuste de saldo" também é do tipo reembolso (neutra em Receita/Despesas), mas é só da
+// conciliação com o banco: nunca pode ser escolhida aqui. Prefere a que tem "reembolso" no nome.
+export function pickRefundCategory<T extends { id: string; name: string; kind?: string | null }>(categories: T[]): T | null {
+  const list = (categories || []).filter((c) => resolveCategoryKind(c) === "refund" && c.name.trim().toLowerCase() !== "ajuste de saldo");
+  return list.find((c) => c.name.toLowerCase().includes("reembols")) ?? list[0] ?? null;
+}

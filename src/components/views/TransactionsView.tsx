@@ -144,7 +144,7 @@ export function TransactionsView({
             </button>
             <select value={bulkCategory} onChange={(e) => setBulkCategory(e.target.value)} className={input}>
               <option value="">Mudar categoria para…</option>
-              {sortedCategories.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              {sortedCategories.filter((c: any) => c.name.trim().toLowerCase() !== 'ajuste de saldo').map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
             <button disabled={!bulkCategory || busy} onClick={() => run(() => setTransactionsCategory(selectedIds, bulkCategory))} className={`flex items-center gap-1.5 text-xs font-bold px-3 py-2 rounded-lg ${theme.button} disabled:opacity-40`}>
               <Tag className="w-3.5 h-3.5" /> Aplicar

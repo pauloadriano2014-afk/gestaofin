@@ -4,7 +4,7 @@ import { db } from "@/db";
 import { categories, transactions, userSettings, categoryRules, fixedBills, accounts, creditCards } from "@/db/schema";
 import { getOwners, resolveOwnership, ownerSetupNeeded } from "@/db/owners";
 import { matchesView } from "@/utils/owners";
-import { inferKindFromName, buildKindSets, resolveCategoryKind, type CategoryKind } from "@/utils/categoryKinds";
+import { inferKindFromName, buildKindSets, resolveCategoryKind, pickRefundCategory, type CategoryKind } from "@/utils/categoryKinds";
 import { balanceForPeriod, classifyForPeriod, adjustmentFor, FOREVER_START } from "@/utils/balance";
 import { cycleKeyForDueMonth, withInvoiceTag } from "@/utils/creditCard";
 import { paidByFromTags, withPaidBy, toCashRow } from "@/utils/paidBy";
@@ -881,7 +881,7 @@ export async function suggestCategoriesForTransactions(ids: string[]) {
       getOwners(userId),
       loadUserRules(userId),
     ]);
-    const refundId = Array.from(buildKindSets(cats).refund)[0] ?? null;
+    const refundId = pickRefundCategory(cats)?.id ?? null;
     const offered = cats.filter((c) => { const k = resolveCategoryKind(c); return k !== "card_payment" && c.name.trim().toLowerCase() !== "ajuste de saldo"; });
 
     const decided = new Map<string, string>();
@@ -1313,7 +1313,7 @@ export async function saveBulkTransactions(transactionsList: any[]) {
         // extrato): ao confirmar, ela passa a ser "Reembolsos / Empréstimos" também.
         const anyPaired = transactionsList.some((t) => t.pairedExistingId);
         const refundCategoryId = anyPaired
-            ? (Array.from(buildKindSets(await db.select().from(categories).where(eq(categories.userId, userId))).refund)[0] ?? null)
+            ? (pickRefundCategory(await db.select().from(categories).where(eq(categories.userId, userId)))?.id ?? null)
             : null;
         const cardPaymentCategoryId = anyInvoiceLink
             ? buildKindSetsFirst(await db.select().from(categories).where(eq(categories.userId, userId)))

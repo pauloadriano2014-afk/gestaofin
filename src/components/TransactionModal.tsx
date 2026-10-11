@@ -266,7 +266,7 @@ export function TransactionModal({
   };
 
   const uniqueCategories = Array.from(
-    new Map(categories.map((cat) => [cat.name.trim().toLowerCase(), cat])).values()
+    new Map(categories.filter((cat) => cat.name.trim().toLowerCase() !== 'ajuste de saldo' || cat.id === transaction?.categoryId).map((cat) => [cat.name.trim().toLowerCase(), cat])).values()
   );
 
   return (

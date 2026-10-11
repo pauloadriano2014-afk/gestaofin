@@ -841,3 +841,39 @@ test("fatura: itens agrupados por categoria com subtotal, maior primeiro", () =>
   const g = groupInvoiceItemsByCategory(items, [{ id: "t", name: "Transporte" }, { id: "l", name: "Lazer" }]);
   assert.deepEqual(g.map((x) => [x.name, x.total, x.count]), [["Lazer", 599.9, 1], ["Sem categoria", 44.9, 1], ["Transporte", 28.91, 3]]);
 });
+
+const NUBANK_TEXT = `
+Esta é a sua fatura de
+outubro, no valor de
+R$ 835,96
+Data de vencimento: 07 OUT 2026
+RESUMO DA FATURA ATUAL
+Total a pagarR$ 835,96
+Fechamento da próxima fatura31 OUT 2026
+TRANSAÇÕES
+DE 31 AGO A 30 SET
+Empresa XR$ 835,96
+09 SET
+IOF de "Anthropic* Claude Sub"R$ 4,00
+09 SET
+•••• 8248Anthropic* Claude Sub
+BRL 110.00 = USD 21.63
+Conversão: BRL 5.28 = USD 1 = R$ 5,28
+R$ 114,40
+12 SET
+•••• 6481Sua AcademiaR$ 349,00
+Pagamentos-R$ 775,98
+08 SET
+Pagamento em 08 SET−R$ 775,98
+Em cumprimento à regulação do Banco Central, texto legal.
+5 de 6
+`;
+test("fatura PDF (layout Nubank): data em linha própria, compra internacional, IOF e pagamento ignorado", () => {
+  const { rows, meta } = parseInvoiceText(NUBANK_TEXT);
+  assert.deepEqual(meta, { dueDate: "2026-10-07", closingDay: 31, total: 835.96 });
+  assert.deepEqual(rows.map((r) => [r.date, r.amount, r.description]), [
+    ["2026-09-09", 4, 'IOF de "Anthropic* Claude Sub"'],
+    ["2026-09-09", 114.4, "Anthropic* Claude Sub"],
+    ["2026-09-12", 349, "Sua Academia"],
+  ]);
+});

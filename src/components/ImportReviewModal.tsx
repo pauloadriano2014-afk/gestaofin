@@ -182,9 +182,9 @@ export function ImportReviewModal({ isOpen, onClose, initialTransactions, catego
             </p>
             {headerExtra}
             {flagInvoicePayments && expectedTotal != null && (
-              <p className={`mt-2 text-xs font-semibold ${Math.abs(totalDiff) < 0.005 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
-                {Math.abs(totalDiff) < 0.005
-                  ? <>Total da fatura no arquivo: {formatCurrency(expectedTotal)} — bate com a soma dos itens.</>
+              <p className={`mt-2 text-xs font-semibold ${Math.abs(totalDiff) <= 0.02 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
+                {Math.abs(totalDiff) <= 0.02
+                  ? <>Total da fatura no arquivo: {formatCurrency(expectedTotal)} — bate com a soma dos itens{Math.abs(totalDiff) >= 0.005 ? ' (centavos de arredondamento do banco)' : ''}.</>
                   : <>Total da fatura no arquivo: {formatCurrency(expectedTotal)} · soma dos itens: {formatCurrency(itemsTotal)} (diferença de {formatCurrency(Math.abs(totalDiff))}: confira se falta ou sobra algum item, ou se há juros/IOF).</>}
               </p>
             )}

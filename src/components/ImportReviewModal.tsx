@@ -7,7 +7,7 @@ import { looksLikeTransfer, pairWithinList, rankFixedBills, mentionsOwner } from
 import { resolveCategoryKind, pickRefundCategory } from "@/utils/categoryKinds";
 import { findTransferMatches } from "@/app/actions";
 
-export function ImportReviewModal({ isOpen, onClose, initialTransactions, categories, onConfirm, isSaving, pendingFixedBills = [], owners = [], defaultOwnerId, flagInvoicePayments = false, headerExtra = null, invoices = [], accounts = [] }: any) {
+export function ImportReviewModal({ isOpen, onClose, initialTransactions, categories, onConfirm, isSaving, pendingFixedBills = [], owners = [], defaultOwnerId, flagInvoicePayments = false, headerExtra = null, invoices = [], accounts = [], expectedTotal = null }: any) {
   const [transactions, setTransactions] = useState<any[]>([]);
   // "Outra ponta" já salva (de outro extrato), por chave da linha; e sugestões dispensadas.
   const [matches, setMatches] = useState<Record<string, any>>({});
@@ -153,6 +153,13 @@ export function ImportReviewModal({ isOpen, onClose, initialTransactions, catego
     : (fileOwnerId || accounts.find((a: any) => a.id === importAccountId)?.ownerId || null);
   const rowPaidBy = (t: any) => effectivePaidBy(t, statementOwnerId) || 'self';
 
+  // Fatura de cartão: o total que o arquivo diz x a soma dos itens (compra soma, estorno abate;
+  // o pagamento da fatura anterior fica de fora). Se não fecha, falta/sobra algum item ou há juros/IOF.
+  const itemsTotal = Math.round(transactions
+    .filter((t: any) => !looksLikeInvoicePaymentLine(t))
+    .reduce((acc: number, t: any) => acc + (t.type === 'income' ? -1 : 1) * Math.abs(Number(t.amount)), 0) * 100) / 100;
+  const totalDiff = expectedTotal != null ? Math.round((expectedTotal - itemsTotal) * 100) / 100 : 0;
+
   const formatCurrency = (val: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
 
   return (
@@ -174,6 +181,13 @@ export function ImportReviewModal({ isOpen, onClose, initialTransactions, catego
               {pendingFixedBills.length > 0 && ' Se algum item já é uma conta fixa cadastrada, vincule pra dar baixa nela em vez de duplicar.'}
             </p>
             {headerExtra}
+            {flagInvoicePayments && expectedTotal != null && (
+              <p className={`mt-2 text-xs font-semibold ${Math.abs(totalDiff) < 0.005 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
+                {Math.abs(totalDiff) < 0.005
+                  ? <>Total da fatura no arquivo: {formatCurrency(expectedTotal)} — bate com a soma dos itens.</>
+                  : <>Total da fatura no arquivo: {formatCurrency(expectedTotal)} · soma dos itens: {formatCurrency(itemsTotal)} (diferença de {formatCurrency(Math.abs(totalDiff))}: confira se falta ou sobra algum item, ou se há juros/IOF).</>}
+              </p>
+            )}
             {!flagInvoicePayments && owners.length > 0 && (
               <div className="mt-3 flex items-center gap-2 flex-wrap">
                 <span className="text-sm font-bold text-gray-700 dark:text-zinc-200">De quem é este arquivo?</span>

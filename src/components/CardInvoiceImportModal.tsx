@@ -2,10 +2,10 @@
 
 import { useState, useEffect } from 'react'
 import { X, Upload, Loader2, CreditCard, FileText, Plus } from 'lucide-react'
-import { getUserCreditCards, createCreditCard } from '@/app/creditCardActions'
+import { getUserCreditCards, createCreditCard, updateCreditCard } from '@/app/creditCardActions'
 import { getOwnersAndAccounts } from '@/app/ownerActions'
 import { processCardInvoiceWithAI, saveBulkCardInvoiceTransactions, parsePdfInvoiceText } from '@/app/actions'
-import { parseCardInvoiceCsv, parseOfx } from '@/utils/importParsers'
+import { parseCardInvoiceCsv, parseOfx, parseOfxTotal } from '@/utils/importParsers'
 import { ImportReviewModal } from '@/components/ImportReviewModal'
 import { getInvoiceCycleForDate, dueMonthForCycleKey } from '@/utils/creditCard'
 
@@ -29,6 +29,9 @@ export function CardInvoiceImportModal({ categories, onClose, pendingFixedBills 
   const [newCardName, setNewCardName] = useState('')
   const [newCardClosingDay, setNewCardClosingDay] = useState('')
   const [newCardDueDay, setNewCardDueDay] = useState('')
+  const [newCardOwner, setNewCardOwner] = useState('')
+  // O que o próprio arquivo diz da fatura: vencimento e total (quando o formato traz).
+  const [fileMeta, setFileMeta] = useState<{ dueDate?: string | null; total?: number | null }>({})
   const [isSavingCard, setIsSavingCard] = useState(false)
 
   const [uploadStatus, setUploadStatus] = useState('')
@@ -47,38 +50,38 @@ export function CardInvoiceImportModal({ categories, onClose, pendingFixedBills 
     }).catch(() => setLoadingCards(false))
   }, [])
 
-  async function handleCreateCard() {
-    if (!newCardName.trim() || !newCardClosingDay || !newCardDueDay) return
-    setIsSavingCard(true)
-    const res = await createCreditCard({
-      name: newCardName.trim(),
-      closingDay: Number(newCardClosingDay),
-      dueDay: Number(newCardDueDay),
-    })
-
-    if (!res.success) {
-      setIsSavingCard(false)
-      alert(res.message || 'Erro ao cadastrar o cartão.')
-      return
-    }
-
+  // Cria o cartão sozinho a partir do arquivo: o dia de vencimento vem da fatura (se o arquivo
+  // trouxer); fechamento aproximado (7 dias antes), pois todos os itens importados vão para a
+  // fatura escolhida mesmo. Só o nome é obrigatório.
+  async function createCardFromFile(meta: { dueDate?: string | null }): Promise<any | null> {
+    const dueFromFile = meta.dueDate ? Number(meta.dueDate.slice(8, 10)) : 0
+    const dueDay = Number(newCardDueDay) || dueFromFile || 10
+    const closingDay = Number(newCardClosingDay) || (dueDay > 7 ? dueDay - 7 : dueDay + 23)
+    const res = await createCreditCard({ name: newCardName.trim(), closingDay, dueDay, ownerId: newCardOwner || null })
+    if (!res.success) { alert(res.message || 'Erro ao cadastrar o cartão.'); return null }
     const previousIds = new Set(cards.map((c: any) => c.id))
     const updated = await getUserCreditCards()
     setCards(updated)
-    setIsSavingCard(false)
-
     const created = updated.find((c: any) => !previousIds.has(c.id))
-    setSelectedCardId(created ? created.id : '')
-    setNewCardName('')
-    setNewCardClosingDay('')
-    setNewCardDueDay('')
+    if (!created) return null
+    setSelectedCardId(created.id)
+    setNewCardName(''); setNewCardClosingDay(''); setNewCardDueDay('')
+    return created
   }
 
-  async function processRawRows(rawRows: { date: string; amount: number; description: string }[]) {
+  async function processRawRows(rawRows: { date: string; amount: number; description: string }[], meta: { dueDate?: string | null; total?: number | null } = {}) {
     if (rawRows.length === 0) {
       alert('Não encontrei nenhum item nesse arquivo. Confira se é mesmo o extrato/fatura do cartão.')
       setUploadStatus('')
       return
+    }
+
+    // cartão novo: cadastra agora, já com o vencimento lido do arquivo
+    let card = cards.find((c: any) => c.id === selectedCardId)
+    if (selectedCardId === NEW_CARD_VALUE) {
+      setUploadStatus('Cadastrando o cartão...')
+      card = await createCardFromFile(meta)
+      if (!card) { setUploadStatus(''); return }
     }
 
     const totalBatches = Math.ceil(rawRows.length / BATCH_SIZE)
@@ -97,10 +100,13 @@ export function CardInvoiceImportModal({ categories, onClose, pendingFixedBills 
     setUploadStatus('')
 
     if (allProcessed.length > 0) {
-      // Palpite do vencimento: a fatura em que cai o item mais recente do arquivo
-      // (o usuário pode corrigir na revisão).
-      const card = cards.find((c: any) => c.id === selectedCardId)
-      if (card) {
+      setFileMeta(meta)
+      if (meta.dueDate) {
+        // vencimento lido do próprio arquivo
+        setDueMonth(meta.dueDate.slice(0, 7))
+      } else if (card) {
+        // Palpite do vencimento: a fatura em que cai o item mais recente do arquivo
+        // (o usuário pode corrigir na revisão).
         const latest = allProcessed.map((t: any) => t.date).filter(Boolean).sort().slice(-1)[0]
         if (latest) {
           const key = getInvoiceCycleForDate(latest, card.closingDay, card.dueDay).cycleKey
@@ -117,8 +123,9 @@ export function CardInvoiceImportModal({ categories, onClose, pendingFixedBills 
   function handleFileChange(event: any) {
     const file = event.target.files?.[0]
     if (!file) return
-    if (!selectedCardId || selectedCardId === NEW_CARD_VALUE) {
-      alert('Selecione (ou cadastre) primeiro a qual cartão essa fatura pertence.')
+    const isNew = selectedCardId === NEW_CARD_VALUE
+    if (!selectedCardId || (isNew && !newCardName.trim())) {
+      alert('Escolha o cartão ou, se for novo, digite o nome dele.')
       event.target.value = null
       return
     }
@@ -140,7 +147,7 @@ export function CardInvoiceImportModal({ categories, onClose, pendingFixedBills 
         const text = e.target?.result as string
         setUploadStatus('Lendo OFX...')
         const rawRows = parseOfx(text)
-        await processRawRows(rawRows)
+        await processRawRows(rawRows, { total: parseOfxTotal(text) })
       }
       reader.readAsText(file)
     } else if (name.endsWith('.pdf')) {
@@ -149,13 +156,13 @@ export function CardInvoiceImportModal({ categories, onClose, pendingFixedBills 
         const dataUrl = e.target?.result as string
         const base64 = dataUrl.split(',')[1] || ''
         setUploadStatus('Extraindo texto do PDF...')
-        const res = await parsePdfInvoiceText(base64)
+        const res: any = await parsePdfInvoiceText(base64)
         if (!res.success || !res.data) {
           alert(res.message || 'Não consegui ler esse PDF.')
           setUploadStatus('')
           return
         }
-        await processRawRows(res.data)
+        await processRawRows(res.data, res.meta || {})
       }
       reader.readAsDataURL(file)
     } else {
@@ -168,6 +175,13 @@ export function CardInvoiceImportModal({ categories, onClose, pendingFixedBills 
   async function handleConfirmImport(finalTransactions: any[]) {
     setIsSaving(true)
     const res = await saveBulkCardInvoiceTransactions(finalTransactions, selectedCardId, dueMonth || undefined)
+    // O arquivo trouxe um vencimento diferente do cadastrado no cartão: oferece atualizar (assim a aba Cartões mostra a data certa)
+    const fileDueDay = fileMeta.dueDate ? Number(fileMeta.dueDate.slice(8, 10)) : 0
+    const cardNow = cards.find((c: any) => c.id === selectedCardId)
+    if (res.success && cardNow && fileDueDay && fileDueDay !== cardNow.dueDay &&
+        confirm(`O vencimento nesta fatura é dia ${fileDueDay}, mas o cartão "${cardNow.name}" está com dia ${cardNow.dueDay}. Atualizar o cartão para dia ${fileDueDay}?`)) {
+      await updateCreditCard(cardNow.id, { name: cardNow.name, closingDay: cardNow.closingDay, dueDay: fileDueDay, ownerId: cardNow.ownerId || null })
+    }
     setIsSaving(false)
 
     if (res.success) {
@@ -186,6 +200,7 @@ export function CardInvoiceImportModal({ categories, onClose, pendingFixedBills 
   useEffect(() => { getOwnersAndAccounts().then((r) => setOwners(r.owners)) }, [])
 
   const selectedCard = cards.find((c: any) => c.id === selectedCardId)
+  const canUpload = !!selectedCard || (selectedCardId === NEW_CARD_VALUE && !!newCardName.trim())
 
   return (
     <>
@@ -229,46 +244,32 @@ export function CardInvoiceImportModal({ categories, onClose, pendingFixedBills 
               {selectedCardId === NEW_CARD_VALUE && (
                 <div className="space-y-2 border border-dashed border-blue-500/40 rounded-xl p-3 bg-blue-500/5">
                   <p className="text-[10px] text-zinc-500 mb-1">
-                    {cards.length === 0
-                      ? 'Ainda não tem nenhum cartão cadastrado — cadastre aqui mesmo, sem precisar ir em "Meus Cartões".'
-                      : 'Cadastre o novo cartão aqui mesmo.'}
+                    Só o nome e de quem é o cartão. O vencimento eu leio da fatura (PDF) quando der; o cartão é cadastrado sozinho ao escolher o arquivo.
                   </p>
                   <input
                     type="text"
-                    placeholder="Nome do cartão (ex: Nubank)"
+                    placeholder="Nome do cartão (ex: Itaú Adri)"
                     className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-sm text-white outline-none focus:border-blue-600 transition-all"
                     value={newCardName}
                     onChange={(e) => setNewCardName(e.target.value)}
                   />
-                  <div className="grid grid-cols-2 gap-2">
-                    <input
-                      type="number"
-                      min={1}
-                      max={31}
-                      placeholder="Dia fechamento"
+                  {owners.length > 0 && (
+                    <select
                       className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-sm text-white outline-none focus:border-blue-600 transition-all"
-                      value={newCardClosingDay}
-                      onChange={(e) => setNewCardClosingDay(e.target.value)}
-                    />
-                    <input
-                      type="number"
-                      min={1}
-                      max={31}
-                      placeholder="Dia vencimento"
-                      className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-sm text-white outline-none focus:border-blue-600 transition-all"
-                      value={newCardDueDay}
-                      onChange={(e) => setNewCardDueDay(e.target.value)}
-                    />
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleCreateCard}
-                    disabled={isSavingCard || !newCardName.trim() || !newCardClosingDay || !newCardDueDay}
-                    className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-bold rounded-lg p-2.5 flex items-center justify-center gap-2 transition-all"
-                  >
-                    {isSavingCard ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-                    Cadastrar cartão
-                  </button>
+                      value={newCardOwner}
+                      onChange={(e) => setNewCardOwner(e.target.value)}
+                    >
+                      <option value="">De quem é o cartão?</option>
+                      {owners.map((o: any) => <option key={o.id} value={o.id}>{o.name}</option>)}
+                    </select>
+                  )}
+                  <details className="text-[10px] text-zinc-500">
+                    <summary className="cursor-pointer">Informar dia de fechamento e vencimento (opcional)</summary>
+                    <div className="grid grid-cols-2 gap-2 mt-2">
+                      <input type="number" min={1} max={31} placeholder="Dia fechamento" className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-sm text-white outline-none focus:border-blue-600" value={newCardClosingDay} onChange={(e) => setNewCardClosingDay(e.target.value)} />
+                      <input type="number" min={1} max={31} placeholder="Dia vencimento" className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-sm text-white outline-none focus:border-blue-600" value={newCardDueDay} onChange={(e) => setNewCardDueDay(e.target.value)} />
+                    </div>
+                  </details>
                 </div>
               )}
 
@@ -278,11 +279,11 @@ export function CardInvoiceImportModal({ categories, onClose, pendingFixedBills 
                   <p className="text-sm text-blue-400 font-medium">{uploadStatus}</p>
                 </div>
               ) : (
-                <label className={`border border-dashed rounded-xl p-6 flex flex-col items-center justify-center gap-2 text-center transition-all cursor-pointer ${selectedCard ? 'border-zinc-700 hover:border-blue-500 text-zinc-400 hover:text-blue-400' : 'border-zinc-800 text-zinc-600 cursor-not-allowed'}`}>
+                <label className={`border border-dashed rounded-xl p-6 flex flex-col items-center justify-center gap-2 text-center transition-all cursor-pointer ${canUpload ? 'border-zinc-700 hover:border-blue-500 text-zinc-400 hover:text-blue-400' : 'border-zinc-800 text-zinc-600 cursor-not-allowed'}`}>
                   <FileText className="w-6 h-6" />
                   <p className="text-sm font-bold">Clique pra escolher o arquivo da fatura</p>
                   <p className="text-[10px] text-zinc-600">.csv, .ofx ou .pdf</p>
-                  <input type="file" accept=".csv,.ofx,.pdf" className="hidden" onChange={handleFileChange} disabled={!selectedCard} />
+                  <input type="file" accept=".csv,.ofx,.pdf" className="hidden" onChange={handleFileChange} disabled={!canUpload} />
                 </label>
               )}
 
@@ -305,6 +306,7 @@ export function CardInvoiceImportModal({ categories, onClose, pendingFixedBills 
         owners={owners}
         defaultOwnerId={selectedCard?.ownerId || undefined}
         flagInvoicePayments
+        expectedTotal={fileMeta.total ?? null}
         headerExtra={(
           <div className="mt-3 flex items-center gap-2 flex-wrap">
             <label className="text-sm font-bold text-gray-700 dark:text-zinc-200" htmlFor="invoice-due-month">Esta fatura vence em</label>
@@ -315,6 +317,7 @@ export function CardInvoiceImportModal({ categories, onClose, pendingFixedBills 
               onChange={(e) => setDueMonth(e.target.value)}
               className="bg-gray-50 dark:bg-zinc-950 border border-gray-200 dark:border-zinc-800 text-gray-900 dark:text-zinc-50 text-sm rounded-lg px-2 py-1.5 outline-none focus:ring-2 focus:ring-blue-500"
             />
+            {fileMeta.dueDate && <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">vencimento {fileMeta.dueDate.split('-').reverse().join('/')} lido do arquivo</span>}
             <span className="text-xs text-gray-500 dark:text-zinc-400">Todos os itens vão para essa fatura, mesmo os de datas vizinhas (ex: compra internacional lançada dias depois).</span>
           </div>
         )}

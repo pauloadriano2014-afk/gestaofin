@@ -1547,20 +1547,28 @@ export async function parsePdfInvoiceText(base64: string) {
 
     if (!rawText.trim()) return { success: false, message: "Não consegui ler texto desse PDF (pode ser uma fatura escaneada como imagem)." };
 
-    const promptText = `Extraia os itens de compra de uma fatura de cartão de crédito a partir do texto abaixo (extraído de um PDF, pode ter ruído de layout). Devolva SÓ um Array JSON, cada item com: date (formato YYYY-MM-DD, deduza o ano pelo contexto da fatura se não estiver explícito no item), amount (número positivo pra compra normal, negativo pra estorno/pagamento), description. Ignore linhas de resumo, total da fatura, limite disponível, cabeçalho/rodapé.\n\nTexto da fatura:\n${rawText}`;
+    const promptText = `Extraia os dados de uma fatura de cartão de crédito a partir do texto abaixo (extraído de um PDF, pode ter ruído de layout). Devolva SÓ um objeto JSON com: "dueDate" (data de VENCIMENTO da fatura em YYYY-MM-DD, ou null se não achar), "total" (valor TOTAL da fatura a pagar, número positivo, ou null se não achar) e "items" (array). Cada item de "items" tem: date (formato YYYY-MM-DD, deduza o ano pelo contexto da fatura se não estiver explícito no item), amount (número positivo pra compra normal, negativo pra estorno/pagamento), description. Em "items" ignore linhas de resumo, total da fatura, limite disponível, cabeçalho/rodapé.\n\nTexto da fatura:\n${rawText}`;
 
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${process.env.OPENAI_API_KEY}` },
-      body: JSON.stringify({ model: "gpt-4o-mini", messages: [{ role: "system", content: "Responda APENAS com um Array JSON." }, { role: "user", content: promptText }], temperature: 0.1 })
+      body: JSON.stringify({ model: "gpt-4o-mini", messages: [{ role: "system", content: "Responda APENAS com JSON." }, { role: "user", content: promptText }], temperature: 0.1 })
     });
 
     if (!response.ok) return { success: false, message: "Falha ao consultar a IA." };
     const data = await response.json();
 
     let items: any[] = [];
+    let meta: { dueDate: string | null; total: number | null } = { dueDate: null, total: null };
     try {
       const content = data.choices[0].message.content;
-      items = JSON.parse(content.replace(/```json/g, '').replace(/```/g, '').trim());
+      const parsedJson = JSON.parse(content.replace(/```json/g, '').replace(/```/g, '').trim());
+      // aceita o formato novo (objeto) e o antigo (só o array de itens)
+      items = Array.isArray(parsedJson) ? parsedJson : (Array.isArray(parsedJson?.items) ? parsedJson.items : []);
+      if (!Array.isArray(parsedJson)) {
+        const due = typeof parsedJson?.dueDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(parsedJson.dueDate) ? parsedJson.dueDate : null;
+        const tot = Number(parsedJson?.total);
+        meta = { dueDate: due, total: Number.isFinite(tot) && tot > 0 ? Math.round(tot * 100) / 100 : null };
+      }
     } catch (e) {
       console.error("Erro ao interpretar itens extraídos do PDF:", e);
       return { success: false, message: "Não consegui interpretar os itens dessa fatura." };
@@ -1571,7 +1579,7 @@ export async function parsePdfInvoiceText(base64: string) {
       .map((it) => ({ date: String(it.date), amount: Number(it.amount), description: String(it.description).substring(0, 200) }))
       .filter((it) => !Number.isNaN(it.amount));
 
-    return { success: true, data: rows };
+    return { success: true, data: rows, meta };
   } catch (error) {
     console.error("Erro em parsePdfInvoiceText:", error);
     return { success: false, message: "Erro ao processar o PDF." };

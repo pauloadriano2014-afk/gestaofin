@@ -778,3 +778,9 @@ test("saldo hoje: valor conferido + só o que foi pago depois (histórico antigo
   ];
   assert.equal(balanceFromCheckpoint(rows, sets, { date: "2026-10-11", amount: 73.77 }, "2026-10-20"), 353.27);
 });
+
+import { parseOfxTotal } from "./importParsers";
+test("OFX: total da fatura vem do LEDGERBAL (valor absoluto)", () => {
+  assert.equal(parseOfxTotal("<LEDGERBAL><BALAMT>-835.96<DTASOF>20261003</LEDGERBAL>"), 835.96);
+  assert.equal(parseOfxTotal("<STMTTRN></STMTTRN>"), null);
+});

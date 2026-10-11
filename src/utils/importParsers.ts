@@ -143,3 +143,11 @@ export function parseOfx(text: string): RawImportRow[] {
   }
   return rows;
 }
+
+// Total da fatura no OFX: saldo (LEDGERBAL) em valor absoluto; null se não houver.
+export function parseOfxTotal(text: string): number | null {
+  const m = text.match(/<LEDGERBAL>[\s\S]*?<BALAMT>([^\s<]+)/i);
+  if (!m) return null;
+  const v = parseFloat(m[1]);
+  return Number.isNaN(v) ? null : Math.round(Math.abs(v) * 100) / 100;
+}

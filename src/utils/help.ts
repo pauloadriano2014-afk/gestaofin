@@ -53,6 +53,27 @@ export const HELP_ENTRIES: HelpEntry[] = [
     keywords: "card aportes investido patrimonio alocado",
   },
   {
+    id: "cartao-lancamentos",
+    question: "Os itens do cartão de crédito aparecem em Lançamentos? Polui?",
+    answer:
+      "Aparecem, porque cada compra é um lançamento de verdade: conta como gasto no dia da compra, com o dono e a categoria dela. Para não poluir, a tela de Lançamentos agrupa as compras do cartão em UMA linha por fatura (cartão, vencimento, quantos itens, total e se está paga). Clique na linha para abrir os itens. Para ver tudo solto, desmarque \"Agrupar compras do cartão por fatura\" (ou use a busca).",
+    keywords: "cartao itens lancamentos poluicao confusao agrupar fatura compras aparecem",
+  },
+  {
+    id: "baixa-fatura-extrato",
+    question: "Importei o extrato do banco: ele dá baixa na fatura do cartão?",
+    answer:
+      "Dá, com a sua confirmação. Na revisão da importação, a linha de pagamento de fatura (por exemplo \"Pagamento de fatura Nubank\") ganha um seletor \"Dar baixa: cartão, vencimento e valor\". Quando o valor bate com uma única fatura fechada, ele já vem escolhido. Ao confirmar, a linha é salva como pagamento de fatura (fora de Despesas e do Saldo, porque as compras já contam) e todos os itens da fatura ficam pagos, na data do pagamento.",
+    keywords: "baixa fatura extrato banco importar pagamento cartao quitar pagar automatico",
+  },
+  {
+    id: "fatura-dividida",
+    question: "A fatura apareceu dividida ou um item caiu na fatura errada. E agora?",
+    answer:
+      "O app sugere a fatura pela data da compra e pelo dia de fechamento do cartão, mas o banco às vezes cobra numa fatura diferente (compra internacional lançada dias depois, IOF). Ao importar uma fatura, informe em \"Esta fatura vence em\": todos os itens vão para ela, mesmo os de datas vizinhas. Para itens já importados, abra \"ver itens\" na fatura, marque os itens e use \"Mover de fatura\".",
+    keywords: "fatura dividida errada item caiu outra fatura internacional iof fechamento mover vence",
+  },
+  {
     id: "mes-isolado",
     question: "O que é Mês isolado e o que é Período?",
     answer:

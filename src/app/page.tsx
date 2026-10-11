@@ -303,7 +303,7 @@ export default function Dashboard() {
       setIsSavingBulk(false);
       
       if (res.success) {
-          alert(`Sucesso! ${finalTransactions.length} transações salvas perfeitamente!`);
+          alert(`Sucesso! ${finalTransactions.length} transações salvas perfeitamente!${res.settledInvoices ? ` ${res.settledInvoices} fatura(s) de cartão receberam baixa.` : ''}`);
           setIsReviewModalOpen(false);
           setReviewTransactions([]);
           loadData();
@@ -359,6 +359,11 @@ export default function Dashboard() {
     if (viewMode === 'pf' || viewMode === 'pj') return ownerList.find((o) => o.id === c.ownerId)?.kind === viewMode;
     return c.ownerId === viewMode;
   });
+
+  // Faturas fechadas e não pagas de todos os cartões: o extrato do banco pode dar baixa nelas.
+  const openInvoices = cardsOverview.flatMap((c: any) =>
+    (c.closedUnpaidCycles || []).map((cy: any) => ({ cardId: c.id, cardName: c.name, cycleKey: cy.cycleKey, dueDate: cy.dueDate, total: cy.total }))
+  );
 
   const checklist = useMemo(() => monthChecklist(rawData, viewMode, viewCards), [rawData, viewMode, cardsOverview]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -531,6 +536,7 @@ export default function Dashboard() {
         onConfirm={handleConfirmImport}
         isSaving={isSavingBulk}
         pendingFixedBills={pendingFixedBills}
+        invoices={openInvoices}
         owners={owners}
         defaultOwnerId={owners.some((o) => o.id === viewMode) ? viewMode : undefined}
       />

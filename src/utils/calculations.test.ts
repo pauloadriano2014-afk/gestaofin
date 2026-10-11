@@ -364,3 +364,77 @@ test("fatura: reconhece o pagamento da fatura anterior, mas não compras nem est
   assert.equal(looksLikeInvoicePayment("Estorno Uber"), false);
   assert.equal(looksLikeInvoicePayment("Pagamento de salário funcionário"), false);
 });
+
+import { cycleKeyOfTransaction, cycleKeyForDueMonth, dueMonthForCycleKey, withInvoiceTag, cycleKeyFromTags } from "./creditCard";
+
+test("fatura explícita: a etiqueta vence a data (compra internacional lançada depois)", () => {
+  const card = { closingDay: 31, dueDay: 9 };
+  // sem etiqueta: 31/08 cai na fatura que fecha em 31/08 (vence 09/09)
+  assert.equal(cycleKeyOfTransaction({ date: "2026-08-31" }, card), "2026-08");
+  // com a etiqueta da fatura que vence em 09/10 (fecha em 30/09)
+  assert.equal(cycleKeyOfTransaction({ date: "2026-08-31", aiTags: ["importado_fatura_cartao", "fatura:2026-09"] }, card), "2026-09");
+  // etiqueta inválida é ignorada
+  assert.equal(cycleKeyOfTransaction({ date: "2026-08-31", aiTags: ["fatura:xx"] }, card), "2026-08");
+});
+
+test("fatura explícita: vencimento <-> mês de fechamento", () => {
+  // fecha dia 31, vence dia 9: a fatura que vence em out/2026 fechou em set/2026
+  assert.equal(cycleKeyForDueMonth("2026-10", 31, 9), "2026-09");
+  assert.equal(dueMonthForCycleKey("2026-09", 31, 9), "2026-10");
+  // fecha dia 5, vence dia 15: vence no mesmo mês em que fecha
+  assert.equal(cycleKeyForDueMonth("2026-10", 5, 15), "2026-10");
+  assert.equal(dueMonthForCycleKey("2026-10", 5, 15), "2026-10");
+  // virada de ano
+  assert.equal(cycleKeyForDueMonth("2027-01", 28, 5), "2026-12");
+});
+
+test("fatura explícita: trocar a etiqueta mantém as outras", () => {
+  assert.deepEqual(withInvoiceTag(["importado_fatura_cartao", "fatura:2026-08"], "2026-09"), ["importado_fatura_cartao", "fatura:2026-09"]);
+  assert.equal(cycleKeyFromTags(withInvoiceTag(null, "2026-10")), "2026-10");
+});
+
+import { looksLikeBankInvoicePayment, matchInvoiceByAmount } from "./invoiceLines";
+
+test("extrato: reconhece pagamento de fatura e casa pelo valor com uma única fatura", () => {
+  assert.equal(looksLikeBankInvoicePayment("PAGAMENTO FATURA NUBANK"), true);
+  assert.equal(looksLikeBankInvoicePayment("Pix recebido de Maria"), false);
+  const inv = [{ id: "a", total: 793.57 }, { id: "b", total: 120 }];
+  assert.equal(matchInvoiceByAmount(793.57, inv)?.id, "a");
+  assert.equal(matchInvoiceByAmount(-793.57, inv)?.id, "a");
+  assert.equal(matchInvoiceByAmount(500, inv), null);
+  // duas faturas com o mesmo valor: ambíguo, não escolhe sozinho
+  assert.equal(matchInvoiceByAmount(100, [{ total: 100 }, { total: 100 }]), null);
+});
+
+import { groupCardItems } from "./cardGroups";
+
+test("lançamentos: compras do cartão viram uma linha por fatura", () => {
+  const cards = [{ id: "k", name: "Nubank PF", closingDay: 31, dueDay: 9 }];
+  const rows = [
+    L("1", { creditCardId: "k", date: "2026-09-20", amount: "100", isPaid: false }),
+    L("2", { creditCardId: "k", date: "2026-08-31", amount: "27.99", isPaid: false, aiTags: ["fatura:2026-09"] }), // explícita: entra na de 09/10
+    L("3", { creditCardId: "k", date: "2026-09-25", amount: "10", type: "income", isPaid: false }),        // crédito reduz o total
+    L("4", { creditCardId: null, date: "2026-09-21" }),
+    L("5", { creditCardId: "arquivado", date: "2026-09-22" }),                                              // cartão desconhecido: linha solta
+  ];
+  const out = groupCardItems(rows, cards);
+  const inv = out.filter((e) => e.kind === "invoice");
+  assert.equal(inv.length, 1);
+  const g: any = inv[0];
+  assert.equal(g.cycleKey, "2026-09");
+  assert.equal(g.dueDate, "2026-10-09");
+  assert.equal(g.count, 3);
+  assert.equal(g.total, 117.99);        // 100 + 27,99 - 10
+  assert.equal(g.allPaid, false);
+  assert.equal(out.filter((e) => e.kind === "tx").length, 2);
+  // ordenado por data, mais recente primeiro
+  const dates = out.map((e) => e.sortDate);
+  assert.deepEqual(dates, [...dates].sort().reverse());
+});
+
+import { searchHelp as _searchHelp } from "./help";
+test("tira-dúvidas: acha as respostas sobre cartão e baixa de fatura", () => {
+  assert.equal(_searchHelp("itens do cartao poluem os lancamentos")[0].id, "cartao-lancamentos");
+  assert.equal(_searchHelp("extrato do banco da baixa na fatura")[0].id, "baixa-fatura-extrato");
+  assert.equal(_searchHelp("item caiu na fatura errada")[0].id, "fatura-dividida");
+});

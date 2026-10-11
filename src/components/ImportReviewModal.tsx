@@ -1,8 +1,8 @@
 import { useState, useEffect } from "react";
-import { looksLikeInvoicePayment } from "@/utils/invoiceLines";
+import { looksLikeInvoicePayment, looksLikeBankInvoicePayment, matchInvoiceByAmount } from "@/utils/invoiceLines";
 import { X, CheckCircle2, ArrowUpRight, ArrowDownRight, Briefcase, User, Loader2, Trash2 } from "lucide-react";
 
-export function ImportReviewModal({ isOpen, onClose, initialTransactions, categories, onConfirm, isSaving, pendingFixedBills = [], owners = [], defaultOwnerId, flagInvoicePayments = false }: any) {
+export function ImportReviewModal({ isOpen, onClose, initialTransactions, categories, onConfirm, isSaving, pendingFixedBills = [], owners = [], defaultOwnerId, flagInvoicePayments = false, headerExtra = null, invoices = [] }: any) {
   const [transactions, setTransactions] = useState<any[]>([]);
 
   // Quando o modal abre, ele carrega os dados que vieram da IA
@@ -13,6 +13,13 @@ export function ImportReviewModal({ isOpen, onClose, initialTransactions, catego
       setTransactions(initialTransactions.map((t: any) => ({
         ...t,
         ownerId: t.ownerId || defaultOwnerId || owners.find((o: any) => o.kind === (t.entityType || 'pf'))?.id || owners[0]?.id || null,
+        // Pagamento de fatura no extrato: já vem ligado à fatura quando o valor
+        // bate com uma só fatura em aberto.
+        linkedInvoice: t.linkedInvoice || (
+          !flagInvoicePayments && t.type === 'expense' && looksLikeBankInvoicePayment(t.description)
+            ? (() => { const m: any = matchInvoiceByAmount(Number(t.amount), invoices as { total: number }[]); return m ? `${m.cardId}|${m.cycleKey}` : ''; })()
+            : ''
+        ),
       })));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -55,6 +62,7 @@ export function ImportReviewModal({ isOpen, onClose, initialTransactions, catego
               A IA sugeriu estas categorias. Revise o que é PF/PJ antes de salvar.
               {pendingFixedBills.length > 0 && ' Se algum item já é uma conta fixa cadastrada, vincule pra dar baixa nela em vez de duplicar.'}
             </p>
+            {headerExtra}
           </div>
           <button onClick={onClose} disabled={isSaving} className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-zinc-300 rounded-full hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors">
             <X className="w-5 h-5" />
@@ -129,6 +137,23 @@ export function ImportReviewModal({ isOpen, onClose, initialTransactions, catego
                         {availableFixedBills.map((fb: any) => (
                           <option key={fb.id} value={fb.id}>
                             Dar baixa: {fb.description} ({formatCurrency(Number(fb.amount))})
+                          </option>
+                        ))}
+                      </select>
+                    )}
+
+                    {/* Pagamento de fatura no extrato: dar baixa na fatura do cartão */}
+                    {!flagInvoicePayments && invoices.length > 0 && tx.type === 'expense' && looksLikeBankInvoicePayment(tx.description) && (
+                      <select
+                        value={tx.linkedInvoice || ''}
+                        onChange={(e) => handleUpdate(idx, 'linkedInvoice', e.target.value)}
+                        className={`flex-1 md:w-56 border text-xs rounded-lg px-2 py-2.5 outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer ${tx.linkedInvoice ? 'bg-emerald-100 dark:bg-emerald-500/10 border-emerald-300 dark:border-emerald-500/30 text-emerald-800 dark:text-emerald-300' : 'bg-gray-50 dark:bg-zinc-950 border-gray-200 dark:border-zinc-800 text-gray-900 dark:text-zinc-50'}`}
+                        title="Dar baixa na fatura do cartão com este pagamento"
+                      >
+                        <option value="">Sem baixa em fatura</option>
+                        {invoices.map((inv: any) => (
+                          <option key={`${inv.cardId}|${inv.cycleKey}`} value={`${inv.cardId}|${inv.cycleKey}`}>
+                            Dar baixa: {inv.cardName} · vence {inv.dueDate.split('-').reverse().slice(0, 2).join('/')} ({formatCurrency(Number(inv.total))})
                           </option>
                         ))}
                       </select>

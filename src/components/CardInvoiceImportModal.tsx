@@ -7,6 +7,7 @@ import { getOwnersAndAccounts } from '@/app/ownerActions'
 import { processCardInvoiceWithAI, saveBulkCardInvoiceTransactions, parsePdfInvoiceText } from '@/app/actions'
 import { parseCardInvoiceCsv, parseOfx } from '@/utils/importParsers'
 import { ImportReviewModal } from '@/components/ImportReviewModal'
+import { getInvoiceCycleForDate, dueMonthForCycleKey } from '@/utils/creditCard'
 
 const BATCH_SIZE = 15
 const NEW_CARD_VALUE = '__new__'
@@ -32,6 +33,8 @@ export function CardInvoiceImportModal({ categories, onClose, pendingFixedBills 
 
   const [uploadStatus, setUploadStatus] = useState('')
   const [isReviewOpen, setIsReviewOpen] = useState(false)
+  // Mês em que a fatura importada VENCE (AAAA-MM). Todos os itens vão pra essa fatura.
+  const [dueMonth, setDueMonth] = useState('')
   const [reviewTransactions, setReviewTransactions] = useState<any[]>([])
   const [isSaving, setIsSaving] = useState(false)
 
@@ -94,6 +97,16 @@ export function CardInvoiceImportModal({ categories, onClose, pendingFixedBills 
     setUploadStatus('')
 
     if (allProcessed.length > 0) {
+      // Palpite do vencimento: a fatura em que cai o item mais recente do arquivo
+      // (o usuário pode corrigir na revisão).
+      const card = cards.find((c: any) => c.id === selectedCardId)
+      if (card) {
+        const latest = allProcessed.map((t: any) => t.date).filter(Boolean).sort().slice(-1)[0]
+        if (latest) {
+          const key = getInvoiceCycleForDate(latest, card.closingDay, card.dueDay).cycleKey
+          setDueMonth(dueMonthForCycleKey(key, card.closingDay, card.dueDay))
+        }
+      }
       setReviewTransactions(allProcessed)
       setIsReviewOpen(true)
     } else {
@@ -154,7 +167,7 @@ export function CardInvoiceImportModal({ categories, onClose, pendingFixedBills 
 
   async function handleConfirmImport(finalTransactions: any[]) {
     setIsSaving(true)
-    const res = await saveBulkCardInvoiceTransactions(finalTransactions, selectedCardId)
+    const res = await saveBulkCardInvoiceTransactions(finalTransactions, selectedCardId, dueMonth || undefined)
     setIsSaving(false)
 
     if (res.success) {
@@ -289,6 +302,19 @@ export function CardInvoiceImportModal({ categories, onClose, pendingFixedBills 
         owners={owners}
         defaultOwnerId={selectedCard?.ownerId || undefined}
         flagInvoicePayments
+        headerExtra={(
+          <div className="mt-3 flex items-center gap-2 flex-wrap">
+            <label className="text-sm font-bold text-gray-700 dark:text-zinc-200" htmlFor="invoice-due-month">Esta fatura vence em</label>
+            <input
+              id="invoice-due-month"
+              type="month"
+              value={dueMonth}
+              onChange={(e) => setDueMonth(e.target.value)}
+              className="bg-gray-50 dark:bg-zinc-950 border border-gray-200 dark:border-zinc-800 text-gray-900 dark:text-zinc-50 text-sm rounded-lg px-2 py-1.5 outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <span className="text-xs text-gray-500 dark:text-zinc-400">Todos os itens vão para essa fatura, mesmo os de datas vizinhas (ex: compra internacional lançada dias depois).</span>
+          </div>
+        )}
       />
     </>
   )

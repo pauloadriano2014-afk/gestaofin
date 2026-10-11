@@ -6,6 +6,8 @@ import { getOwners, resolveOwnership, ownerSetupNeeded } from "@/db/owners";
 import { matchesView } from "@/utils/owners";
 import { inferKindFromName, buildKindSets, type CategoryKind } from "@/utils/categoryKinds";
 import { sumBalance } from "@/utils/balance";
+import { cycleKeyForDueMonth, withInvoiceTag } from "@/utils/creditCard";
+import { settleInvoice } from "@/db/invoices";
 import { desc, asc, and, sql, eq, lte, gte, inArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { auth } from "@clerk/nextjs/server";
@@ -1019,13 +1021,31 @@ export async function processCSVWithAI(batch: { date: string, amount: number, de
 }
 
 // --- 2. SALVAR LOTE REVISADO ---
+// id da primeira categoria do tipo "pagamento de fatura" (ou null).
+function buildKindSetsFirst(cats: { id: string; name: string; kind: string | null }[]): string | null {
+    const sets = buildKindSets(cats);
+    return Array.from(sets.card_payment)[0] ?? null;
+}
+
 export async function saveBulkTransactions(transactionsList: any[]) {
     try {
         const userId = await getUser();
         if (!userId) return { success: false, message: "Login necessário." };
 
+        // Linhas do extrato que são pagamento de fatura de cartão e foram vinculadas
+        // a uma fatura na revisão: a linha é salva como "pagamento de fatura" (fora
+        // de Despesas e do Saldo, porque as compras já contam) e a fatura recebe baixa
+        // na data real do pagamento.
+        const anyInvoiceLink = transactionsList.some((t) => t.linkedInvoice);
+        const cardPaymentCategoryId = anyInvoiceLink
+            ? buildKindSetsFirst(await db.select().from(categories).where(eq(categories.userId, userId)))
+            : null;
+        let settledInvoices = 0;
+
         for (const tx of transactionsList) {
             const ownership = await resolveOwnership(userId, { ownerId: tx.ownerId, entityType: tx.entityType });
+            const linked = typeof tx.linkedInvoice === "string" ? tx.linkedInvoice.split("|") : null;
+            const categoryForRow = linked && cardPaymentCategoryId ? cardPaymentCategoryId : tx.categoryId;
             // 🔥 NOVO: se na revisão o usuário vinculou esse item importado a uma
             // ocorrência de conta fixa pendente, dá baixa nela (usando o valor
             // real importado, o que já calcula juros/desconto automaticamente)
@@ -1048,7 +1068,7 @@ export async function saveBulkTransactions(transactionsList: any[]) {
                 userId: userId,
                 description: tx.description,
                 amount: tx.amount,
-                categoryId: tx.categoryId,
+                categoryId: categoryForRow,
                 type: tx.type,
                 date: tx.date,
                 isFixed: tx.isFixed,
@@ -1059,15 +1079,20 @@ export async function saveBulkTransactions(transactionsList: any[]) {
                 aiTags: tx.aiTags
             });
 
+            if (linked && linked.length === 2) {
+                const res = await settleInvoice(userId, linked[0], linked[1], tx.date);
+                if (res.success) settledInvoices += 1;
+            }
+
             // 🔥 NOVO: essa é a categoria que o usuário efetivamente CONFIRMOU na
             // tela de revisão (já pode ter corrigido o chute da IA) — o melhor
             // momento para aprender de verdade.
-            if (tx.categoryId) {
-                await learnCategoryRule(userId, tx.description, tx.categoryId);
+            if (categoryForRow) {
+                await learnCategoryRule(userId, tx.description, categoryForRow);
             }
         }
         revalidatePath("/");
-        return { success: true };
+        return { success: true, settledInvoices };
     } catch (error) {
         console.error("Erro no saveBulk:", error);
         return { success: false };
@@ -1147,7 +1172,7 @@ export async function processCardInvoiceWithAI(batch: { date: string; amount: nu
   }
 }
 
-export async function saveBulkCardInvoiceTransactions(transactionsList: any[], creditCardId: string) {
+export async function saveBulkCardInvoiceTransactions(transactionsList: any[], creditCardId: string, dueMonth?: string) {
   try {
     const userId = await getUser();
     if (!userId) return { success: false, message: "Login necessário." };
@@ -1155,6 +1180,13 @@ export async function saveBulkCardInvoiceTransactions(transactionsList: any[], c
 
     // Dono padrão das compras = dono do cartão (a fatura do cartão da Adri é da Adri).
     const card = (await db.select().from(creditCards).where(and(eq(creditCards.id, creditCardId), eq(creditCards.userId, userId))))[0];
+
+    // Fatura que o arquivo importado representa (mês de vencimento escolhido na
+    // tela). Fica gravada em cada item, então a compra internacional lançada
+    // dias depois, por exemplo, não cai na fatura vizinha por causa da data.
+    const invoiceCycleKey = card && dueMonth && /^\d{4}-\d{2}$/.test(dueMonth)
+      ? cycleKeyForDueMonth(dueMonth, card.closingDay, card.dueDay)
+      : null;
 
     for (const tx of transactionsList) {
       const ownership = await resolveOwnership(userId, { ownerId: tx.ownerId || card?.ownerId, entityType: tx.entityType });
@@ -1187,7 +1219,7 @@ export async function saveBulkCardInvoiceTransactions(transactionsList: any[], c
         entityType: ownership.entityType,
         ownerId: ownership.ownerId,
         creditCardId: creditCardId,
-        aiTags: tx.aiTags,
+        aiTags: invoiceCycleKey ? withInvoiceTag(tx.aiTags, invoiceCycleKey) : tx.aiTags,
       });
 
       if (tx.categoryId) {

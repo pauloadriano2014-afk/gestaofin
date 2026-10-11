@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react'
 import { X, Loader2, Receipt, ArrowRightLeft, CheckCircle2, Circle } from 'lucide-react'
-import { getInvoiceItems, reassignTransactions, getUserCreditCards } from '@/app/creditCardActions'
+import { getInvoiceItems, reassignTransactions, getUserCreditCards, moveItemsToInvoice } from '@/app/creditCardActions'
 import { getOwnersAndAccounts } from '@/app/ownerActions'
 import { summarizeByOwner } from '@/utils/invoice'
 
@@ -20,6 +20,7 @@ export function InvoiceItemsModal({ cardId, cycleKey, onClose, onChanged }: {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [targetOwner, setTargetOwner] = useState('')
   const [targetCard, setTargetCard] = useState('')
+  const [targetInvoice, setTargetInvoice] = useState('')
 
   async function load() {
     setLoading(true)
@@ -53,6 +54,17 @@ export function InvoiceItemsModal({ cardId, cycleKey, onClose, onChanged }: {
     if (res.success) { setTargetOwner(''); setTargetCard(''); await load(); onChanged() }
     else alert(res.message || 'Erro ao mover.')
   }
+
+  async function moveInvoice() {
+    if (!targetInvoice) { alert('Escolha para qual fatura mover.'); return }
+    setSaving(true)
+    const res = await moveItemsToInvoice(Array.from(selected), cardId, targetInvoice)
+    setSaving(false)
+    if (res.success) { setTargetInvoice(''); await load(); onChanged() }
+    else alert(res.message || 'Erro ao mover.')
+  }
+
+  const invoices: any[] = (data?.invoices || []).filter((i: any) => i.cycleKey !== cycleKey)
 
   const select = 'bg-zinc-800 border border-zinc-700 rounded-lg px-2 py-2 text-white text-sm outline-none focus:border-blue-600'
 
@@ -118,11 +130,18 @@ export function InvoiceItemsModal({ cardId, cycleKey, onClose, onChanged }: {
                     <option value="">Manter no mesmo cartão</option>
                     {cards.filter((c) => c.id !== cardId).map((c) => <option key={c.id} value={c.id}>Passar para: {c.name}</option>)}
                   </select>
+                  <select className={select} value={targetInvoice} onChange={(e) => setTargetInvoice(e.target.value)} title="Para quando o banco cobrou o item em outra fatura">
+                    <option value="">Mover para outra fatura…</option>
+                    {invoices.map((i: any) => (
+                      <option key={i.cycleKey} value={i.cycleKey}>Vence {formatDate(i.dueDate)}{i.count > 0 ? ` · ${i.count} item(ns) · ${formatCurrency(i.total)}` : ' · vazia'}</option>
+                    ))}
+                  </select>
+                  <button onClick={moveInvoice} disabled={saving || !targetInvoice} className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 disabled:opacity-40 text-white text-sm font-bold px-4 py-2 rounded-lg">Mover de fatura</button>
                   <button onClick={move} disabled={saving} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-bold px-4 py-2 rounded-lg">
                     {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowRightLeft className="w-4 h-4" />} Mover
                   </button>
                 </div>
-                <p className="text-[10px] text-zinc-500">Mudar o dono não altera valor, data nem categoria. Passar para outro cartão move o item para a fatura dele.</p>
+                <p className="text-[10px] text-zinc-500">Mudar o dono não altera valor, data nem categoria. "Mover de fatura" serve para quando o banco cobrou o item numa fatura diferente da que a data sugere (ex: compra internacional lançada dias depois).</p>
               </div>
             )}
           </div>

@@ -1,9 +1,10 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { Search, X, Loader2, ArrowRightLeft, Tag, Trash2, Filter } from 'lucide-react'
+import { Search, X, Loader2, ArrowRightLeft, Tag, Trash2, Filter, CreditCard, ChevronDown, Check } from 'lucide-react'
 import { TransactionRow } from '@/components/TransactionRow'
 import { filterTransactions, summarizeTxs, hasActiveFilters, EMPTY_FILTERS, type TxFilters, type QuickFilter } from '@/utils/txFilters'
+import { groupCardItems, type ListEntry } from '@/utils/cardGroups'
 import { reassignTransactions } from '@/app/creditCardActions'
 import { setTransactionsCategory, deleteTransactions } from '@/app/actions'
 
@@ -28,6 +29,9 @@ export function TransactionsView({
   const [busy, setBusy] = useState(false)
   const [bulkOwner, setBulkOwner] = useState('')
   const [bulkCategory, setBulkCategory] = useState('')
+  // Compras do cartão agrupadas numa linha por fatura (menos poluição); abre quando quiser.
+  const [groupCards, setGroupCards] = useState(true)
+  const [openGroups, setOpenGroups] = useState<Set<string>>(new Set())
 
   const set = (patch: Partial<TxFilters>) => { onFilters({ ...filters, ...patch }); setLimit(PAGE) }
   const rows = useMemo(
@@ -35,14 +39,25 @@ export function TransactionsView({
     [txs, filters]
   )
   const totals = useMemo(() => summarizeTxs(rows), [rows])
-  const visible = rows.slice(0, limit)
+  // Com busca ou atalho de conferência ativos, mostra tudo solto (o usuário está procurando algo).
+  const groupActive = groupCards && !filters.search.trim() && filters.quick === 'todos'
+  const entries: ListEntry[] = useMemo(
+    () => (groupActive ? groupCardItems(rows, cards) : rows.map((tx: any) => ({ kind: 'tx' as const, tx, sortDate: tx.date }))),
+    [groupActive, rows, cards]
+  )
+  const visible = entries.slice(0, limit)
+  const visibleIds: string[] = visible.flatMap((e) => (e.kind === 'tx' ? [e.tx.id] : e.items.map((i: any) => i.id)))
   const ownerName = (id: string) => owners.find((o: any) => o.id === id)?.name || ''
   const cardName = (id: string) => cards.find((c: any) => c.id === id)?.name || ''
   const selectedIds = Array.from(selected).filter((id) => rows.some((r: any) => r.id === id))
 
   const toggle = (id: string) => setSelected((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n })
-  const allVisibleSelected = visible.length > 0 && visible.every((r: any) => selected.has(r.id))
-  const toggleAll = () => setSelected(allVisibleSelected ? new Set() : new Set(visible.map((r: any) => r.id)))
+  const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selected.has(id))
+  const toggleAll = () => setSelected(allVisibleSelected ? new Set() : new Set(visibleIds))
+  const toggleGroupSelect = (ids: string[]) => setSelected((prev) => {
+    const n = new Set(prev); const all = ids.every((id) => n.has(id)); ids.forEach((id) => (all ? n.delete(id) : n.add(id))); return n
+  })
+  const toggleGroupOpen = (key: string) => setOpenGroups((prev) => { const n = new Set(prev); if (n.has(key)) n.delete(key); else n.add(key); return n })
 
   async function run(action: () => Promise<any>, okMessage?: string) {
     setBusy(true)
@@ -77,6 +92,11 @@ export function TransactionsView({
           <button key={q.id} onClick={() => set({ quick: q.id })} className={`shrink-0 px-3 py-1.5 text-xs font-bold rounded-full border transition-all ${filters.quick === q.id ? theme.navActive + ' border-transparent' : `${theme.card} ${theme.navInactive}`}`}>{q.label}</button>
         ))}
       </div>
+
+      <label className={`flex items-center gap-2 text-xs font-bold cursor-pointer w-fit ${theme.textMuted}`}>
+        <input type="checkbox" checked={groupCards} onChange={(e) => setGroupCards(e.target.checked)} className="accent-purple-600" />
+        Agrupar compras do cartão por fatura
+      </label>
 
       {/* BUSCA E FILTROS */}
       <div className="flex flex-wrap gap-2 items-center">
@@ -140,18 +160,56 @@ export function TransactionsView({
         <button onClick={toggleAll} className={`text-xs font-bold ${theme.textMuted} hover:underline`}>{allVisibleSelected ? 'Desmarcar todos' : 'Marcar todos os exibidos'}</button>
       )}
       <div className="space-y-2">
-        {visible.map((tx: any) => (
-          <TransactionRow
-            key={tx.id} tx={tx} theme={theme} currentTheme={currentTheme} formatCurrency={formatCurrency} todayStr={todayStr}
-            ownerName={ownerName(tx.ownerId)} cardName={tx.creditCardId ? cardName(tx.creditCardId) : ''}
-            onTogglePay={onTogglePay} onEdit={onEdit} onDelete={onDelete}
-            selectable selected={selected.has(tx.id)} onSelect={toggle} signedAmount
-          />
-        ))}
+        {visible.map((entry) => {
+          if (entry.kind === 'tx') {
+            const tx = entry.tx
+            return (
+              <TransactionRow
+                key={tx.id} tx={tx} theme={theme} currentTheme={currentTheme} formatCurrency={formatCurrency} todayStr={todayStr}
+                ownerName={ownerName(tx.ownerId)} cardName={tx.creditCardId ? cardName(tx.creditCardId) : ''}
+                onTogglePay={onTogglePay} onEdit={onEdit} onDelete={onDelete}
+                selectable selected={selected.has(tx.id)} onSelect={toggle} signedAmount
+              />
+            )
+          }
+          const g = entry
+          const ids = g.items.map((i: any) => i.id)
+          const isOpen = openGroups.has(g.key)
+          const allSel = ids.every((id: string) => selected.has(id))
+          return (
+            <div key={g.key} className={`${theme.card} border rounded-xl ${allSel ? 'ring-1 ring-blue-500/30' : ''}`}>
+              <div className="flex items-center gap-3 p-3">
+                <button onClick={() => toggleGroupSelect(ids)} aria-label="Selecionar a fatura inteira" className={`w-5 h-5 rounded border flex items-center justify-center shrink-0 transition-all ${allSel ? 'bg-blue-600 border-blue-600 text-white' : 'border-gray-300 text-transparent hover:border-blue-400'}`}><Check className="w-3.5 h-3.5" /></button>
+                <button onClick={() => toggleGroupOpen(g.key)} aria-expanded={isOpen} className="flex-1 min-w-0 flex items-center gap-3 text-left">
+                  <span className={`p-2 rounded-full shrink-0 ${theme.iconBg}`}><CreditCard className="w-4 h-4" /></span>
+                  <span className="min-w-0 flex-1">
+                    <span className={`block font-semibold text-sm truncate ${theme.text}`}>Fatura {g.cardName}</span>
+                    <span className={`block text-[10px] font-bold uppercase ${theme.textMuted}`}>
+                      vence {g.dueDate.split('-').reverse().slice(0, 2).join('/')} · {g.count} {g.count === 1 ? 'item' : 'itens'} · <span className={g.allPaid ? 'text-emerald-600' : 'text-orange-500'}>{g.allPaid ? 'paga' : 'pendente'}</span>
+                    </span>
+                  </span>
+                  <span className={`font-bold font-mono text-sm shrink-0 ${theme.text}`}>{formatCurrency(Math.abs(g.total))}</span>
+                  <ChevronDown className={`w-4 h-4 shrink-0 transition-transform ${theme.textMuted} ${isOpen ? 'rotate-180' : ''}`} />
+                </button>
+              </div>
+              {isOpen && (
+                <div className="px-3 pb-3 space-y-2">
+                  {g.items.map((tx: any) => (
+                    <TransactionRow
+                      key={tx.id} tx={tx} theme={theme} currentTheme={currentTheme} formatCurrency={formatCurrency} todayStr={todayStr}
+                      ownerName={ownerName(tx.ownerId)} onTogglePay={onTogglePay} onEdit={onEdit} onDelete={onDelete}
+                      selectable selected={selected.has(tx.id)} onSelect={toggle} signedAmount
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          )
+        })}
         {rows.length === 0 && <p className={`text-sm text-center py-12 ${theme.textMuted}`}>Nenhum lançamento encontrado com esses filtros.</p>}
       </div>
-      {rows.length > limit && (
-        <button onClick={() => setLimit(limit + PAGE)} className={`w-full py-3 text-sm font-bold rounded-xl border ${theme.buttonSecondary}`}>Mostrar mais ({rows.length - limit} restantes)</button>
+      {entries.length > limit && (
+        <button onClick={() => setLimit(limit + PAGE)} className={`w-full py-3 text-sm font-bold rounded-xl border ${theme.buttonSecondary}`}>Mostrar mais ({entries.length - limit} restantes)</button>
       )}
     </div>
   )

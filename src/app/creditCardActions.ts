@@ -6,7 +6,8 @@ import { and, eq, inArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { getUser } from "./actions";
 import { getOwners, resolveOwnership } from "@/db/owners";
-import { getInvoiceCycleForDate, getCycleDatesForCycleKey, todayDateStr } from "@/utils/creditCard";
+import { getCycleDatesForCycleKey, cycleKeyOfTransaction, cycleKeyForDueMonth, withInvoiceTag, todayDateStr } from "@/utils/creditCard";
+import { settleInvoice } from "@/db/invoices";
 
 // --- CADASTRAR CARTÃO ---
 export async function createCreditCard(data: { name: string; closingDay: number; dueDay: number; limitAmount?: string; ownerId?: string | null }) {
@@ -122,7 +123,8 @@ export async function getCreditCardsOverview() {
 
     const cycles = new Map<string, { cycleKey: string; closingDate: string; dueDate: string; total: number; count: number; isManual: boolean; byOwner: Record<string, number> }>();
     for (const p of purchases) {
-      const cycle = getInvoiceCycleForDate(p.date, card.closingDay, card.dueDay);
+      const cycleKey = cycleKeyOfTransaction(p, card);
+      const cycle = { cycleKey, ...getCycleDatesForCycleKey(cycleKey, card.closingDay, card.dueDay) };
       const existing = cycles.get(cycle.cycleKey) || { ...cycle, total: 0, count: 0, isManual: false, byOwner: {} };
       existing.total += Math.abs(Number(p.amount));
       existing.count += 1;
@@ -216,48 +218,20 @@ export async function clearInvoiceOverride(cardId: string, cycleKey: string) {
 // contam no saldo/gastos desde quando foram lançadas (mesma lógica já usada
 // pelas contas fixas, que reduzem o saldo mesmo antes de serem pagas). Pagar
 // a fatura é só reconciliação: marca o que já foi contabilizado como quitado.
-export async function payCreditCardInvoice(cardId: string, cycleKey: string) {
+export async function payCreditCardInvoice(cardId: string, cycleKey: string, paidAt?: string) {
   try {
     const userId = await getUser();
     if (!userId) return { success: false, message: "Login necessário." };
 
-    const cardResult = await db.select().from(creditCards).where(and(eq(creditCards.id, cardId), eq(creditCards.userId, userId)));
-    const card = cardResult[0];
-    if (!card) return { success: false, message: "Cartão não encontrado." };
-
-    const unpaid = await db.select().from(transactions).where(
-      and(eq(transactions.userId, userId), eq(transactions.creditCardId, cardId), eq(transactions.isPaid, false))
-    );
-
-    const idsToSettle = unpaid
-      .filter((t) => getInvoiceCycleForDate(t.date, card.closingDay, card.dueDay).cycleKey === cycleKey)
-      .map((t) => t.id);
-
-    if (idsToSettle.length > 0) {
-      await db.update(transactions).set({ isPaid: true, paidAt: todayDateStr() }).where(inArray(transactions.id, idsToSettle));
-    }
-
-    // 🔥 NOVO: se essa fatura (também) tem um valor declarado na mão, marca
-    // ele como pago também — senão uma fatura 100% manual (sem nenhuma
-    // transação) nunca sairia da lista de "fechada e não paga".
-    const override = await db.select().from(creditCardInvoiceOverrides).where(
-      and(eq(creditCardInvoiceOverrides.userId, userId), eq(creditCardInvoiceOverrides.creditCardId, cardId), eq(creditCardInvoiceOverrides.cycleKey, cycleKey))
-    );
-    if (override.length > 0) {
-      await db.update(creditCardInvoiceOverrides).set({ isPaid: true, paidAt: todayDateStr() }).where(eq(creditCardInvoiceOverrides.id, override[0].id));
-    }
-
-    if (idsToSettle.length === 0 && override.length === 0) {
-      return { success: false, message: "Nenhuma compra ou valor declarado encontrado nessa fatura." };
-    }
+    const res = await settleInvoice(userId, cardId, cycleKey, paidAt || todayDateStr());
+    if (!res.success) return { success: false, message: res.message || "Erro ao dar baixa na fatura." };
 
     revalidatePath("/");
-    return { success: true, message: idsToSettle.length > 0 ? `Fatura paga! ${idsToSettle.length} compra(s) baixada(s).` : "Fatura paga!" };
+    return { success: true, message: res.settled > 0 ? `Fatura paga! ${res.settled} compra(s) baixada(s).` : "Fatura paga!" };
   } catch (error) {
     return { success: false, message: "Erro ao dar baixa na fatura." };
   }
 }
-
 
 // --- ITENS DE UMA FATURA ---
 // Lista tudo o que está (ou esteve) cobrado numa fatura específica do cartão,
@@ -273,11 +247,31 @@ export async function getInvoiceItems(cardId: string, cycleKey: string) {
     and(eq(transactions.userId, userId), eq(transactions.creditCardId, cardId))
   );
   const items = rows
-    .filter((t) => getInvoiceCycleForDate(t.date, card.closingDay, card.dueDay).cycleKey === cycleKey)
+    .filter((t) => cycleKeyOfTransaction(t, card) === cycleKey)
     .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
 
   const cycleDates = getCycleDatesForCycleKey(cycleKey, card.closingDay, card.dueDay);
-  return { success: true as const, card, cycleKey, ...cycleDates, items };
+
+  // Faturas deste cartão (as que têm itens + a anterior e a seguinte da atual),
+  // para poder mover itens de uma fatura para outra.
+  const byCycle = new Map<string, { total: number; count: number }>();
+  for (const t of rows) {
+    const k = cycleKeyOfTransaction(t, card);
+    const cur = byCycle.get(k) || { total: 0, count: 0 };
+    cur.total += Math.abs(Number(t.amount)); cur.count += 1;
+    byCycle.set(k, cur);
+  }
+  const [cy, cm] = cycleKey.split("-").map(Number);
+  for (const d of [-1, 1]) {
+    const dt = new Date(cy, cm - 1 + d, 1);
+    const k = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}`;
+    if (!byCycle.has(k)) byCycle.set(k, { total: 0, count: 0 });
+  }
+  const invoices = Array.from(byCycle.entries())
+    .map(([k, v]) => ({ cycleKey: k, ...getCycleDatesForCycleKey(k, card.closingDay, card.dueDay), ...v }))
+    .sort((a, b) => (a.cycleKey < b.cycleKey ? 1 : -1));
+
+  return { success: true as const, card, cycleKey, ...cycleDates, items, invoices };
 }
 
 // --- MOVER ITENS DE DONO (e, se quiser, de cartão) ---
@@ -314,6 +308,36 @@ export async function reassignTransactions(ids: string[], target: { ownerId?: st
     return { success: true, updated: updated.length };
   } catch (error) {
     console.error("Erro ao mover itens:", error);
+    return { success: false, message: "Erro ao mover os itens." };
+  }
+}
+
+
+// --- MOVER ITENS PARA OUTRA FATURA DO MESMO CARTÃO ---
+// Para quando o banco lançou a compra em outra fatura do que a data sugere
+// (ex: compra internacional feita no fim do mês e cobrada na fatura seguinte).
+// Grava a fatura escolhida no próprio lançamento; valor, data e dono não mudam.
+export async function moveItemsToInvoice(ids: string[], cardId: string, cycleKey: string) {
+  try {
+    const userId = await getUser();
+    if (!userId) return { success: false, message: "Login necessário." };
+    if (!Array.isArray(ids) || ids.length === 0) return { success: false, message: "Selecione pelo menos um item." };
+    if (!/^\d{4}-\d{2}$/.test(cycleKey)) return { success: false, message: "Fatura inválida." };
+
+    const card = (await db.select().from(creditCards).where(and(eq(creditCards.id, cardId), eq(creditCards.userId, userId))))[0];
+    if (!card) return { success: false, message: "Cartão não encontrado." };
+
+    const rows = await db.select().from(transactions).where(
+      and(eq(transactions.userId, userId), eq(transactions.creditCardId, cardId), inArray(transactions.id, ids))
+    );
+    for (const t of rows) {
+      await db.update(transactions).set({ aiTags: withInvoiceTag(t.aiTags, cycleKey) }).where(eq(transactions.id, t.id));
+    }
+
+    revalidatePath("/");
+    return { success: true, moved: rows.length };
+  } catch (error) {
+    console.error("Erro ao mover itens de fatura:", error);
     return { success: false, message: "Erro ao mover os itens." };
   }
 }

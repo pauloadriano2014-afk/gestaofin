@@ -9,6 +9,7 @@ import { balanceForPeriod, classifyForPeriod, adjustmentFor, FOREVER_START } fro
 import { cycleKeyForDueMonth, withInvoiceTag } from "@/utils/creditCard";
 import { paidByFromTags, withPaidBy, toCashRow } from "@/utils/paidBy";
 import { settleInvoice } from "@/db/invoices";
+import { loadUserRules } from "@/db/rules";
 import { dedupeAgainstExisting } from "@/utils/invoiceLines";
 import { bestExistingMatch, daysApart } from "@/utils/transfers";
 import { desc, asc, and, or, sql, eq, lte, gte, inArray } from "drizzle-orm";
@@ -1143,7 +1144,7 @@ export async function processCSVWithAI(batch: { date: string, amount: number, de
 
     // 🔥 NOVO: busca o que o usuário já categorizou/corrigiu antes, pra usar
     // como fonte mais confiável do que um chute novo da IA.
-    const userRules = await db.select().from(categoryRules).where(eq(categoryRules.userId, userId));
+    const userRules = await loadUserRules(userId);
 
     const promptText = `Categorize as seguintes transações. Categorias: ${categoriesList}\nREGRAS: Mantenha date, amount, description originais. Adicione 'type' ('income' p/ positivo, 'expense' p/ negativo) e 'categoryId'. Devolva SÓ o JSON.\nTransações: ${JSON.stringify(batch)}`;
 
@@ -1337,7 +1338,7 @@ export async function processCardInvoiceWithAI(batch: { date: string; amount: nu
 
     const userCategories = await db.select().from(categories).where(eq(categories.userId, userId));
     const categoriesList = userCategories.filter(c => c.name.trim().toLowerCase() !== 'ajuste de saldo').map(c => `{ id: '${c.id}', name: '${c.name}' }`).join(', ');
-    const userRules = await db.select().from(categoryRules).where(eq(categoryRules.userId, userId));
+    const userRules = await loadUserRules(userId);
 
     const promptText = `Categorize os itens da fatura de um cartão de crédito abaixo. Categorias disponíveis: ${categoriesList}\nREGRAS: Mantenha date, amount, description originais. Adicione 'type' ('expense' p/ valores positivos — compra normal — e 'income' p/ valores negativos — estorno ou pagamento) e 'categoryId'. Devolva SÓ o JSON (array).\nItens: ${JSON.stringify(batch)}`;
 

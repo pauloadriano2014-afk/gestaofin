@@ -8,6 +8,7 @@ import { getUser } from "./actions";
 import { getOwners } from "@/db/owners";
 import { mapAsaasPayment, type AsaasPayment } from "@/utils/asaas";
 import { findMatchingRuleCategoryId } from "@/utils/categoryRules";
+import { loadUserRules } from "@/db/rules";
 
 // --- SINCRONIZAÇÃO DAS VENDAS DO ASAAS ---
 // Puxa as cobranças RECEBIDAS no período direto da API do Asaas e lança como
@@ -67,7 +68,7 @@ export async function syncAsaasPayments(startDate: string, endDate: string) {
     }
 
     // 3. Converte e grava (ignora o que já foi sincronizado antes).
-    const rules = await db.select().from(categoryRules).where(eq(categoryRules.userId, userId));
+    const rules = await loadUserRules(userId);
     const rows = payments.flatMap(mapAsaasPayment).map((m) => ({
       userId,
       description: m.description,

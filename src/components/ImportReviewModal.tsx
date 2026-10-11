@@ -302,7 +302,10 @@ export function ImportReviewModal({ isOpen, onClose, initialTransactions, catego
                   {/* Transferência / mesma movimentação entre contas: perguntar em vez de contar como receita ou gasto */}
                   {(() => {
                     if (flagInvoicePayments || isLinked || tx.linkedInvoice || !refundCategoryId) return null;
-                    if (tx.categoryId === refundCategoryId || dismissed.has(tx._k)) return null;
+                    // Quem já escolheu uma categoria neutra (reembolso, pagamento de fatura,
+                    // investimento) já decidiu: não pergunta de novo.
+                    const chosen = (categories || []).find((c: any) => c.id === tx.categoryId);
+                    if ((chosen && resolveCategoryKind(chosen) !== 'operational') || dismissed.has(tx._k)) return null;
                     const partnerIdx = pairs.get(idx);
                     const partner = partnerIdx !== undefined ? transactions[partnerIdx] : null;
                     const existing = matches[tx._k];

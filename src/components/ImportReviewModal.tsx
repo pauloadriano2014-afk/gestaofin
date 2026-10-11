@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { effectivePaidBy } from "@/utils/paidBy";
+import { findReversalPairs } from "@/utils/reversals";
 import { looksLikeInvoicePaymentLine, looksLikeBankInvoicePayment, matchInvoiceByAmount } from "@/utils/invoiceLines";
 import { X, CheckCircle2, ArrowUpRight, ArrowDownRight, Briefcase, User, Loader2, Trash2, Scissors } from "lucide-react";
 import { looksLikeTransfer, pairWithinList, rankFixedBills } from "@/utils/transfers";
@@ -68,6 +69,7 @@ export function ImportReviewModal({ isOpen, onClose, initialTransactions, catego
 
   const refundCategoryId: string | null = (categories || []).find((c: any) => resolveCategoryKind(c) === 'refund')?.id || null;
   const pairs = pairWithinList(transactions as any);
+  const reversalPairs = findReversalPairs(transactions as any);
   const shortDate = (d: string) => d.split('-').reverse().slice(0, 2).join('/');
 
   // Confirma que a linha é movimentação entre contas/pessoas (ou empréstimo): vira
@@ -174,6 +176,19 @@ export function ImportReviewModal({ isOpen, onClose, initialTransactions, catego
                 className="shrink-0 text-xs font-bold px-3 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-white"
               >
                 Remover esses itens
+              </button>
+            </div>
+          )}
+          {reversalPairs.length > 0 && (
+            <div className="mb-3 p-4 rounded-xl border border-amber-400/50 bg-amber-50 dark:bg-amber-500/10 flex flex-col sm:flex-row sm:items-center gap-3 justify-between">
+              <p className="text-sm text-amber-900 dark:text-amber-200">
+                <b>{reversalPairs.length} compra(s) foram estornadas</b> ({reversalPairs.length * 2} linhas). A saída e o estorno se anulam, então não precisam ser salvos.
+              </p>
+              <button
+                onClick={() => { const drop = new Set(reversalPairs.flat()); setTransactions((prev) => prev.filter((_, i) => !drop.has(i))); }}
+                className="shrink-0 text-xs font-bold px-3 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-white"
+              >
+                Remover esses pares
               </button>
             </div>
           )}

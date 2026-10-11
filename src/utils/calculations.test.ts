@@ -687,3 +687,17 @@ test("conta usada: o gasto é do Paulo, mas o saldo que cai é o da Empresa", ()
   assert.equal(bal("e"), 861.97);
   assert.equal(bal("p"), 0);
 });
+
+import { findReversalPairs } from "./reversals";
+test("estorno: compra + estorno iguais formam par (cada linha em um par só)", () => {
+  const r = (d: string, a: string, t: string, date = "2026-10-07") => ({ description: d, amount: a, type: t, date });
+  const rows = [
+    r("Compra no débito - SUPERDIA", "104.13", "expense"),
+    r("Estorno - Compra no débito - SUPERDIA", "104.13", "income"),
+    r("Compra no débito - SUPERDIA", "104.13", "expense"),
+    r("Estorno - Compra no débito - SUPERDIA", "104.13", "income"),
+    r("Transferência enviada pelo Pix - ITALO", "104.12", "expense"),
+    r("Estorno - Transferência enviada pelo Pix - ITALO", "104.13", "income"),
+  ];
+  assert.deepEqual(findReversalPairs(rows), [[0, 1], [2, 3]]);
+});

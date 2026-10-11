@@ -189,3 +189,41 @@ test("saldo: despesa do cartão (sem categoria de fatura) continua contando", ()
   const sets = buildKindSets(categories);
   assert.equal(sumBalance([{ type: "expense", amount: "75.50", categoryId: CAT.mercado }], sets), -75.5);
 });
+
+import { explainNumbers, searchHelp } from "./help";
+
+test("tira-dúvidas: explica de onde vem despesa, receita e saldo", () => {
+  const e = explainNumbers(raw, "all", true);
+  assert.equal(e.despesas.operacional, 140);
+  assert.equal(e.despesas.bruto, 100 + 40 + 300 + 900 + 70);
+  assert.deepEqual(e.despesas.excluidos.map((l) => [l.label, l.amount]), [["Investimentos", 300], ["Reembolsos / empréstimos", 70], ["Pagamento de fatura", 900]]);
+  assert.equal(e.receita.operacional, 1000);
+  assert.equal(e.saldoDoPeriodo, 1000 + 50 - (100 + 40 + 300 + 70)); // fatura e transferência fora
+  assert.deepEqual(e.ignoradosNoSaldo.map((l) => l.label), ["Transferências", "Pagamento de fatura"]);
+});
+
+test("tira-dúvidas: o saldo explicado bate com o cálculo do saldo", () => {
+  const sets = buildKindSets(categories);
+  const e = explainNumbers(raw, "all", true);
+  assert.equal(e.saldoDoPeriodo, sumBalance(raw.transactions as any, sets));
+});
+
+test("tira-dúvidas: respeita a visão e avisa de lançamento sem categoria/dono/duplicado", () => {
+  assert.equal(explainNumbers(raw, ADRI, true).despesas.operacional, 40);
+  const sujo = { ...raw, transactions: [
+    { id: 1, type: "expense", amount: "10", ownerId: null, categoryId: null, entityType: "pf", date: "2026-10-01", description: "Padaria" },
+    { id: 2, type: "expense", amount: "10", ownerId: null, categoryId: null, entityType: "pf", date: "2026-10-01", description: "padaria" },
+  ] };
+  const a = explainNumbers(sujo, "all", true).alertas.join(" ");
+  assert.match(a, /sem categoria/);
+  assert.match(a, /sem dono/);
+  assert.match(a, /idênticos/);
+  assert.match(explainNumbers(raw, "all", false).alertas.join(" "), /acumulado/);
+});
+
+test("tira-dúvidas: a busca acha a resposta mesmo sem acento", () => {
+  assert.equal(searchHelp("por que a fatura do cartao conta em dobro")[0].id, "fatura-nao-conta");
+  assert.equal(searchHelp("como mover item para empresa")[0].id, "mover-fatura");
+  assert.equal(searchHelp("o que e mes isolado")[0].id, "mes-isolado");
+  assert.deepEqual(searchHelp("xx"), []);
+});

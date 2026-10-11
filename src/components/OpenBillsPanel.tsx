@@ -11,7 +11,7 @@ import { todayDateStr } from '@/utils/dates'
 // selecionado. Agora respeita o mesmo range de mês/ano do filtro principal.
 const STORAGE_KEY = 'kore:openBillsExpanded'
 
-export function OpenBillsPanel({ theme, formatCurrency, onChanged, refreshKey, startMonth, startYear, endMonth, endYear }: any) {
+export function OpenBillsPanel({ theme, formatCurrency, onChanged, refreshKey, startMonth, startYear, endMonth, endYear, viewMode = 'all' }: any) {
   const [bills, setBills] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   // Começa recolhido (o painel ocupava muito espaço); a escolha fica salva no navegador.
@@ -31,12 +31,12 @@ export function OpenBillsPanel({ theme, formatCurrency, onChanged, refreshKey, s
 
   async function load() {
     setLoading(true)
-    const result = await getOpenFixedBills(startMonth, startYear, endMonth, endYear)
+    const result = await getOpenFixedBills(startMonth, startYear, endMonth, endYear, viewMode)
     setBills(result)
     setLoading(false)
   }
 
-  useEffect(() => { load() }, [refreshKey, startMonth, startYear, endMonth, endYear])
+  useEffect(() => { load() }, [refreshKey, startMonth, startYear, endMonth, endYear, viewMode])
 
   async function handleTogglePay(id: string, currentStatus: boolean) {
     await toggleTransactionStatus(id, currentStatus)

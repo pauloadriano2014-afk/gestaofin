@@ -343,7 +343,7 @@ export async function toggleTransactionStatus(id: string, currentStatus: boolean
 // período escolhido) — o usuário achou confuso ver contas de um mês que nem
 // estava selecionado. Agora recebe o mesmo range de mês/ano do filtro
 // principal e só mostra o que cai dentro dele.
-export async function getOpenFixedBills(startMonth?: number, startYear?: number, endMonth?: number, endYear?: number) {
+export async function getOpenFixedBills(startMonth?: number, startYear?: number, endMonth?: number, endYear?: number, viewMode: string = 'all') {
   try {
     const userId = await getUser();
     if (!userId) return [];
@@ -354,6 +354,10 @@ export async function getOpenFixedBills(startMonth?: number, startYear?: number,
       eq(transactions.type, 'expense'),
       eq(transactions.isPaid, false),
     ];
+
+    // Respeita a visão da tela (Tudo / Casal / Paulo / Adri / Empresa).
+    if (viewMode === 'pf' || viewMode === 'pj') conditions.push(eq(transactions.entityType, viewMode));
+    else if (viewMode !== 'all') conditions.push(eq(transactions.ownerId, viewMode));
 
     if (startMonth && startYear) {
       conditions.push(gte(transactions.date, `${startYear}-${String(startMonth).padStart(2, '0')}-01`));

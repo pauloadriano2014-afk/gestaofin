@@ -21,6 +21,7 @@ import { CreditCardsModal } from "@/components/CreditCardsModal";
 import { CategoryRulesModal } from "@/components/CategoryRulesModal";
 import { CategoriesModal } from "@/components/CategoriesModal";
 import { syncAsaasPayments } from "@/app/asaasActions";
+import { HelpAssistant } from "@/components/HelpAssistant";
 import { OwnersAccountsModal } from "@/components/OwnersAccountsModal";
 import { FixedBillsModal } from "@/components/FixedBillsModal";
 import { CardInvoiceImportModal } from "@/components/CardInvoiceImportModal";
@@ -555,7 +556,7 @@ export default function Dashboard() {
             tela confusa) — o painel de Contas em Aberto abaixo já cobre o que
             interessa: o que ainda falta pagar/receber, respeitando o período
             selecionado acima. */}
-        <OpenBillsPanel theme={theme} formatCurrency={formatCurrency} onChanged={loadData} refreshKey={refreshKey} startMonth={startMonth} startYear={startYear} endMonth={endMonth} endYear={endYear} />
+        <OpenBillsPanel theme={theme} formatCurrency={formatCurrency} onChanged={loadData} refreshKey={refreshKey} startMonth={startMonth} startYear={startYear} endMonth={endMonth} endYear={endYear} viewMode={viewMode} />
 
         {/* COMPONENTES ISOLADOS */}
         <DashboardCards
@@ -693,6 +694,7 @@ export default function Dashboard() {
       {isCreditCardsModalOpen && (<CreditCardsModal onClose={() => { setIsCreditCardsModalOpen(false); loadData(); }} />)}
       {isCategoryRulesModalOpen && (<CategoryRulesModal onClose={() => setIsCategoryRulesModalOpen(false)} categories={rawData.allCategories} />)}
       {isCategoriesModalOpen && (<CategoriesModal onClose={() => { setIsCategoriesModalOpen(false); loadData(); }} />)}
+      <HelpAssistant theme={theme} rawData={rawData} viewMode={viewMode} isolatePeriod={isolatePeriod} formatCurrency={formatCurrency} viewLabel={viewOptions.find((o) => o.id === viewMode)?.label || 'Tudo'} />
       {isOwnersModalOpen && (<OwnersAccountsModal onClose={() => { setIsOwnersModalOpen(false); loadData(); }} />)}
       {isFixedBillsModalOpen && (<FixedBillsModal categories={rawData.allCategories} onClose={() => { setIsFixedBillsModalOpen(false); loadData(); }} />)}
       {isCardInvoiceModalOpen && (<CardInvoiceImportModal categories={rawData.allCategories} pendingFixedBills={pendingFixedBills} onClose={() => { setIsCardInvoiceModalOpen(false); loadData(); }} />)}

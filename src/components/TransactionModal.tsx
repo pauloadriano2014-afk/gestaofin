@@ -47,6 +47,8 @@ export function TransactionModal({
   const [isFixed, setIsFixed] = useState(transaction?.isFixed || false)
   const [isPaid, setIsPaid] = useState(transaction?.isPaid ?? true) 
   const [installments, setInstallments] = useState(1) 
+  // Dia em que foi pago de verdade (o saldo usa essa data). Ao editar, mostra o dia gravado.
+  const [paidAtInput, setPaidAtInput] = useState<string>(transaction?.paidAt || transaction?.date || '')
 
   // Dono do lançamento (Paulo / Adri / Empresa). Ao editar usa o dono salvo; ao
   // criar usa o dono da visão atual (se uma específica estiver selecionada).
@@ -266,6 +268,8 @@ export function TransactionModal({
       date,
       isFixed: creditCardId ? false : isFixed,
       isPaid,
+      // ao editar: dia do pagamento (vazio = pendente)
+      ...(transaction?.id ? { paidAt: isPaid && !creditCardId ? (paidAtInput || date) : '' } : {}),
       installments: Number(installments),
       entityType,
       ownerId: ownerId || null,
@@ -647,6 +651,13 @@ export function TransactionModal({
                     Status: <span className={isPaid ? "text-green-500" : "text-orange-500"}>{isPaid ? "Pago" : "Pendente"}</span>
                   </span>
                 </div>
+                )}
+
+                {!creditCardId && transaction?.id && isPaid && (
+                  <div>
+                    <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block mb-1">Pago em (dia em que o dinheiro saiu)</label>
+                    <input type="date" value={paidAtInput} onChange={(e) => setPaidAtInput(e.target.value)} className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-2.5 text-sm text-white outline-none focus:border-blue-600" />
+                  </div>
                 )}
 
                 {creditCardId && (

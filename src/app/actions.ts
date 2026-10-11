@@ -506,7 +506,7 @@ export async function createTransaction(data: any) {
 }
 
 // --- ATUALIZAR STATUS ---
-export async function toggleTransactionStatus(id: string, currentStatus: boolean) {
+export async function toggleTransactionStatus(id: string, currentStatus: boolean, paidAtDate?: string) {
   try {
     const userId = await getUser();
     if (!userId) return { success: false };
@@ -515,7 +515,7 @@ export async function toggleTransactionStatus(id: string, currentStatus: boolean
     // data/hora exata em que a baixa foi dada (paidAt), e limpamos se desmarcar.
     await db.update(transactions).set({
       isPaid: newStatus,
-      paidAt: newStatus ? todayDateStr() : null,
+      paidAt: newStatus ? (paidAtDate && /^\d{4}-\d{2}-\d{2}$/.test(paidAtDate) ? paidAtDate : todayDateStr()) : null,
     }).where(and(eq(transactions.id, id), eq(transactions.userId, userId)));
     revalidatePath("/");
     return { success: true };
@@ -1013,8 +1013,11 @@ export async function updateTransaction(id: string, data: any) {
       const current = (await db.select({ aiTags: transactions.aiTags }).from(transactions).where(and(eq(transactions.id, id), eq(transactions.userId, userId))))[0];
       tagsPatch = { aiTags: withPaidBy(current?.aiTags, pickPaidBy(data.paidByOwnerId, ownership.ownerId, await getOwners(userId))) };
     }
+    // Dia do pagamento (quando a tela mandou): vazio = volta a pendente
+    const paidPatch = data.paidAt === undefined ? {} : (data.paidAt && /^\d{4}-\d{2}-\d{2}$/.test(String(data.paidAt)) ? { isPaid: true, paidAt: String(data.paidAt) } : { isPaid: false, paidAt: null });
     await db.update(transactions).set({
         ...tagsPatch,
+        ...paidPatch,
         // 🔥 CORRIGIDO: categoryId é uma coluna uuid — mandar "" (categoria
         // vazia, ex: ao editar uma Transferência) quebrava com erro de UUID
         // inválido. Agora vira null igual já acontecia ao criar um lançamento.

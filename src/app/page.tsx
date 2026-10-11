@@ -323,7 +323,21 @@ export default function Dashboard() {
     return calculateDashboardData(rawData, viewMode, selectedDay);
   }, [rawData, viewMode, selectedDay]);
 
-  async function handleTogglePay(id: string, currentStatus: boolean) { await toggleTransactionStatus(id, currentStatus); loadData(); }
+  async function handleTogglePay(id: string, currentStatus: boolean) {
+    let paidAtDate: string | undefined
+    // Marcando como paga uma conta que já venceu: pergunta o dia real do pagamento (o saldo usa esse dia)
+    if (!currentStatus) {
+      const tx = (rawData.transactions || []).find((t: any) => t.id === id)
+      if (tx && tx.date < todayStr) {
+        const typed = window.prompt(`Em que dia "${tx.description}" foi paga? (dd/mm/aaaa)`, todayStr.split('-').reverse().join('/'))
+        if (typed === null) return
+        const parsed = parseBrDate(typed, todayStr)
+        if (!parsed) { alert('Data inválida. Use dd/mm/aaaa, por exemplo 10/09/2026.'); return }
+        paidAtDate = parsed
+      }
+    }
+    await toggleTransactionStatus(id, currentStatus, paidAtDate); loadData();
+  }
   async function handleCopyMonth() { 
       if(confirm("Deseja copiar todas as contas fixas deste mês inicial para o próximo?")) { 
           setCopying(true); const res = await copyFixedExpenses(startMonth, startYear); alert(res.message); setCopying(false); 

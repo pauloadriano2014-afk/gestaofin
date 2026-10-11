@@ -828,3 +828,16 @@ test("fatura PDF: compra de dezembro numa fatura que vence em janeiro fica no an
   const { rows } = parseInvoiceText("Vencimento: 10/01/2027\nLançamentos: compras e saques\n20/12LOJA X50,00\n");
   assert.equal(rows[0].date, "2026-12-20");
 });
+
+import { groupInvoiceItemsByCategory } from "./invoice";
+test("fatura: itens agrupados por categoria com subtotal, maior primeiro", () => {
+  const items = [
+    { amount: "16.96", type: "expense", categoryId: "t" },
+    { amount: "16.95", type: "expense", categoryId: "t" },
+    { amount: "599.90", type: "expense", categoryId: "l" },
+    { amount: "5", type: "income", categoryId: "t" },
+    { amount: "44.90", type: "expense", categoryId: null },
+  ];
+  const g = groupInvoiceItemsByCategory(items, [{ id: "t", name: "Transporte" }, { id: "l", name: "Lazer" }]);
+  assert.deepEqual(g.map((x) => [x.name, x.total, x.count]), [["Lazer", 599.9, 1], ["Sem categoria", 44.9, 1], ["Transporte", 28.91, 3]]);
+});

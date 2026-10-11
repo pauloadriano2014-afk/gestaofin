@@ -34,3 +34,22 @@ export function summarizeByOwner(
     }))
     .sort((a, b) => b.total - a.total);
 }
+
+export interface InvoiceCategoryGroup<T> { id: string; name: string; items: T[]; total: number; count: number }
+
+// Itens da fatura agrupados por categoria (maior total primeiro). Crédito/estorno abate.
+export function groupInvoiceItemsByCategory<T extends { amount: string | number; type?: string; categoryId?: string | null }>(
+  items: T[],
+  categories: { id: string; name: string }[]
+): InvoiceCategoryGroup<T>[] {
+  const map = new Map<string, InvoiceCategoryGroup<T>>();
+  for (const it of items) {
+    const id = it.categoryId || "none";
+    const g = map.get(id) ?? { id, name: categories.find((c) => c.id === id)?.name ?? "Sem categoria", items: [], total: 0, count: 0 };
+    g.items.push(it);
+    g.total += invoiceAmount(it);
+    g.count += 1;
+    map.set(id, g);
+  }
+  return Array.from(map.values()).map((g) => ({ ...g, total: Math.round(g.total * 100) / 100 })).sort((a, b) => b.total - a.total);
+}

@@ -132,3 +132,18 @@ test("ciclo da fatura: antes e depois do fechamento", () => {
   assert.equal(c.closingDate, "2026-10-28");
   assert.equal(c.dueDate, "2026-11-05");
 });
+
+import { mapAsaasPayment } from "./asaas";
+
+test("Asaas: venda recebida vira entrada + taxa como saída separada", () => {
+  const r = mapAsaasPayment({ id: "pay_1", description: "Consultoria", value: 1000, netValue: 996.51, paymentDate: "2026-10-08", status: "RECEIVED" });
+  assert.equal(r.length, 2);
+  assert.deepEqual([r[0].type, r[0].amount, r[0].externalId], ["income", "1000.00", "asaas:pay:pay_1"]);
+  assert.deepEqual([r[1].type, r[1].amount, r[1].externalId], ["expense", "3.49", "asaas:fee:pay_1"]);
+});
+
+test("Asaas: sem taxa não cria lançamento de taxa; pendente é ignorada", () => {
+  assert.equal(mapAsaasPayment({ id: "p", value: 50, netValue: 50, paymentDate: "2026-10-01", status: "RECEIVED" }).length, 1);
+  assert.equal(mapAsaasPayment({ id: "p", value: 50, paymentDate: "2026-10-01", status: "PENDING" }).length, 0);
+  assert.equal(mapAsaasPayment({ id: "p", value: 50, status: "RECEIVED" }).length, 0); // sem data
+});

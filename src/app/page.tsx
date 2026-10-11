@@ -20,6 +20,7 @@ import { OpenBillsPanel } from "@/components/OpenBillsPanel";
 import { CreditCardsModal } from "@/components/CreditCardsModal";
 import { CategoryRulesModal } from "@/components/CategoryRulesModal";
 import { CategoriesModal } from "@/components/CategoriesModal";
+import { syncAsaasPayments } from "@/app/asaasActions";
 import { OwnersAccountsModal } from "@/components/OwnersAccountsModal";
 import { FixedBillsModal } from "@/components/FixedBillsModal";
 import { CardInvoiceImportModal } from "@/components/CardInvoiceImportModal";
@@ -162,6 +163,22 @@ export default function Dashboard() {
   }
 
   useEffect(() => { loadData(); setSelectedDay(null); }, [startMonth, startYear, endMonth, endYear, isolatePeriod]);
+
+  // Puxa as vendas recebidas no Asaas no período selecionado (sem duplicar).
+  const handleSyncAsaas = async () => {
+    setUploadStatus("Sincronizando Asaas...");
+    const startDate = `${startYear}-${String(startMonth).padStart(2, '0')}-01`;
+    const lastDay = new Date(endYear, endMonth, 0).getDate();
+    const endDate = `${endYear}-${String(endMonth).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+    const res: any = await syncAsaasPayments(startDate, endDate);
+    setUploadStatus("");
+    if (res.success) {
+      alert(`Asaas: ${res.inserted} lançamento(s) novo(s)${res.skipped ? `, ${res.skipped} já existiam` : ''}.`);
+      loadData();
+    } else {
+      alert(res.message || "Erro ao sincronizar com o Asaas.");
+    }
+  };
 
   const handleFileUpload = (event: any) => {
     const file = event.target.files[0];
@@ -447,6 +464,10 @@ export default function Dashboard() {
                         <button onClick={() => { setOpenMenu(null); csvInputRef.current?.click(); }} className={`w-full text-left flex items-start gap-3 px-3 py-2 rounded-xl transition-all ${theme.cardHover}`}>
                           <FileText className="w-4 h-4 mt-0.5 shrink-0" />
                           <span><span className="block text-sm font-bold">Extrato do banco (.csv)</span><span className={`block text-[11px] ${theme.textMuted}`}>Conta corrente, Asaas etc.</span></span>
+                        </button>
+                        <button onClick={() => { setOpenMenu(null); handleSyncAsaas(); }} className={`w-full text-left flex items-start gap-3 px-3 py-2 rounded-xl transition-all ${theme.cardHover}`}>
+                          <Repeat className="w-4 h-4 mt-0.5 shrink-0" />
+                          <span><span className="block text-sm font-bold">Sincronizar vendas do Asaas</span><span className={`block text-[11px] ${theme.textMuted}`}>Direto da API, no período selecionado</span></span>
                         </button>
                         <button onClick={() => { setOpenMenu(null); setIsCardInvoiceModalOpen(true); }} className={`w-full text-left flex items-start gap-3 px-3 py-2 rounded-xl transition-all ${theme.cardHover}`}>
                           <CreditCard className="w-4 h-4 mt-0.5 shrink-0" />

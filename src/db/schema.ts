@@ -1,4 +1,5 @@
-import { pgTable, uuid, text, numeric, date, timestamp, boolean, integer } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, numeric, date, timestamp, boolean, integer, uniqueIndex } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 export const categories = pgTable("categories", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -148,8 +149,14 @@ export const transactions = pgTable("transactions", {
   // Conta de onde o dinheiro saiu/entrou (nulo = não informada).
   accountId: uuid("account_id").references(() => accounts.id),
 
+  // Identificador do lançamento na origem (ex: "asaas:pay:pay_123"). Serve pra
+  // sincronizar de novo sem duplicar. Nulo pra lançamentos manuais/importados.
+  externalId: text("external_id"),
+
   createdAt: timestamp("created_at").defaultNow(),
-});
+}, (t) => [
+  uniqueIndex("transactions_external_uidx").on(t.userId, t.externalId).where(sql`${t.externalId} is not null`),
+]);
 
 // --- NOVA TABELA: ASSINATURAS (SaaS) ---
 // Essa tabela armazena o estado do plano do usuário (Free ou Pro)

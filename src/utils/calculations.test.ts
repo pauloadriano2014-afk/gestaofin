@@ -190,7 +190,7 @@ test("saldo: despesa do cartão (sem categoria de fatura) continua contando", ()
   assert.equal(sumBalance([{ type: "expense", amount: "75.50", categoryId: CAT.mercado }], sets), -75.5);
 });
 
-import { explainNumbers, searchHelp } from "./help";
+import { explainNumbers, searchHelp, HELP_ENTRIES } from "./help";
 
 test("tira-dúvidas: explica de onde vem despesa, receita e saldo", () => {
   const e = explainNumbers(raw, "all", true);
@@ -515,4 +515,10 @@ test("extrato: pagamento de cartão sem a palavra 'fatura' também é reconhecid
   assert.equal(looksLikeBankInvoicePayment("Compra no débito - Uber"), false);
   assert.equal(_searchHelp("emprestei 500 e o banco cobrou 520 de juros")[0].id, "emprestimo-juros");
   assert.equal(_searchHelp("mandei dinheiro pra adri como categorizo")[0].id, "transferencias-emprestimos");
+});
+
+test("tira-dúvidas: empréstimo devolvido com juros fica neutro, sem dividir", () => {
+  const e = HELP_ENTRIES.find((x) => x.id === "emprestimo-juros")!;
+  assert.match(e.answer, /devolveu os R\$ 520 inteiros/);
+  assert.match(e.answer, /nada conta como receita ou gasto/);
 });

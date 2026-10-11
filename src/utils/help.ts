@@ -84,7 +84,7 @@ export const HELP_ENTRIES: HelpEntry[] = [
     id: "emprestimo-juros",
     question: "Emprestei R$ 500 e o banco cobrou R$ 520. Como lanço os juros?",
     answer:
-      "O principal (R$ 500) é \"Reembolsos / Empréstimos\" em todas as pontas: quando saiu, quando voltou e a parte do pagamento ao banco. Só os R$ 20 a mais (juros, IOF, taxa) são um gasto de verdade, a menos que a pessoa tenha devolvido os R$ 520. Na revisão da importação, use a tesoura (Dividir) no pagamento de R$ 520: R$ 500 fica como empréstimo e os R$ 20 vão para \"Impostos e Taxas\" (ou Financiamentos). O saldo continua certo, porque as duas partes somam os mesmos R$ 520.",
+      "O principal (R$ 500) é \"Reembolsos / Empréstimos\" em todas as pontas: quando saiu, quando voltou e a parte do pagamento ao banco. Só os R$ 20 a mais (juros, IOF, taxa) são um gasto de verdade, a menos que a pessoa tenha devolvido os R$ 520. Na revisão da importação, use a tesoura (Dividir) no pagamento de R$ 520: R$ 500 fica como empréstimo e os R$ 20 vão para \"Impostos e Taxas\" (ou Financiamentos). O saldo continua certo, porque as duas partes somam os mesmos R$ 520. Se a pessoa devolveu os R$ 520 inteiros (com os juros), não há o que dividir: todas as pontas (o que saiu, o que voltou e o pagamento ao banco) ficam como \"Reembolsos / Empréstimos\" e nada conta como receita ou gasto. O app aprende a regra pela descrição (que inclui o nome) e já sugere a mesma categoria na próxima vez.",
     keywords: "emprestimo juros iof taxa dividir 500 520 mae banco cobrou principal",
   },
   {

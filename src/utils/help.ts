@@ -21,14 +21,14 @@ export const HELP_ENTRIES: HelpEntry[] = [
     id: "saldo-vs-resultado",
     question: "Por que o Saldo é diferente de Receita menos Despesas?",
     answer:
-      "Receita e Despesas são do período e só contam gastos e ganhos \"de verdade\" (ficam de fora investimentos, reembolsos e pagamento de fatura). O Saldo conta tudo que entrou e saiu da conta, mas também deixa de fora transferências e pagamento de fatura. No modo \"Mês isolado\" o saldo é só daquele mês; no modo \"Período\" com a chave desligada ele soma tudo desde o começo. Use \"Explicar meus números\" para ver a conta feita com os seus dados.",
+      "Receita e Despesas são do período e contam o que foi gasto e ganho \"de verdade\" (ficam de fora investimentos, reembolsos e pagamento de fatura), pago ou não. O Saldo é o dinheiro de verdade: só conta o que JÁ FOI PAGO ou recebido. Conta pendente, mesmo atrasada, só diminui o saldo quando você dá baixa; ela aparece embaixo do saldo como \"a pagar\", junto com o saldo previsto. O Saldo também deixa de fora transferências e pagamento de fatura. No modo \"Mês isolado\" o saldo é só daquele mês; no modo \"Período\" com a chave desligada ele soma tudo desde o começo. Use \"Explicar meus números\" para ver a conta feita com os seus dados.",
     keywords: "saldo diferente nao bate receita despesa resultado conta",
   },
   {
     id: "card-saldo",
     question: "Card Saldo Principal: o que ele mostra?",
     answer:
-      "Tudo que entrou menos tudo que saiu. No modo Mês isolado conta só aquele mês; no modo Período com \"começar do zero\" desligado soma tudo desde o início até o fim do período. Ficam de fora transferências e pagamento de fatura (as compras do cartão já contam no dia da compra). Clique no card para ver a lista que forma esse valor.",
+      "O dinheiro de verdade: tudo que já entrou menos tudo que já saiu. Só conta o que foi PAGO: conta fixa pendente, parcela futura ou compra de cartão com fatura em aberto não diminuem o saldo (mesmo atrasadas) até você dar baixa. O que falta pagar aparece embaixo, com o saldo previsto. No modo Mês isolado conta só aquele mês; no modo Período com \"começar do zero\" desligado soma tudo desde o início até o fim do período. Ficam de fora transferências e pagamento de fatura (as compras do cartão já contam no dia da compra). Clique no card para ver a lista que forma esse valor.",
     keywords: "card saldo principal disponivel conta",
   },
   {
@@ -202,6 +202,9 @@ export interface NumbersExplanation {
   // Saldo só com o que está no período na tela (no modo acumulado o saldo
   // também soma os meses anteriores, que não ficam carregados na tela).
   saldoDoPeriodo: number;
+  // O que ainda falta pagar/receber no período (efeito líquido; negativo = mais a pagar).
+  aPagar: number;
+  saldoPrevisto: number;
   ignoradosNoSaldo: ExcludedLine[];
   alertas: string[];
 }
@@ -231,11 +234,11 @@ export function explainNumbers(raw: any, viewMode: string, isolatePeriod: boolea
   const isExcluded = (t: any) => inKind(t, "investment") || inKind(t, "refund") || inKind(t, "card_payment");
 
   // Saldo do período: igual a utils/balance.ts (fora transferência e pagamento de fatura).
+  // Saldo = só o que já foi pago (igual a utils/balance.ts); o pendente vai à parte.
   const balanceRows = txs.filter((t: any) => (t.type === "income" || t.type === "expense") && !inKind(t, "card_payment"));
-  const saldoDoPeriodo =
-    Math.round(
-      balanceRows.reduce((a: number, t: any) => a + (t.type === "income" ? abs(t) : -abs(t)), 0) * 100
-    ) / 100;
+  const signedSum = (rows: any[]) => Math.round(rows.reduce((a: number, t: any) => a + (t.type === "income" ? abs(t) : -abs(t)), 0) * 100) / 100;
+  const saldoDoPeriodo = signedSum(balanceRows.filter((t: any) => t.isPaid !== false));
+  const aPagar = signedSum(balanceRows.filter((t: any) => t.isPaid === false));
 
   const ignoradosNoSaldo = [
     line("Transferências", transfers),
@@ -270,6 +273,8 @@ export function explainNumbers(raw: any, viewMode: string, isolatePeriod: boolea
     despesas: { operacional: total(expenses.filter((t: any) => !isExcluded(t))), bruto: total(expenses), excluidos: exclSide(expenses) },
     receita: { operacional: total(incomes.filter((t: any) => !isExcluded(t))), bruto: total(incomes), excluidos: exclSide(incomes) },
     saldoDoPeriodo,
+    aPagar,
+    saldoPrevisto: Math.round((saldoDoPeriodo + aPagar) * 100) / 100,
     ignoradosNoSaldo,
     alertas,
   };

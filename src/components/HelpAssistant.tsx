@@ -103,7 +103,9 @@ export function HelpAssistant({ theme, rawData, viewMode, isolatePeriod, formatC
 
                   <div className={`rounded-xl border p-3 space-y-1 ${theme.card}`}>
                     <p className="text-xs font-bold uppercase tracking-wider">Saldo do período</p>
-                    {row('Entradas − saídas', explanation.saldoDoPeriodo, true)}
+                    {row('Entradas − saídas (só o que já foi pago)', explanation.saldoDoPeriodo, true)}
+                    {explanation.aPagar !== 0 && row(explanation.aPagar < 0 ? 'Falta pagar (não diminui o saldo ainda)' : 'Falta receber', Math.abs(explanation.aPagar))}
+                    {explanation.aPagar !== 0 && row('Saldo previsto depois de tudo', explanation.saldoPrevisto)}
                     {explanation.ignoradosNoSaldo.length > 0 && <p className={`text-[11px] ${theme.textMuted}`}>Ficaram de fora do saldo:</p>}
                     {excluded(explanation.ignoradosNoSaldo)}
                   </div>

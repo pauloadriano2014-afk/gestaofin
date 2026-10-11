@@ -522,3 +522,53 @@ test("tira-dúvidas: empréstimo devolvido com juros fica neutro, sem dividir", 
   assert.match(e.answer, /devolveu os R\$ 520 inteiros/);
   assert.match(e.answer, /nada conta como receita ou gasto/);
 });
+
+import { balanceSplit } from "./balance";
+
+test("saldo: conta pendente (mesmo atrasada) NÃO diminui o saldo; aparece à parte", () => {
+  const sets = buildKindSets(categories);
+  const rows = [
+    { type: "income", amount: "5000", categoryId: CAT.vendas, isPaid: true },
+    { type: "expense", amount: "300", categoryId: CAT.mercado, isPaid: true },
+    { type: "expense", amount: "500", categoryId: CAT.mercado, isPaid: false },   // conta fixa atrasada, sem baixa
+    { type: "expense", amount: "129", categoryId: CAT.mercado, isPaid: false },   // pendente
+    { type: "expense", amount: "900", categoryId: CAT.cartao, isPaid: false },    // pagamento de fatura: fora
+    { type: "transfer", amount: "100", categoryId: null, isPaid: true },          // transferência: fora
+  ];
+  const r = balanceSplit(rows, sets);
+  assert.equal(r.paid, 4700);          // 5000 - 300
+  assert.equal(r.pending, -629);       // -(500 + 129)
+  assert.equal(r.projected, 4071);     // saldo depois de pagar tudo
+  assert.equal(sumBalance(rows, sets), 4700);
+});
+
+test("saldo: dar baixa passa a conta de 'a pagar' para o saldo", () => {
+  const sets = buildKindSets(categories);
+  const antes = [{ type: "expense", amount: "500", categoryId: CAT.mercado, isPaid: false }];
+  const depois = [{ type: "expense", amount: "500", categoryId: CAT.mercado, isPaid: true }];
+  assert.deepEqual([balanceSplit(antes, sets).paid, balanceSplit(antes, sets).pending], [0, -500]);
+  assert.deepEqual([balanceSplit(depois, sets).paid, balanceSplit(depois, sets).pending], [-500, 0]);
+  // sem a informação de pago, considera pago (padrão dos lançamentos)
+  assert.equal(sumBalance([{ type: "expense", amount: "10", categoryId: null }], sets), -10);
+});
+
+test("saldo: card mostra o pago, o que falta pagar e o previsto, por visão", () => {
+  const data = { ...raw, summary: { ...raw.summary, globalBalance: 1000, globalPending: -300, balanceByOwner: { [PAULO]: 400, [ADRI]: 100, [EMPRESA]: 500 }, pendingByOwner: { [PAULO]: -250, [ADRI]: -50, [EMPRESA]: 0 } } };
+  const all = calculateDashboardData(data, "all", null).summary as any;
+  assert.deepEqual([all.balance, all.pending, all.projected], [1000, -300, 700]);
+  const paulo = calculateDashboardData(data, PAULO, null).summary as any;
+  assert.deepEqual([paulo.balance, paulo.pending, paulo.projected], [400, -250, 150]);
+});
+
+test("tira-dúvidas: 'Meus números' separa saldo pago e o que falta pagar", () => {
+  const dados = { allCategories: categories, summary: {}, transactions: [
+    { id: "1", type: "income", amount: "2000", ownerId: PAULO, entityType: "pf", categoryId: CAT.vendas, date: "2026-10-01", description: "Venda", isPaid: true },
+    { id: "2", type: "expense", amount: "500", ownerId: PAULO, entityType: "pf", categoryId: CAT.mercado, date: "2026-10-05", description: "Uniasselvi", isPaid: false },
+    { id: "3", type: "expense", amount: "100", ownerId: PAULO, entityType: "pf", categoryId: CAT.mercado, date: "2026-10-06", description: "Mercado", isPaid: true },
+  ] };
+  const e = explainNumbers(dados, "all", true);
+  assert.equal(e.saldoDoPeriodo, 1900);
+  assert.equal(e.aPagar, -500);
+  assert.equal(e.saldoPrevisto, 1400);
+  assert.equal(e.saldoDoPeriodo, sumBalance(dados.transactions as any, buildKindSets(categories)));
+});

@@ -66,7 +66,13 @@ export function DashboardCards({
             {onHelp && <button type="button" onClick={(e) => { e.stopPropagation(); onHelp('card-saldo'); }} className={`p-1 rounded-full hover:bg-black/5 ${theme.textMuted}`} title="Como esse número é calculado?" aria-label="Ajuda sobre este card"><HelpCircle className="w-4 h-4" /></button>}
           </div>
           <p className={`text-lg md:text-3xl font-bold font-mono tracking-tight ${theme.text}`}>{formatCurrency(summary.balance)}</p>
-          <p className={`text-[10px] md:text-xs mt-2 ${theme.textMuted}`}>{selectedDay ? `Em ${selectedDay}` : 'Disponível na Conta'}</p>
+          <p className={`text-[10px] md:text-xs mt-2 ${theme.textMuted}`}>{selectedDay ? `Em ${selectedDay}` : 'Disponível na conta (só o que já foi pago)'}</p>
+          {Math.abs(summary.pending || 0) >= 0.005 && (
+            <p className={`text-[10px] md:text-xs mt-1 ${theme.textMuted}`}>
+              {summary.pending < 0 ? 'Falta pagar' : 'Falta receber'} <b className={`whitespace-nowrap ${summary.pending < 0 ? 'text-red-500' : 'text-emerald-500'}`}>{formatCurrency(Math.abs(summary.pending))}</b>
+              {' · '}previsto <b className={`whitespace-nowrap ${summary.projected < 0 ? 'text-red-500' : theme.text}`}>{formatCurrency(summary.projected)}</b>
+            </p>
+          )}
         </div>
 
         {/* Card 2: Receita Operacional */}
@@ -122,7 +128,7 @@ export function DashboardCards({
       {openModal === 'balance' && (
         <BreakdownModal
           title="Saldo Principal"
-          description={selectedDay ? `Todos os lançamentos até o dia ${selectedDay} que formam o saldo disponível.` : "Todos os lançamentos (histórico completo até o fim do período) que formam o saldo disponível."}
+          description={selectedDay ? `Todos os lançamentos já pagos até o dia ${selectedDay} que formam o saldo disponível.` : "Todos os lançamentos já pagos (histórico completo até o fim do período) que formam o saldo disponível. O que ainda falta pagar não entra."}
           mode="balance"
           transactions={balanceTxs}
           categories={categories}

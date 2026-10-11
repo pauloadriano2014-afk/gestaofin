@@ -80,14 +80,21 @@ export function calculateDashboardData(rawData: any, viewMode: string, selectedD
         };
     });
 
-    let finalBalance = rawData.summary?.globalBalance || 0;
-    if (viewMode === 'pf') finalBalance = rawData.summary?.globalBalancePF || 0;
-    else if (viewMode === 'pj') finalBalance = rawData.summary?.globalBalancePJ || 0;
-    else if (viewMode !== 'all') finalBalance = rawData.summary?.balanceByOwner?.[viewMode] || 0;
+    // Saldo = só o que já foi pago. "pending" = efeito líquido do que ainda falta
+    // pagar/receber (negativo quando há mais a pagar); "projected" = saldo depois
+    // de pagar tudo.
+    const sm = rawData.summary || {};
+    let finalBalance = sm.globalBalance || 0;
+    let finalPending = sm.globalPending || 0;
+    if (viewMode === 'pf') { finalBalance = sm.globalBalancePF || 0; finalPending = sm.globalPendingPF || 0; }
+    else if (viewMode === 'pj') { finalBalance = sm.globalBalancePJ || 0; finalPending = sm.globalPendingPJ || 0; }
+    else if (viewMode !== 'all') { finalBalance = sm.balanceByOwner?.[viewMode] || 0; finalPending = sm.pendingByOwner?.[viewMode] || 0; }
 
     return {
         summary: {
             balance: finalBalance,
+            pending: finalPending,
+            projected: Math.round((finalBalance + finalPending) * 100) / 100,
             income,
             expense,
             invested,

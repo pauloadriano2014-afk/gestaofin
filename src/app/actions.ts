@@ -5,7 +5,7 @@ import { categories, transactions, userSettings, categoryRules, fixedBills, acco
 import { getOwners, resolveOwnership, ownerSetupNeeded } from "@/db/owners";
 import { matchesView } from "@/utils/owners";
 import { inferKindFromName, buildKindSets, type CategoryKind } from "@/utils/categoryKinds";
-import { sumBalance } from "@/utils/balance";
+import { sumBalance, balanceSplit } from "@/utils/balance";
 import { cycleKeyForDueMonth, withInvoiceTag } from "@/utils/creditCard";
 import { settleInvoice } from "@/db/invoices";
 import { dedupeAgainstExisting } from "@/utils/invoiceLines";
@@ -72,7 +72,7 @@ export async function getDashboardData(startMonth: number, startYear: number, en
 
     // Com as etapas acima prontas, as leituras também são independentes:
     // categorias, transações do período e (no modo acumulado) o saldo da vida toda.
-    type BalanceRow = { type: string; amount: string; entityType: string | null; ownerId: string | null; categoryId: string | null };
+    type BalanceRow = { type: string; amount: string; entityType: string | null; ownerId: string | null; categoryId: string | null; isPaid: boolean | null };
     const [allCategories, currentTransactions, lifetimeRows] = await Promise.all([
       db.select().from(categories).where(eq(categories.userId, userId)),
       db.select().from(transactions)
@@ -80,7 +80,7 @@ export async function getDashboardData(startMonth: number, startYear: number, en
         .orderBy(desc(transactions.date)),
       isolatePeriod
         ? Promise.resolve(null)
-        : db.select({ type: transactions.type, amount: transactions.amount, entityType: transactions.entityType, ownerId: transactions.ownerId, categoryId: transactions.categoryId })
+        : db.select({ type: transactions.type, amount: transactions.amount, entityType: transactions.entityType, ownerId: transactions.ownerId, categoryId: transactions.categoryId, isPaid: transactions.isPaid })
             .from(transactions)
             .where(and(eq(transactions.userId, userId), lte(transactions.date, endDateStr))),
     ]);
@@ -91,13 +91,25 @@ export async function getDashboardData(startMonth: number, startYear: number, en
     const balanceRows: BalanceRow[] = lifetimeRows ?? currentTransactions;
 
     const kindSets = buildKindSets(allCategories);
-    const sumRows = (rows: BalanceRow[]) => sumBalance(rows, kindSets);
-
-    const globalBalance = sumRows(balanceRows);
-    const globalBalancePF = sumRows(balanceRows.filter(t => t.entityType === 'pf'));
-    const globalBalancePJ = sumRows(balanceRows.filter(t => t.entityType === 'pj'));
+    // Saldo = só o que já foi pago; o que ainda falta pagar/receber vem à parte
+    // (pending) e o previsto é a soma dos dois. Ver utils/balance.ts.
+    const split = (rows: BalanceRow[]) => balanceSplit(rows, kindSets);
+    const gAll = split(balanceRows);
+    const gPF = split(balanceRows.filter(t => t.entityType === 'pf'));
+    const gPJ = split(balanceRows.filter(t => t.entityType === 'pj'));
+    const globalBalance = gAll.paid;
+    const globalBalancePF = gPF.paid;
+    const globalBalancePJ = gPJ.paid;
+    const globalPending = gAll.pending;
+    const globalPendingPF = gPF.pending;
+    const globalPendingPJ = gPJ.pending;
     const balanceByOwner: Record<string, number> = {};
-    for (const o of ownerList) balanceByOwner[o.id] = sumRows(balanceRows.filter(t => t.ownerId === o.id));
+    const pendingByOwner: Record<string, number> = {};
+    for (const o of ownerList) {
+      const g = split(balanceRows.filter(t => t.ownerId === o.id));
+      balanceByOwner[o.id] = g.paid;
+      pendingByOwner[o.id] = g.pending;
+    }
 
     const fixedExpenses = currentTransactions.filter(t => t.isFixed === true && t.type === 'expense');
     const variableTransactions = currentTransactions.filter(t => t.isFixed === false || t.type === 'income');
@@ -124,7 +136,7 @@ export async function getDashboardData(startMonth: number, startYear: number, en
       owners: ownerList,
       needsOwnerSetup,
       accounts: accountList,
-      summary: { balance, income, expense, globalBalance, globalBalancePF, globalBalancePJ, balanceByOwner },
+      summary: { balance, income, expense, globalBalance, globalBalancePF, globalBalancePJ, balanceByOwner, globalPending, globalPendingPF, globalPendingPJ, pendingByOwner },
       categoryStats, 
       pieData: categoryStats, 
       dailyData: [], 
@@ -174,6 +186,7 @@ export async function getBalanceBreakdown(startMonth: number, startYear: number,
     const filtered = rows.filter((t) => matchesView(t, viewMode))
       .filter((t) => t.type === 'income' || t.type === 'expense')
       .filter((t) => !(t.categoryId && kindSets.card_payment.has(t.categoryId)))
+      .filter((t) => t.isPaid !== false) // pendente não diminui o saldo
       .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
 
     return filtered;

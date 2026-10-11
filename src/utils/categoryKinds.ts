@@ -14,7 +14,7 @@ export type CategoryKind = "operational" | "investment" | "refund" | "card_payme
 export const CATEGORY_KIND_LABEL: Record<CategoryKind, string> = {
   operational: "Gasto/receita normal",
   investment: "Investimento",
-  refund: "Reembolso / empréstimo",
+  refund: "Transferência / reembolso / empréstimo",
   card_payment: "Pagamento de fatura",
 };
 
@@ -25,6 +25,7 @@ export function inferKindFromName(name: string): CategoryKind {
   if (n.includes("investimento")) return "investment";
   if (n.includes("cartão de crédito")) return "card_payment";
   if (n.includes("reembolso")) return "refund";
+  if (n.includes("transferência entre") || n.includes("transferencia entre")) return "refund";
   return "operational";
 }
 
@@ -57,10 +58,14 @@ export function isOperational(
   return !sets.investment.has(categoryId) && !sets.refund.has(categoryId) && !sets.card_payment.has(categoryId);
 }
 
-// Categoria de reembolso/empréstimo para transferências entre contas e pessoas.
-// "Ajuste de saldo" também é do tipo reembolso (neutra em Receita/Despesas), mas é só da
-// conciliação com o banco: nunca pode ser escolhida aqui. Prefere a que tem "reembolso" no nome.
-export function pickRefundCategory<T extends { id: string; name: string; kind?: string | null }>(categories: T[]): T | null {
+// Categoria neutra (não é receita nem gasto) para dinheiro que só muda de lugar.
+//  - prefer "transfer": transferência entre contas/pessoas -> "Transferência entre contas"
+//  - prefer "loan": empréstimo/reembolso -> "Reembolsos / Empréstimos"
+// Se a preferida não existir, usa a outra. "Ajuste de saldo" também é desse tipo, mas é só da
+// conciliação com o banco: nunca pode ser escolhida aqui.
+export function pickRefundCategory<T extends { id: string; name: string; kind?: string | null }>(categories: T[], prefer: "transfer" | "loan" = "transfer"): T | null {
   const list = (categories || []).filter((c) => resolveCategoryKind(c) === "refund" && c.name.trim().toLowerCase() !== "ajuste de saldo");
-  return list.find((c) => c.name.toLowerCase().includes("reembols")) ?? list[0] ?? null;
+  const key = prefer === "loan" ? "reembols" : "transfer";
+  const other = prefer === "loan" ? "transfer" : "reembols";
+  return list.find((c) => c.name.toLowerCase().includes(key)) ?? list.find((c) => c.name.toLowerCase().includes(other)) ?? list[0] ?? null;
 }

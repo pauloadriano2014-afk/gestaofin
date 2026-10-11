@@ -35,7 +35,7 @@ export function ImportReviewModal({ isOpen, onClose, initialTransactions, catego
       }));
       // Transferência que cita um dos donos (você, a Adri...) é dinheiro entre os donos:
       // já vem como Reembolso / Empréstimo (neutro), se a categoria ainda é "normal".
-      const refundCat = pickRefundCategory(categories || []);
+      const refundCat = pickRefundCategory(categories || [], 'transfer');
       const ownerAware = mapped.map((t: any) => {
         if (!refundCat || flagInvoicePayments || !mentionsOwner(t.description, owners)) return t;
         const cur = (categories || []).find((c: any) => c.id === t.categoryId);
@@ -93,8 +93,9 @@ export function ImportReviewModal({ isOpen, onClose, initialTransactions, catego
   // "Reembolsos / Empréstimos", que não conta como receita nem gasto. Se a outra
   // ponta está nesta mesma lista, as duas viram; se já estava salva, ela é
   // atualizada junto ao confirmar.
-  const applyTransfer = (idx: number, partnerIdx?: number, existingId?: string) => {
-    if (!refundCategoryId) { alert('Não encontrei a categoria "Reembolsos / Empréstimos". Crie uma em Cadastros > Categorias com o tipo "Reembolso / empréstimo".'); return; }
+  const applyTransfer = (idx: number, partnerIdx?: number, existingId?: string, purpose: 'transfer' | 'loan' = 'transfer') => {
+    const refundCategoryId = pickRefundCategory(categories || [], purpose)?.id || null;
+    if (!refundCategoryId) { alert('Não encontrei uma categoria de transferência. Crie "Transferência entre contas" em Categorias com o tipo "Transferência / reembolso / empréstimo".'); return; }
     setTransactions((prev) => prev.map((t, i) => (
       i === idx ? { ...t, categoryId: refundCategoryId, ...(existingId ? { pairedExistingId: existingId } : {}) }
       : i === partnerIdx ? { ...t, categoryId: refundCategoryId } : t
@@ -405,9 +406,14 @@ export function ImportReviewModal({ isOpen, onClose, initialTransactions, catego
                               : <>Transferência: se foi entre você, a Adri, a empresa, ou um empréstimo, não é receita nem gasto.</>}
                         </p>
                         <div className="flex gap-2 flex-wrap">
-                          <button onClick={() => applyTransfer(idx, partnerIdx, existing?.id)} className="font-bold px-2.5 py-1 rounded-md bg-amber-500 hover:bg-amber-600 text-white">
-                            {partner || existing ? 'É a mesma movimentação' : 'Marcar como Reembolso / Empréstimo'}
+                          <button onClick={() => applyTransfer(idx, partnerIdx, existing?.id, 'transfer')} className="font-bold px-2.5 py-1 rounded-md bg-amber-500 hover:bg-amber-600 text-white">
+                            {partner || existing ? 'É a mesma movimentação' : 'É transferência entre contas/pessoas'}
                           </button>
+                          {!partner && !existing && (
+                            <button onClick={() => applyTransfer(idx, undefined, undefined, 'loan')} className="font-bold px-2.5 py-1 rounded-md bg-amber-500/70 hover:bg-amber-600 text-white">
+                              É empréstimo / reembolso
+                            </button>
+                          )}
                           <button onClick={() => dismissSuggestion(tx._k)} className="font-bold px-2.5 py-1 rounded-md bg-black/5 dark:bg-white/10 hover:bg-black/10">
                             {partner || existing ? 'Não é' : 'É receita/gasto de verdade'}
                           </button>

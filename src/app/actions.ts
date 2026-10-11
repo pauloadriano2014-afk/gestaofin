@@ -871,11 +871,18 @@ export async function deleteTransactions(ids: string[]) {
 // Categorias que a IA pode escolher: ficam de fora "Ajuste de saldo", pagamento de fatura e
 // reembolso/empréstimo. Essas são decididas pelo app (vínculo com fatura, nome dos donos,
 // aviso de transferência), nunca por palpite sobre o nome do estabelecimento.
-function aiCategoryList(cats: { id: string; name: string; kind?: string | null }[]): string {
-  return cats
-    .filter((c) => { const k = resolveCategoryKind(c); return k !== "card_payment" && k !== "refund" && c.name.trim().toLowerCase() !== "ajuste de saldo"; })
-    .map((c) => `{ id: '${c.id}', name: '${c.name}' }`)
-    .join(", ");
+function aiCategoryList(cats: { id: string; name: string; type?: string | null; kind?: string | null }[]): string {
+  const ok = cats.filter((c) => { const k = resolveCategoryKind(c); return k !== "card_payment" && k !== "refund" && c.name.trim().toLowerCase() !== "ajuste de saldo"; });
+  const fmt = (list: typeof ok) => list.map((c) => `{ id: '${c.id}', name: '${c.name}' }`).join(", ");
+  // entrada só combina com categoria de entrada, saída com categoria de saída
+  return `\nPara ENTRADAS (valor positivo / income) use SÓ estas: [${fmt(ok.filter((c) => c.type === "income"))}]\nPara SAÍDAS (valor negativo / expense) use SÓ estas: [${fmt(ok.filter((c) => c.type !== "income"))}]\n`;
+}
+
+// A categoria escolhida pela IA precisa ser do mesmo tipo da linha (entrada x saída).
+function categoryFitsType(cats: { id: string; type?: string | null }[], categoryId: string | null | undefined, txType: string): boolean {
+  if (!categoryId) return false;
+  const c = cats.find((x) => x.id === categoryId);
+  return !!c && (txType === "income" ? c.type === "income" : c.type !== "income");
 }
 
 // Sugere categoria para lançamentos já salvos (em massa), sem aprender nada com o
@@ -925,7 +932,7 @@ export async function suggestCategoriesForTransactions(ids: string[]) {
         const parsed = JSON.parse(String(data.choices[0].message.content).replace(/```json/g, "").replace(/```/g, "").trim());
         for (const r of parsed) {
           const t = chunk[Number(r?.n)];
-          if (t && aiAllowed.has(r.categoryId)) decided.set(t.id, r.categoryId);
+          if (t && aiAllowed.has(r.categoryId) && categoryFitsType(cats, r.categoryId, t.type)) decided.set(t.id, r.categoryId);
         }
       } catch { /* esse lote fica sem sugestão */ }
     }
@@ -1027,7 +1034,7 @@ async function syncEssentialCategories(userId: string) {
     const essential = [
       { name: "Viagens", type: "expense" }, { name: "Assinaturas & Apps", type: "expense" }, { name: "Mercado", type: "expense" },
       { name: "Refeição Livre / Lazer", type: "expense" }, { name: "Suplementos", type: "expense" }, { name: "Vestuário / Academia", type: "expense" },
-      { name: "Financiamentos", type: "expense" }, { name: "Reembolsos / Empréstimos", type: "expense" }, { name: "Transporte", type: "expense" },
+      { name: "Financiamentos", type: "expense" }, { name: "Reembolsos / Empréstimos", type: "expense" }, { name: "Transferência entre contas", type: "expense" }, { name: "Transporte", type: "expense" },
       { name: "Saúde e Beleza", type: "expense" }, { name: "Estudos", type: "expense" }, { name: "Moradia", type: "expense" }, { name: "Despesas Variadas", type: "expense" },
       { name: "Impostos e Taxas", type: "expense" }, { name: "Cartão de Crédito", type: "expense" }, { name: "Salário", type: "income" },
       { name: "Investimentos", type: "income" }, { name: "Consultoria", type: "income" }
@@ -1261,7 +1268,7 @@ export async function processCSVWithAI(batch: { date: string, amount: number, de
       processedBatch.push({
         description: String(aiTx.description || originalTx.description || "Importado").substring(0, 100),
         amount: amountValue,
-        categoryId: learnedCategoryId || aiTx.categoryId || null,
+        categoryId: learnedCategoryId || (categoryFitsType(userCategories, aiTx.categoryId, aiTx.type || (isIncome ? 'income' : 'expense')) ? aiTx.categoryId : null),
         type: aiTx.type || (isIncome ? 'income' : 'expense'),
         date: formattedDate, 
         isFixed: false, 
@@ -1328,9 +1335,8 @@ export async function saveBulkTransactions(transactionsList: any[]) {
         // A outra ponta de uma movimentação entre contas já estava salva (de outro
         // extrato): ao confirmar, ela passa a ser "Reembolsos / Empréstimos" também.
         const anyPaired = transactionsList.some((t) => t.pairedExistingId);
-        const refundCategoryId = anyPaired
-            ? (pickRefundCategory(await db.select().from(categories).where(eq(categories.userId, userId)))?.id ?? null)
-            : null;
+        const userCats = anyPaired ? await db.select().from(categories).where(eq(categories.userId, userId)) : [];
+        const refundCategoryId = anyPaired ? (pickRefundCategory(userCats)?.id ?? null) : null;
         const cardPaymentCategoryId = anyInvoiceLink
             ? buildKindSetsFirst(await db.select().from(categories).where(eq(categories.userId, userId)))
             : null;
@@ -1340,7 +1346,10 @@ export async function saveBulkTransactions(transactionsList: any[]) {
         for (const tx of transactionsList) {
             const ownership = await resolveOwnership(userId, { ownerId: tx.ownerId, entityType: tx.entityType });
             if (tx.pairedExistingId && refundCategoryId) {
-                await db.update(transactions).set({ categoryId: refundCategoryId })
+                // a outra ponta recebe a mesma categoria neutra escolhida nesta linha
+                const rowCat = userCats.find((c) => c.id === tx.categoryId);
+                const pairedCategoryId = rowCat && resolveCategoryKind(rowCat) === "refund" && rowCat.name.trim().toLowerCase() !== "ajuste de saldo" ? rowCat.id : refundCategoryId;
+                await db.update(transactions).set({ categoryId: pairedCategoryId })
                     .where(and(eq(transactions.id, tx.pairedExistingId), eq(transactions.userId, userId)));
             }
             // só é "vinculada a fatura" com o formato completo "cartão|AAAA-MM"

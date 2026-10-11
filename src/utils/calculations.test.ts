@@ -752,3 +752,15 @@ test("transferência usa Reembolsos/Empréstimos, nunca Ajuste de saldo (ambas s
   assert.equal(pickRefundCategory(cats)?.id, "re");
   assert.equal(pickRefundCategory([cats[0], cats[2]]), null);
 });
+
+test("pickRefundCategory: prefere transferência ou reembolso conforme o caso", () => {
+  const cats = [
+    { id: "aj", name: "Ajuste de saldo", kind: "refund" },
+    { id: "re", name: "Reembolsos / Empréstimos", kind: "refund" },
+    { id: "tr", name: "Transferência entre contas", kind: "refund" },
+  ];
+  assert.equal(pickRefundCategory(cats, "transfer")?.id, "tr");
+  assert.equal(pickRefundCategory(cats, "loan")?.id, "re");
+  assert.equal(pickRefundCategory([cats[0], cats[1]], "transfer")?.id, "re");
+  assert.equal(resolveCategoryKind({ name: "Transferência entre contas" }), "refund");
+});

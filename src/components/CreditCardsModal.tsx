@@ -1,6 +1,7 @@
 'use client'
 
 import { todayDateStr, parseBrDate } from '@/utils/dates'
+import { cycleKeyForDueMonth } from '@/utils/creditCard'
 import { useState, useEffect } from 'react'
 import { getOwnersAndAccounts } from '@/app/ownerActions'
 import { InvoiceItemsModal } from './InvoiceItemsModal'
@@ -173,7 +174,10 @@ export function CreditCardsModal({ onClose }: { onClose: () => void }) {
       return
     }
     setSavingOverride(true)
-    const res = await setInvoiceOverrideAmount(cardId, manualMonth, normalized)
+    // O campo é o mês do VENCIMENTO (igual à importação); a fatura é identificada pelo mês em que fecha.
+    const card = cards.find((c: any) => c.id === cardId)
+    const cycleKey = card ? cycleKeyForDueMonth(manualMonth, card.closingDay, card.dueDay) : manualMonth
+    const res = await setInvoiceOverrideAmount(cardId, cycleKey, normalized)
     setSavingOverride(false)
     if (res.success) {
       cancelManualInvoice()
@@ -369,6 +373,7 @@ export function CreditCardsModal({ onClose }: { onClose: () => void }) {
                 {manualCardId === card.id ? (
                   <div className="pt-2 border-t border-zinc-800 space-y-2">
                     <p className="text-[10px] text-zinc-500 uppercase font-bold">Lançar fatura manualmente</p>
+                    <p className="text-[10px] text-zinc-500">Escolha o mês em que a fatura <b>vence</b> (dia {card.dueDay}) e o valor total dela. Se você tem o arquivo, prefira Importar fatura.</p>
                     <div className="grid grid-cols-2 gap-2">
                       <input
                         type="month"

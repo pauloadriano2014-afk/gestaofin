@@ -1109,7 +1109,7 @@ export async function processCSVWithAI(batch: { date: string, amount: number, de
     if (!userId) return { success: false, message: "Login necessário." };
 
     const userCategories = await db.select().from(categories).where(eq(categories.userId, userId));
-    const categoriesList = userCategories.map(c => `{ id: '${c.id}', name: '${c.name}' }`).join(', ');
+    const categoriesList = userCategories.filter(c => c.name.trim().toLowerCase() !== 'ajuste de saldo').map(c => `{ id: '${c.id}', name: '${c.name}' }`).join(', ');
 
     // 🔥 NOVO: busca o que o usuário já categorizou/corrigiu antes, pra usar
     // como fonte mais confiável do que um chute novo da IA.
@@ -1305,7 +1305,7 @@ export async function processCardInvoiceWithAI(batch: { date: string; amount: nu
     if (!userId) return { success: false, message: "Login necessário." };
 
     const userCategories = await db.select().from(categories).where(eq(categories.userId, userId));
-    const categoriesList = userCategories.map(c => `{ id: '${c.id}', name: '${c.name}' }`).join(', ');
+    const categoriesList = userCategories.filter(c => c.name.trim().toLowerCase() !== 'ajuste de saldo').map(c => `{ id: '${c.id}', name: '${c.name}' }`).join(', ');
     const userRules = await db.select().from(categoryRules).where(eq(categoryRules.userId, userId));
 
     const promptText = `Categorize os itens da fatura de um cartão de crédito abaixo. Categorias disponíveis: ${categoriesList}\nREGRAS: Mantenha date, amount, description originais. Adicione 'type' ('expense' p/ valores positivos — compra normal — e 'income' p/ valores negativos — estorno ou pagamento) e 'categoryId'. Devolva SÓ o JSON (array).\nItens: ${JSON.stringify(batch)}`;

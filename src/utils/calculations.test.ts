@@ -637,3 +637,11 @@ test("conciliação: ajuste leva o saldo do app ao do banco", () => {
   assert.equal(adjustmentFor(73.77, 73.77), null);
   assert.equal(adjustmentFor(0.1 + 0.2, 0.3), null);
 });
+
+import { looksLikeInvoicePaymentLine } from "./invoiceLines";
+test("fatura: entrada 'Pagamento' é quitação da fatura anterior", () => {
+  assert.equal(looksLikeInvoicePaymentLine({ description: "Pagamento", type: "income" }), true);
+  assert.equal(looksLikeInvoicePaymentLine({ description: "Pagamento recebido", type: "income" }), true);
+  assert.equal(looksLikeInvoicePaymentLine({ description: "Pagamento de boleto", type: "expense" }), false);
+  assert.equal(looksLikeInvoicePaymentLine({ description: "Google Play", type: "expense" }), false);
+});

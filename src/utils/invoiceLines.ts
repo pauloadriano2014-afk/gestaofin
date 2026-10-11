@@ -25,6 +25,12 @@ export function looksLikeInvoicePayment(description: string): boolean {
   return PATTERNS.some((p) => d.includes(p));
 }
 
+// Na FATURA, qualquer entrada cuja descrição começa com "pagamento" (inclusive só
+// "Pagamento") é a quitação da fatura anterior, não receita.
+export function looksLikeInvoicePaymentLine(t: { description: string; type?: string }): boolean {
+  return looksLikeInvoicePayment(t.description) || (t.type === "income" && /^\s*pagamento\b/.test(norm(t.description)));
+}
+
 // No EXTRATO DO BANCO o pagamento da fatura é uma saída ("Pagamento de fatura",
 // "PAGAMENTO FATURA NUBANK"...). Aqui a linha é legítima: o que o app faz é
 // oferecer dar baixa na fatura correspondente.

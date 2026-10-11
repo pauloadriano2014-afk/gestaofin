@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { looksLikeInvoicePayment, looksLikeBankInvoicePayment, matchInvoiceByAmount } from "@/utils/invoiceLines";
+import { looksLikeInvoicePaymentLine, looksLikeBankInvoicePayment, matchInvoiceByAmount } from "@/utils/invoiceLines";
 import { X, CheckCircle2, ArrowUpRight, ArrowDownRight, Briefcase, User, Loader2, Trash2, Scissors } from "lucide-react";
 import { looksLikeTransfer, pairWithinList, rankFixedBills } from "@/utils/transfers";
 import { resolveCategoryKind } from "@/utils/categoryKinds";
@@ -50,11 +50,12 @@ export function ImportReviewModal({ isOpen, onClose, initialTransactions, catego
   if (!isOpen) return null;
 
   // Função para atualizar um campo específico de uma linha
-  const handleUpdate = (index: number, field: string, value: any) => {
-    const updated = [...transactions];
-    updated[index] = { ...updated[index], [field]: value };
-    setTransactions(updated);
+  // Funcional (usa o estado mais recente): duas mudanças seguidas na mesma linha
+  // (ex: dono + tipo PF/PJ) não podem se sobrescrever.
+  const handleUpdates = (index: number, patch: Record<string, any>) => {
+    setTransactions((prev) => prev.map((t, i) => (i === index ? { ...t, ...patch } : t)));
   };
+  const handleUpdate = (index: number, field: string, value: any) => handleUpdates(index, { [field]: value });
 
   // 🔥 NOVO: dá pra remover uma linha antes de confirmar — útil pra descartar
   // itens duplicados (ex: "Valor pendente do mês anterior" que já apareceu
@@ -154,14 +155,14 @@ export function ImportReviewModal({ isOpen, onClose, initialTransactions, catego
 
         {/* CORPO / LISTA DE TRANSAÇÕES */}
         <div className="flex-1 overflow-y-auto p-4 custom-scrollbar bg-gray-50/50 dark:bg-zinc-950/50">
-          {flagInvoicePayments && transactions.some((t) => looksLikeInvoicePayment(t.description)) && (
+          {flagInvoicePayments && transactions.some((t) => looksLikeInvoicePaymentLine(t)) && (
             <div className="mb-3 p-4 rounded-xl border border-amber-400/50 bg-amber-50 dark:bg-amber-500/10 flex flex-col sm:flex-row sm:items-center gap-3 justify-between">
               <p className="text-sm text-amber-900 dark:text-amber-200">
-                <b>{transactions.filter((t) => looksLikeInvoicePayment(t.description)).length} item(ns) parecem o pagamento da fatura anterior</b> (por exemplo &quot;Pagamento recebido&quot;).
+                <b>{transactions.filter((t) => looksLikeInvoicePaymentLine(t)).length} item(ns) parecem o pagamento da fatura anterior</b> (por exemplo &quot;Pagamento recebido&quot;).
                 Isso não é receita nem gasto: as compras daquela fatura já foram contadas. Recomendo remover.
               </p>
               <button
-                onClick={() => setTransactions((prev) => prev.filter((t) => !looksLikeInvoicePayment(t.description)))}
+                onClick={() => setTransactions((prev) => prev.filter((t) => !looksLikeInvoicePaymentLine(t)))}
                 className="shrink-0 text-xs font-bold px-3 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-white"
               >
                 Remover esses itens
@@ -196,7 +197,7 @@ export function ImportReviewModal({ isOpen, onClose, initialTransactions, catego
                     <p className="text-[11px] font-mono text-gray-500 dark:text-zinc-400 mt-0.5">
                       {tx.date.split('-').reverse().join('/')}
                     </p>
-                    {flagInvoicePayments && looksLikeInvoicePayment(tx.description) && (
+                    {flagInvoicePayments && looksLikeInvoicePaymentLine(tx) && (
                       <p className="text-[10px] font-bold text-amber-600 dark:text-amber-400 mt-0.5">Parece pagamento da fatura anterior — não é receita</p>
                     )}
                   </div>
@@ -262,8 +263,7 @@ export function ImportReviewModal({ isOpen, onClose, initialTransactions, catego
                             value={tx.ownerId || ''}
                             onChange={(e) => {
                               const o = owners.find((x: any) => x.id === e.target.value);
-                              handleUpdate(idx, 'ownerId', e.target.value);
-                              if (o) handleUpdate(idx, 'entityType', o.kind);
+                              handleUpdates(idx, o ? { ownerId: e.target.value, entityType: o.kind } : { ownerId: e.target.value });
                             }}
                             className="bg-gray-50 dark:bg-zinc-950 border border-gray-200 dark:border-zinc-800 text-gray-900 dark:text-zinc-50 text-xs font-bold rounded-lg px-2 py-2.5 shrink-0 outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
                           >

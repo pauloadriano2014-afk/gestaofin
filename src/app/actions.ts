@@ -413,7 +413,7 @@ export async function createTransaction(data: any) {
     let settledInvoice = false;
     // um pagamento pode quitar mais de uma fatura (ex: uma fatura dividida em duas)
     for (const [cardId, cycleKey] of linkedInvoices) {
-      const res = await settleInvoice(userId, cardId, cycleKey, baseDate);
+      const res = await settleInvoice(userId, cardId, cycleKey, baseDate, ownership.ownerId);
       if (res.success) settledInvoice = true;
     }
 
@@ -951,12 +951,30 @@ export async function updateTransaction(id: string, data: any) {
         originalAmount: data.originalAmount ? Math.abs(Number(data.originalAmount)).toString() : null,
       }).where(and(eq(transactions.id, id), eq(transactions.userId, userId)));
 
-    if (data.categoryId) {
+    // Pagamento que quita fatura(s) de cartão (ligado ao editar um lançamento já salvo): as faturas
+    // recebem baixa na data dele, o dinheiro sai da conta de quem pagou e o lançamento vira
+    // "pagamento de fatura" (fora de Despesas: as compras já contam).
+    const linkedInvoices: string[][] = typeof data.linkedInvoice === "string" && data.linkedInvoice
+      ? data.linkedInvoice.split(",").map((x: string) => x.split("|")).filter((x: string[]) => x.length === 2 && x[0] && x[1])
+      : [];
+    let settledInvoice = false;
+    if (linkedInvoices.length > 0) {
+      for (const [cardId, cycleKey] of linkedInvoices) {
+        const res = await settleInvoice(userId, cardId, cycleKey, data.date, ownership.ownerId);
+        if (res.success) settledInvoice = true;
+      }
+      if (settledInvoice) {
+        const payCat = buildKindSetsFirst(await db.select().from(categories).where(eq(categories.userId, userId)));
+        if (payCat) await db.update(transactions).set({ categoryId: payCat }).where(and(eq(transactions.id, id), eq(transactions.userId, userId)));
+      }
+    }
+
+    if (data.categoryId && !settledInvoice) {
       await learnCategoryRule(userId, data.description, data.categoryId);
     }
 
     revalidatePath("/");
-    return { success: true };
+    return { success: true, settledInvoice };
   } catch (error) { return { success: false }; }
 }
 
@@ -1326,7 +1344,7 @@ export async function saveBulkTransactions(transactionsList: any[]) {
             });
 
             if (linked && linked.length === 2) {
-                const res = await settleInvoice(userId, linked[0], linked[1], tx.date);
+                const res = await settleInvoice(userId, linked[0], linked[1], tx.date, ownership.ownerId);
                 if (res.success) settledInvoices += 1;
             }
 

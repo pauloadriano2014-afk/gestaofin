@@ -272,7 +272,7 @@ export function TransactionModal({
       paidByOwnerId: paidBy && paidBy !== ownerId ? paidBy : 'self',
       accountId: type === 'expense' || type === 'income' ? (accountId || null) : null,
       creditCardId: type === 'expense' ? (creditCardId || null) : null,
-      linkedInvoice: type === 'expense' && !creditCardId && !transaction?.id && linkedInvoices.length > 0 ? linkedInvoices.join(',') : null,
+      linkedInvoice: type === 'expense' && !creditCardId && linkedInvoices.length > 0 ? linkedInvoices.join(',') : null,
       fixedBillId: isFixed && !creditCardId ? (fixedBillId || null) : null,
       originalAmount: isFixed && !creditCardId ? (originalAmount || null) : null,
     };
@@ -488,7 +488,7 @@ export function TransactionModal({
                       <option key={card.id} value={card.id}>Cartão: {card.name}</option>
                     ))}
                   </select>
-                  {!creditCardId && !transaction?.id && invoices.length > 0 && (
+                  {!creditCardId && invoices.length > 0 && (
                     <div className="mt-2 space-y-2">
                       <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block">Este pagamento quita fatura(s) de cartão? (opcional)</label>
                       <div className="space-y-1.5">

@@ -5,7 +5,7 @@ import { creditCards, transactions, creditCardInvoiceOverrides } from "@/db/sche
 import { and, eq, inArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { getUser } from "./actions";
-import { resolveOwnership } from "@/db/owners";
+import { ensureOwners, resolveOwnership } from "@/db/owners";
 import { getInvoiceCycleForDate, getCycleDatesForCycleKey, todayDateStr } from "@/utils/creditCard";
 
 // --- CADASTRAR CARTÃO ---
@@ -252,5 +252,65 @@ export async function payCreditCardInvoice(cardId: string, cycleKey: string) {
     return { success: true, message: idsToSettle.length > 0 ? `Fatura paga! ${idsToSettle.length} compra(s) baixada(s).` : "Fatura paga!" };
   } catch (error) {
     return { success: false, message: "Erro ao dar baixa na fatura." };
+  }
+}
+
+
+// --- ITENS DE UMA FATURA ---
+// Lista tudo o que está (ou esteve) cobrado numa fatura específica do cartão,
+// pra você ver o que compõe o total e decidir o que é de quem.
+export async function getInvoiceItems(cardId: string, cycleKey: string) {
+  const userId = await getUser();
+  if (!userId) return { success: false as const, items: [], message: "Login necessário." };
+
+  const card = (await db.select().from(creditCards).where(and(eq(creditCards.id, cardId), eq(creditCards.userId, userId))))[0];
+  if (!card) return { success: false as const, items: [], message: "Cartão não encontrado." };
+
+  const rows = await db.select().from(transactions).where(
+    and(eq(transactions.userId, userId), eq(transactions.creditCardId, cardId))
+  );
+  const items = rows
+    .filter((t) => getInvoiceCycleForDate(t.date, card.closingDay, card.dueDay).cycleKey === cycleKey)
+    .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+
+  const cycleDates = getCycleDatesForCycleKey(cycleKey, card.closingDay, card.dueDay);
+  return { success: true as const, card, cycleKey, ...cycleDates, items };
+}
+
+// --- MOVER ITENS DE DONO (e, se quiser, de cartão) ---
+// Caso típico: compra da empresa que caiu no cartão pessoal. Muda o dono dos
+// itens (e, junto, PF/PJ) sem mexer em data, valor nem categoria. Se um cartão
+// de destino for informado, o item também passa a ser cobrado na fatura dele.
+export async function reassignTransactions(ids: string[], target: { ownerId?: string; creditCardId?: string }) {
+  try {
+    const userId = await getUser();
+    if (!userId) return { success: false, message: "Login necessário." };
+    if (!Array.isArray(ids) || ids.length === 0) return { success: false, message: "Selecione pelo menos um item." };
+    if (!target.ownerId && !target.creditCardId) return { success: false, message: "Escolha o novo dono ou o novo cartão." };
+
+    const changes: { ownerId?: string; entityType?: "pf" | "pj"; creditCardId?: string } = {};
+
+    if (target.ownerId) {
+      const owner = (await ensureOwners(userId)).find((o) => o.id === target.ownerId);
+      if (!owner) return { success: false, message: "Dono não encontrado." };
+      changes.ownerId = owner.id;
+      changes.entityType = owner.kind;
+    }
+    if (target.creditCardId) {
+      const card = (await db.select().from(creditCards).where(and(eq(creditCards.id, target.creditCardId), eq(creditCards.userId, userId))))[0];
+      if (!card) return { success: false, message: "Cartão de destino não encontrado." };
+      changes.creditCardId = card.id;
+    }
+
+    // O filtro por userId garante que só itens do próprio usuário são alterados.
+    const updated = await db.update(transactions).set(changes)
+      .where(and(eq(transactions.userId, userId), inArray(transactions.id, ids)))
+      .returning({ id: transactions.id });
+
+    revalidatePath("/");
+    return { success: true, updated: updated.length };
+  } catch (error) {
+    console.error("Erro ao mover itens:", error);
+    return { success: false, message: "Erro ao mover os itens." };
   }
 }

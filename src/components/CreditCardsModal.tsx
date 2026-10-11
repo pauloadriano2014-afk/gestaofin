@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { getOwnersAndAccounts } from '@/app/ownerActions'
+import { InvoiceItemsModal } from './InvoiceItemsModal'
 import { X, CreditCard, Loader2, Plus, Pencil, Archive, CheckCircle2, Check } from 'lucide-react'
 import {
   getCreditCardsOverview,
@@ -29,6 +30,7 @@ export function CreditCardsModal({ onClose }: { onClose: () => void }) {
   const [closingDay, setClosingDay] = useState('')
   const [dueDay, setDueDay] = useState('')
   const [owners, setOwners] = useState<any[]>([])
+  const [viewingInvoice, setViewingInvoice] = useState<{ cardId: string; cycleKey: string } | null>(null)
   const [ownerId, setOwnerId] = useState('')
   const [showForm, setShowForm] = useState(false)
 
@@ -174,6 +176,9 @@ export function CreditCardsModal({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="fixed inset-0 bg-black/90 backdrop-blur-sm flex items-center justify-center p-4 z-[9999]">
+      {viewingInvoice && (
+        <InvoiceItemsModal cardId={viewingInvoice.cardId} cycleKey={viewingInvoice.cycleKey} onClose={() => setViewingInvoice(null)} onChanged={loadCards} />
+      )}
       <div className="bg-zinc-900 border border-zinc-800 w-full max-w-[95vw] sm:max-w-2xl max-h-[85vh] overflow-y-auto rounded-2xl p-6 shadow-2xl relative">
 
         <div className="flex justify-between items-center sticky top-0 bg-zinc-900 z-10 pb-4 mb-2 border-b border-zinc-800/50">
@@ -244,6 +249,11 @@ export function CreditCardsModal({ onClose }: { onClose: () => void }) {
                           )}
                         </p>
                         {card.openCycle && <p className="text-[10px] text-zinc-500 mt-1">Fecha em {formatDate(card.openCycle.closingDate)}</p>}
+                        {card.openCycle && (
+                          <button onClick={() => setViewingInvoice({ cardId: card.id, cycleKey: card.openCycle.cycleKey })} className="text-[11px] text-blue-400 hover:text-blue-300 underline mt-1">
+                            ver itens
+                          </button>
+                        )}
                         {card.openCycle?.isManual && (
                           <button onClick={() => handleClearOverride(card.id, card.openCycle.cycleKey)} className="text-[10px] text-zinc-500 hover:text-zinc-300 underline mt-1">
                             usar valor calculado
@@ -288,6 +298,9 @@ export function CreditCardsModal({ onClose }: { onClose: () => void }) {
                                 )}
                               </span>
                               <div className="flex items-center gap-1 shrink-0">
+                                <button onClick={() => setViewingInvoice({ cardId: card.id, cycleKey: cycle.cycleKey })} className="text-[11px] text-blue-400 hover:text-blue-300 underline px-1">
+                                  ver itens
+                                </button>
                                 <button onClick={() => startEditOverride(card.id, cycle.cycleKey, cycle.total)} className="p-1.5 text-zinc-500 hover:text-blue-400 transition-colors" title="Editar valor">
                                   <Pencil className="w-3.5 h-3.5" />
                                 </button>

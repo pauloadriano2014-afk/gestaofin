@@ -147,3 +147,16 @@ test("Asaas: sem taxa não cria lançamento de taxa; pendente é ignorada", () =
   assert.equal(mapAsaasPayment({ id: "p", value: 50, paymentDate: "2026-10-01", status: "PENDING" }).length, 0);
   assert.equal(mapAsaasPayment({ id: "p", value: 50, status: "RECEIVED" }).length, 0); // sem data
 });
+
+import { summarizeByOwner } from "./invoice";
+
+test("fatura: total por dono mostra quanto é da empresa", () => {
+  const owners = [{ id: "p", name: "Paulo" }, { id: "e", name: "Empresa" }];
+  const r = summarizeByOwner([
+    { amount: "100.10", ownerId: "p" },
+    { amount: "250.00", ownerId: "e" },
+    { amount: "49.90", ownerId: "p" },
+    { amount: "10", ownerId: null },
+  ], owners);
+  assert.deepEqual(r.map((x) => [x.name, x.total, x.count]), [["Empresa", 250, 1], ["Paulo", 150, 2], ["Sem dono", 10, 1]]);
+});

@@ -5,6 +5,8 @@ import { X, Sparkles, Loader2, Mic, MicOff, Calendar, CheckCircle2, CreditCard, 
 import { createTransaction, updateTransaction, deleteTransaction, getFixedBills } from '@/app/actions'
 import { getUserCreditCards } from '@/app/creditCardActions'
 import { getInvoiceCycleForDate } from '@/utils/creditCard'
+import { resolveCategoryKind } from '@/utils/categoryKinds'
+import { looksLikeBankInvoicePayment } from '@/utils/invoiceLines'
 
 export function TransactionModal({ 
   categories, 
@@ -451,6 +453,17 @@ export function TransactionModal({
                       ))}
                     </select>
                   )}
+                  {creditCardId && !transaction?.id && (() => {
+                    const cat = categories.find((c: any) => c.id === categoryId)
+                    const looksLikePayment = (cat && resolveCategoryKind(cat) === 'card_payment') || looksLikeBankInvoicePayment(description)
+                    if (!looksLikePayment) return null
+                    return (
+                      <div className="mt-2 p-3 rounded-xl border border-amber-400/50 bg-amber-500/10 text-xs text-amber-200 space-y-2">
+                        <p><b>Isto cria uma COMPRA nova no cartão</b> (entra na fatura aberta), não o pagamento de uma fatura. Para registrar que você <b>pagou</b> a fatura, escolha <b>Dinheiro / Débito / Pix</b>: aí aparece a opção de escolher qual fatura foi quitada, inclusive a do mês anterior.</p>
+                        <button type="button" onClick={() => setCreditCardId('')} className="font-bold px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white">Trocar para Dinheiro / Débito / Pix</button>
+                      </div>
+                    )
+                  })()}
                   {selectedCard && date && (
                     <p className="text-[10px] text-blue-400 pt-1">
                       {(() => {

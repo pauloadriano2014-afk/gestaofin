@@ -9,6 +9,7 @@ const isPublicRoute = createRouteMatcher([
   // barrava TODA chamada da Stripe (redirecionava pro login), então nenhuma
   // assinatura era confirmada no banco.
   '/api/webhook/stripe',
+  '/api/health',            // monitor externo que mantém o Render acordado
   '/manifest.json',         // 🔥 PASSE LIVRE PARA O PWA
   '/manifest.webmanifest',  // 🔥 PASSE LIVRE PARA O PWA
   '/favicon.ico',           // 🔥 PASSE LIVRE PARA ÍCONES

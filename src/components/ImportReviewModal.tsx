@@ -191,7 +191,7 @@ export function ImportReviewModal({ isOpen, onClose, initialTransactions, catego
               );
 
               return (
-              <div key={idx} className={`p-4 rounded-xl border shadow-sm flex flex-col md:flex-row md:items-center gap-4 justify-between transition-all ${isLinked ? 'bg-emerald-50/60 dark:bg-emerald-500/5 border-emerald-300 dark:border-emerald-500/40' : 'bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-800 hover:border-blue-300 dark:hover:border-blue-500/50'}`}>
+              <div key={idx} className={`p-4 rounded-xl border shadow-sm flex flex-col gap-3 transition-all ${isLinked ? 'bg-emerald-50/60 dark:bg-emerald-500/5 border-emerald-300 dark:border-emerald-500/40' : 'bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-800 hover:border-blue-300 dark:hover:border-blue-500/50'}`}>
 
                 {/* Info Básica: Data, Nome e Valor */}
                 <div className="flex items-center gap-3 min-w-0 flex-1">
@@ -215,15 +215,15 @@ export function ImportReviewModal({ isOpen, onClose, initialTransactions, catego
                 </div>
 
                 {/* Seletores de Edição a Jato */}
-                <div className="flex flex-col md:items-end gap-2 w-full md:w-auto shrink-0">
-                  <div className="flex items-center gap-2 w-full md:w-auto">
+                <div className="flex flex-col gap-2 w-full">
+                  <div className="flex flex-wrap items-center gap-2 w-full">
 
                     {/* Seletor de vínculo com conta fixa pendente */}
                     {pendingFixedBills.length > 0 && (
                       <select
                         value={tx.linkedFixedBillTxId || ''}
                         onChange={(e) => handleUpdate(idx, 'linkedFixedBillTxId', e.target.value)}
-                        className={`flex-1 md:w-48 border text-xs rounded-lg px-2 py-2.5 outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer ${isLinked ? 'bg-emerald-100 dark:bg-emerald-500/10 border-emerald-300 dark:border-emerald-500/40 text-emerald-800 dark:text-emerald-300 font-bold' : 'bg-gray-50 dark:bg-zinc-950 border-gray-200 dark:border-zinc-800 text-gray-900 dark:text-zinc-50'}`}
+                        className={`flex-1 min-w-[9rem] md:max-w-[15rem] border text-xs rounded-lg px-2 py-2.5 outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer ${isLinked ? 'bg-emerald-100 dark:bg-emerald-500/10 border-emerald-300 dark:border-emerald-500/40 text-emerald-800 dark:text-emerald-300 font-bold' : 'bg-gray-50 dark:bg-zinc-950 border-gray-200 dark:border-zinc-800 text-gray-900 dark:text-zinc-50'}`}
                       >
                         <option value="">Novo lançamento</option>
                         {rankFixedBills(tx.amount, availableFixedBills).map((fb: any) => (
@@ -239,7 +239,7 @@ export function ImportReviewModal({ isOpen, onClose, initialTransactions, catego
                       <select
                         value={tx.linkedInvoice || ''}
                         onChange={(e) => handleUpdate(idx, 'linkedInvoice', e.target.value)}
-                        className={`flex-1 md:w-56 border text-xs rounded-lg px-2 py-2.5 outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer ${tx.linkedInvoice ? 'bg-emerald-100 dark:bg-emerald-500/10 border-emerald-300 dark:border-emerald-500/30 text-emerald-800 dark:text-emerald-300' : 'bg-gray-50 dark:bg-zinc-950 border-gray-200 dark:border-zinc-800 text-gray-900 dark:text-zinc-50'}`}
+                        className={`flex-1 min-w-[9rem] md:max-w-[17rem] border text-xs rounded-lg px-2 py-2.5 outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer ${tx.linkedInvoice ? 'bg-emerald-100 dark:bg-emerald-500/10 border-emerald-300 dark:border-emerald-500/30 text-emerald-800 dark:text-emerald-300' : 'bg-gray-50 dark:bg-zinc-950 border-gray-200 dark:border-zinc-800 text-gray-900 dark:text-zinc-50'}`}
                         title="Dar baixa na fatura do cartão com este pagamento"
                       >
                         <option value="">Sem baixa em fatura</option>
@@ -257,7 +257,7 @@ export function ImportReviewModal({ isOpen, onClose, initialTransactions, catego
                         <select
                           value={tx.categoryId || ""}
                           onChange={(e) => handleUpdate(idx, 'categoryId', e.target.value)}
-                          className="flex-1 md:w-40 bg-gray-50 dark:bg-zinc-950 border border-gray-200 dark:border-zinc-800 text-gray-900 dark:text-zinc-50 text-xs rounded-lg px-2 py-2.5 outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+                          className="flex-1 min-w-[9rem] md:max-w-[13rem] bg-gray-50 dark:bg-zinc-950 border border-gray-200 dark:border-zinc-800 text-gray-900 dark:text-zinc-50 text-xs rounded-lg px-2 py-2.5 outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
                         >
                           <option value="">Geral (Sem Categoria)</option>
                           {categories.map((c: any) => (
@@ -285,7 +285,7 @@ export function ImportReviewModal({ isOpen, onClose, initialTransactions, catego
                             value={rowPaidBy(tx)}
                             onChange={(e) => handleUpdate(idx, 'paidByOwnerId', e.target.value)}
                             title="De qual conta o dinheiro saiu (ou entrou). O gasto continua sendo do dono escolhido ao lado."
-                            className={`border text-[11px] font-semibold rounded-lg px-2 py-2.5 shrink-0 outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer max-w-[9.5rem] ${rowPaidBy(tx) === 'self' ? 'bg-gray-50 dark:bg-zinc-950 border-gray-200 dark:border-zinc-800 text-gray-500 dark:text-zinc-400' : 'bg-amber-50 dark:bg-amber-500/10 border-amber-400/60 text-amber-800 dark:text-amber-300'}`}
+                            className={`border text-[11px] font-semibold rounded-lg px-2 py-2.5 shrink-0 outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer max-w-[11rem] ${rowPaidBy(tx) === 'self' ? 'bg-gray-50 dark:bg-zinc-950 border-gray-200 dark:border-zinc-800 text-gray-500 dark:text-zinc-400' : 'bg-amber-50 dark:bg-amber-500/10 border-amber-400/60 text-amber-800 dark:text-amber-300'}`}
                           >
                             <option value="self">Conta: do próprio dono</option>
                             {owners.filter((o: any) => o.id !== tx.ownerId).map((o: any) => <option key={o.id} value={o.id}>Conta: {o.name}</option>)}
@@ -332,7 +332,7 @@ export function ImportReviewModal({ isOpen, onClose, initialTransactions, catego
                     const existing = matches[tx._k];
                     if (!partner && !existing && !looksLikeTransfer(tx.description)) return null;
                     return (
-                      <div className="mt-1 p-2 rounded-lg border border-amber-400/50 bg-amber-50 dark:bg-amber-500/10 text-[11px] text-amber-900 dark:text-amber-200 flex flex-col gap-1.5 md:max-w-md">
+                      <div className="mt-1 p-2 rounded-lg border border-amber-400/50 bg-amber-50 dark:bg-amber-500/10 text-[11px] text-amber-900 dark:text-amber-200 flex flex-col gap-1.5 md:max-w-lg">
                         <p>
                           {partner
                             ? <>Parece a outra ponta de <b>{partner.description}</b> ({shortDate(partner.date)}) neste mesmo extrato. Se for a mesma movimentação entre suas contas, não é receita nem gasto.</>

@@ -4,6 +4,7 @@ import Stripe from "stripe";
 import { db } from "@/db";
 import { userSettings } from "@/db/schema";
 import { eq } from "drizzle-orm";
+import { isMasterStripeCustomer } from "@/db/planAccess";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
   apiVersion: '2026-01-28.clover',
@@ -89,6 +90,11 @@ export async function POST(req: Request) {
     const customerId = typeof subscription.customer === 'string' ? subscription.customer : subscription.customer.id;
 
     try {
+      // Contas master nunca são rebaixadas, qualquer que seja o estado da assinatura.
+      if (await isMasterStripeCustomer(customerId)) {
+        console.log(`🛡️ Cliente ${customerId} é conta master: assinatura não foi rebaixada.`);
+        return new Response("OK", { status: 200 });
+      }
       const isCanceled = event.type === "customer.subscription.deleted" || subscription.status === 'canceled' || subscription.status === 'unpaid';
       const isPastDue = subscription.status === 'past_due';
 
@@ -110,6 +116,10 @@ export async function POST(req: Request) {
 
     if (customerId) {
       try {
+        if (await isMasterStripeCustomer(customerId)) {
+          console.log(`🛡️ Cliente ${customerId} é conta master: past_due ignorado.`);
+          return new Response("OK", { status: 200 });
+        }
         await db.update(userSettings).set({ status: 'past_due' }).where(eq(userSettings.stripeCustomerId, customerId));
         console.log(`⚠️ Pagamento falhou para o cliente ${customerId}, marcado como past_due.`);
       } catch (dbError: any) {

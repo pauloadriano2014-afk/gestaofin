@@ -13,7 +13,7 @@ import { calculateDashboardData } from "@/utils/dashboardCalculations";
 import {
   Plus,
   Clock, CheckCircle2, Circle, Copy, Loader2,
-  Briefcase, User, Layers, MessageSquare, X, Palette, Pencil, Trash2, AlertCircle, Crown, FileText, Download, Filter, Calendar as CalendarIcon, ToggleLeft, ToggleRight, CreditCard, Tag, Tags, Repeat, Upload, Users, Settings
+  Briefcase, User, Layers, MessageSquare, X, Palette, Pencil, Trash2, AlertCircle, Crown, FileText, Download, Filter, Calendar as CalendarIcon, ToggleLeft, ToggleRight, CreditCard, Tag, Tags, Repeat, Upload, Users, Settings, ChevronLeft, ChevronRight
 } from "lucide-react";
 import { PremiumModal } from "@/components/PremiumModal";
 import { OpenBillsPanel } from "@/components/OpenBillsPanel";
@@ -110,6 +110,9 @@ export default function Dashboard() {
   const [viewMode, setViewMode] = useState<string>('all');
   const [currentTheme, setCurrentTheme] = useState<'dark' | 'nubank' | 'green' | 'blue' | 'red'>('nubank');
   const [isThemeMenuOpen, setIsThemeMenuOpen] = useState(false); 
+  // 'month' = um mês só, isolado (saldo e tudo mais só daquele mês, sem nada dos outros).
+  // 'range'  = período com De/Até, com a opção de acumular o saldo de antes ou não.
+  const [periodMode, setPeriodMode] = useState<'month' | 'range'>('month');
   const [openMenu, setOpenMenu] = useState<'cadastros' | 'importar' | null>(null);
   const csvInputRef = useRef<HTMLInputElement>(null);
   const [filterCategory, setFilterCategory] = useState<string>('all');
@@ -136,7 +139,7 @@ export default function Dashboard() {
   const [startYear, setStartYear] = useState<number>(new Date().getFullYear());
   const [endMonth, setEndMonth] = useState<number>(new Date().getMonth() + 1);
   const [endYear, setEndYear] = useState<number>(new Date().getFullYear());
-  const [isolatePeriod, setIsolatePeriod] = useState<boolean>(false); // Chavinha de ZERAR o passado
+  const [isolatePeriod, setIsolatePeriod] = useState<boolean>(true); // Chavinha de ZERAR o passado (começa ligada: o app abre em "Mês isolado")
 
   const theme = THEMES[currentTheme];
   const [rawData, setRawData] = useState<any>({ allCategories: [], transactions: [], summary: { globalBalance: 0 }, planType: 'free' });
@@ -163,6 +166,20 @@ export default function Dashboard() {
   }
 
   useEffect(() => { loadData(); setSelectedDay(null); }, [startMonth, startYear, endMonth, endYear, isolatePeriod]);
+
+  const selectSingleMonth = (year: number, month: number) => {
+    setStartYear(year); setStartMonth(month); setEndYear(year); setEndMonth(month);
+  };
+  const shiftMonth = (delta: number) => {
+    const d = new Date(startYear, startMonth - 1 + delta, 1);
+    selectSingleMonth(d.getFullYear(), d.getMonth() + 1);
+  };
+  const switchPeriodMode = (mode: 'month' | 'range') => {
+    if (mode === periodMode) return;
+    if (mode === 'month') { selectSingleMonth(endYear, endMonth); setIsolatePeriod(true); }
+    else { setIsolatePeriod(false); }
+    setPeriodMode(mode);
+  };
 
   // Puxa as vendas recebidas no Asaas no período selecionado (sem duplicar).
   const handleSyncAsaas = async () => {
@@ -403,6 +420,35 @@ export default function Dashboard() {
                 inteiro clicável (abre o calendário em qualquer ponto dele),
                 com um rótulo De/Até e um único ícone por campo. */}
             <div className={`flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full md:w-auto p-3 rounded-2xl border ${theme.card}`}>
+                <div className={`flex p-1 rounded-xl shrink-0 ${currentTheme === 'dark' ? 'bg-zinc-950' : 'bg-gray-100'}`}>
+                    {([['month', 'Mês isolado'], ['range', 'Período']] as const).map(([mode, label]) => (
+                        <button key={mode} onClick={() => switchPeriodMode(mode)} className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${periodMode === mode ? theme.navActive : theme.navInactive}`}>{label}</button>
+                    ))}
+                </div>
+
+                {periodMode === 'month' ? (
+                    <div className="flex items-center gap-1 flex-1">
+                        <button onClick={() => shiftMonth(-1)} className={`p-2 rounded-xl border transition-colors hover:border-blue-400 ${theme.card}`} title="Mês anterior"><ChevronLeft className="w-4 h-4" /></button>
+                        <div
+                            onClick={() => openPicker(startMonthInputRef)}
+                            className={`flex-1 flex items-center gap-2 px-3 py-2 rounded-xl border cursor-pointer transition-colors hover:border-blue-400 ${currentTheme === 'dark' ? 'bg-zinc-950 border-zinc-800' : 'bg-gray-50 border-gray-200'}`}
+                        >
+                            <CalendarIcon className={`w-4 h-4 shrink-0 ${theme.textMuted}`} />
+                            <div className="min-w-0">
+                                <p className={`text-[9px] font-bold uppercase tracking-wider leading-none mb-0.5 ${theme.textMuted}`}>Mês</p>
+                                <input
+                                    ref={startMonthInputRef}
+                                    type="month"
+                                    value={`${startYear}-${String(startMonth).padStart(2, '0')}`}
+                                    onChange={(e) => { if (!e.target.value) return; const [y, m] = e.target.value.split('-'); selectSingleMonth(Number(y), Number(m)); }}
+                                    className={`w-full bg-transparent text-sm font-bold outline-none cursor-pointer appearance-none [&::-webkit-calendar-picker-indicator]:hidden ${theme.text}`}
+                                />
+                            </div>
+                        </div>
+                        <button onClick={() => shiftMonth(1)} className={`p-2 rounded-xl border transition-colors hover:border-blue-400 ${theme.card}`} title="Próximo mês"><ChevronRight className="w-4 h-4" /></button>
+                    </div>
+                ) : (
+                    <>
                 <div className="flex items-center gap-2 flex-1">
                     <div
                         onClick={() => openPicker(startMonthInputRef)}
@@ -444,11 +490,13 @@ export default function Dashboard() {
                 <button
                     onClick={() => setIsolatePeriod(!isolatePeriod)}
                     className={`flex items-center justify-center gap-2 text-xs font-bold px-3 py-2 rounded-xl transition-all shrink-0 ${isolatePeriod ? 'bg-blue-100 text-blue-600 dark:bg-blue-500/20 dark:text-blue-400' : theme.navInactive}`}
-                    title="Se ativado, o Saldo Principal zera o passado e calcula APENAS as receitas e despesas deste período."
+                    title="Ligado: o Saldo Principal ignora tudo que veio antes e conta só este período. Desligado: soma tudo desde o começo até o fim do período."
                 >
                     {isolatePeriod ? <ToggleRight className="w-5 h-5" /> : <ToggleLeft className="w-5 h-5" />}
-                    Isolar Saldo
+                    Começar do zero neste período
                 </button>
+                    </>
+                )}
             </div>
 
             <div className="flex gap-2 w-full md:w-auto">

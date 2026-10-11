@@ -160,3 +160,32 @@ test("fatura: total por dono mostra quanto é da empresa", () => {
   ], owners);
   assert.deepEqual(r.map((x) => [x.name, x.total, x.count]), [["Empresa", 250, 1], ["Paulo", 150, 2], ["Sem dono", 10, 1]]);
 });
+
+import { sumBalance } from "./balance";
+
+test("saldo: ignora transferência e pagamento de fatura (que já entrou nas compras)", () => {
+  const sets = buildKindSets(categories);
+  const rows = [
+    { type: "income", amount: "1000", categoryId: CAT.vendas },
+    { type: "expense", amount: "200", categoryId: CAT.mercado },
+    { type: "expense", amount: "900", categoryId: CAT.cartao },   // pagamento da fatura do extrato
+    { type: "transfer", amount: "500", categoryId: null },
+  ];
+  assert.equal(sumBalance(rows, sets), 800);
+});
+
+test("saldo: mês isolado não é afetado por pagamento de fatura do mês anterior", () => {
+  const sets = buildKindSets(categories);
+  // outubro: vendas 1000, mercado 200; no dia 5 caiu o pagamento da fatura de setembro (900)
+  const outubro = [
+    { type: "income", amount: "1000", categoryId: CAT.vendas },
+    { type: "expense", amount: "200", categoryId: CAT.mercado },
+    { type: "expense", amount: "900", categoryId: CAT.cartao },
+  ];
+  assert.equal(sumBalance(outubro, sets), 800); // e não -100
+});
+
+test("saldo: despesa do cartão (sem categoria de fatura) continua contando", () => {
+  const sets = buildKindSets(categories);
+  assert.equal(sumBalance([{ type: "expense", amount: "75.50", categoryId: CAT.mercado }], sets), -75.5);
+});

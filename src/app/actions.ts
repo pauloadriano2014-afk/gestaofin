@@ -4,22 +4,17 @@ import { db } from "@/db";
 import { categories, transactions, userSettings, categoryRules, fixedBills, accounts, creditCards } from "@/db/schema";
 import { ensureOwners, resolveOwnership } from "@/db/owners";
 import { matchesView } from "@/utils/owners";
-import { inferKindFromName, type CategoryKind } from "@/utils/categoryKinds";
+import { inferKindFromName, buildKindSets, type CategoryKind } from "@/utils/categoryKinds";
+import { sumBalance } from "@/utils/balance";
 import { desc, asc, and, sql, eq, lte, gte } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { auth } from "@clerk/nextjs/server";
-import { isPlanPro } from "@/utils/plan";
+import { resolveIsPro } from "@/db/planAccess";
 import { addMonthsClamped, splitAmountIntoInstallments } from "@/utils/dates";
 import { findMatchingRuleCategoryId } from "@/utils/categoryRules";
 import { learnCategoryRule } from "./categoryRuleActions";
 import { todayDateStr } from "@/utils/dates";
 
-// --- LISTA VIP (BLOQUEIO SAAS ATIVADO) ---
-const VIP_USERS = [
-  "user_39lFK9Lr5j7Y5lg1e4ZPwb6ZTx8", // Paulo e Gestão Kore (Antigo)
-  "user_39obnDo2iFblIK7qxNyKkL0H8Hn", // Adrielle
-  "user_39ocZfmiOfwA0Q3mXpJ158M3Nkw"  // 🔥 SEU ID NOVO
-];
 
 // --- FUNÇÃO AUXILIAR ASSÍNCRONA ---
 // Exportada para ser reaproveitada pelos outros arquivos de actions (cartões, regras de categoria).
@@ -56,15 +51,8 @@ export async function getDashboardData(startMonth: number, startYear: number, en
     // mês atual/futuro — nunca inventa uma pendência num mês que já passou.
     await ensureFixedBillOccurrencesForRange(userId, startMonth, startYear, endMonth, endYear);
 
-    // --- LÓGICA DE PRODUÇÃO (SAAS MODE) ---
-    const isVip = VIP_USERS.includes(userId);
-    const userConfig = await db.select().from(userSettings).where(eq(userSettings.userId, userId));
-    const rawPlan = userConfig[0]?.planType || (userConfig[0] as any)?.plan_type || 'free';
-    // 🔥 CORRIGIDO: o webhook da Stripe salva 'monthly'/'quarterly'/'annual' etc,
-    // nunca o texto "pro". Comparar com === 'pro' fazia todo assinante pagante
-    // continuar aparecendo como "free". Usamos o helper isPlanPro (planType + status).
-    const isDbPro = isPlanPro(rawPlan, userConfig[0]?.status);
-    const planType = (isVip || isDbPro) ? 'pro' : 'free';
+    // --- PLANO: regra única em db/planAccess (contas master nunca perdem o PRO) ---
+    const planType = (await resolveIsPro(userId)) ? 'pro' : 'free';
     // --------------------------------------
 
     const allCategories = await db.select().from(categories).where(eq(categories.userId, userId));
@@ -90,26 +78,22 @@ export async function getDashboardData(startMonth: number, startYear: number, en
     // 3. Lógica das Carteiras de Saldo (Global, PF, PJ e por dono)
     // Saldo = entradas - saídas (transferência fica de fora). Com "isolatePeriod"
     // só conta a janela selecionada; senão, a vida toda até o fim do período.
-    type BalanceRow = { type: string; amount: string; entityType: string | null; ownerId: string | null };
+    type BalanceRow = { type: string; amount: string; entityType: string | null; ownerId: string | null; categoryId: string | null };
     const balanceRows: BalanceRow[] = isolatePeriod
       ? currentTransactions
       : await db
-          .select({ type: transactions.type, amount: transactions.amount, entityType: transactions.entityType, ownerId: transactions.ownerId })
+          .select({ type: transactions.type, amount: transactions.amount, entityType: transactions.entityType, ownerId: transactions.ownerId, categoryId: transactions.categoryId })
           .from(transactions)
           .where(and(eq(transactions.userId, userId), lte(transactions.date, endDateStr)));
 
-    const sumBalance = (rows: BalanceRow[]) =>
-      rows.reduce((acc, t) => {
-        if (t.type === 'income') return acc + Math.abs(Number(t.amount));
-        if (t.type === 'expense') return acc - Math.abs(Number(t.amount));
-        return acc;
-      }, 0);
+    const kindSets = buildKindSets(allCategories);
+    const sumRows = (rows: BalanceRow[]) => sumBalance(rows, kindSets);
 
-    const globalBalance = sumBalance(balanceRows);
-    const globalBalancePF = sumBalance(balanceRows.filter(t => t.entityType === 'pf'));
-    const globalBalancePJ = sumBalance(balanceRows.filter(t => t.entityType === 'pj'));
+    const globalBalance = sumRows(balanceRows);
+    const globalBalancePF = sumRows(balanceRows.filter(t => t.entityType === 'pf'));
+    const globalBalancePJ = sumRows(balanceRows.filter(t => t.entityType === 'pj'));
     const balanceByOwner: Record<string, number> = {};
-    for (const o of ownerList) balanceByOwner[o.id] = sumBalance(balanceRows.filter(t => t.ownerId === o.id));
+    for (const o of ownerList) balanceByOwner[o.id] = sumRows(balanceRows.filter(t => t.ownerId === o.id));
 
     const fixedExpenses = currentTransactions.filter(t => t.isFixed === true && t.type === 'expense');
     const variableTransactions = currentTransactions.filter(t => t.isFixed === false || t.type === 'income');
@@ -179,8 +163,12 @@ export async function getBalanceBreakdown(startMonth: number, startYear: number,
       );
     }
 
+    // Mesma regra do saldo (ver utils/balance.ts): transferência e pagamento de
+    // fatura ficam de fora, pra a lista somar exatamente o valor do card.
+    const kindSets = buildKindSets(await db.select().from(categories).where(eq(categories.userId, userId)));
     const filtered = rows.filter((t) => matchesView(t, viewMode))
-      .filter((t) => t.type === 'income' || t.type === 'expense') // transferência não entra no saldo
+      .filter((t) => t.type === 'income' || t.type === 'expense')
+      .filter((t) => !(t.categoryId && kindSets.card_payment.has(t.categoryId)))
       .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
 
     return filtered;
@@ -196,14 +184,7 @@ export async function generateMonthlyReport(month: number, year: number) {
     const userId = await getUser();
     if (!userId) return { success: false, message: "Não autorizado." };
 
-    const isVip = VIP_USERS.includes(userId);
-    let isPro = isVip;
-    
-    if (!isPro) {
-        const userConfig = await db.select().from(userSettings).where(eq(userSettings.userId, userId));
-        const dbPlanRaw = userConfig[0]?.planType || (userConfig[0] as any)?.plan_type || 'free';
-        isPro = isPlanPro(dbPlanRaw, userConfig[0]?.status);
-    }
+    const isPro = await resolveIsPro(userId);
 
     if (!isPro) {
       return { success: false, message: "⚠️ RECURSO PREMIUM: A análise inteligente do CFO Virtual está disponível apenas para assinantes PRO." };
@@ -889,14 +870,7 @@ export async function generateRangeReport(startMonth: string, endMonth: string, 
   try {
     const userId = await getUser();
     if (!userId) return { success: false, message: "Não autorizado." };
-    const isVip = VIP_USERS.includes(userId);
-    let isPro = isVip;
-    
-    if (!isPro) {
-        const userConfig = await db.select().from(userSettings).where(eq(userSettings.userId, userId));
-        const dbPlanRaw = userConfig[0]?.planType || (userConfig[0] as any)?.plan_type || 'free';
-        isPro = isPlanPro(dbPlanRaw, userConfig[0]?.status);
-    }
+    const isPro = await resolveIsPro(userId);
 
     if (!isPro) { return { success: true, message: "LOCKED_CONTENT", stats: null, isPro: false }; }
 

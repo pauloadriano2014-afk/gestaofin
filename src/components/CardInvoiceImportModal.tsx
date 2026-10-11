@@ -174,21 +174,23 @@ export function CardInvoiceImportModal({ categories, onClose, pendingFixedBills 
 
   async function handleConfirmImport(finalTransactions: any[]) {
     setIsSaving(true)
-    const res = await saveBulkCardInvoiceTransactions(finalTransactions, selectedCardId, dueMonth || undefined)
     // O arquivo trouxe vencimento/fechamento diferentes do cadastrado no cartão: oferece atualizar
-    // (assim a aba Cartões mostra as datas certas)
+    // ANTES de salvar, porque a fatura é identificada com os dias do cartão (se atualizasse depois,
+    // a fatura ficaria no mês errado, ex: "venceu em 21/08" em vez de 21/09).
     const fileDueDay = fileMeta.dueDate ? Number(fileMeta.dueDate.slice(8, 10)) : 0
     const fileClosingDay = fileMeta.closingDay || 0
     const cardNow = cards.find((c: any) => c.id === selectedCardId)
     const dueDiffers = !!fileDueDay && !!cardNow && fileDueDay !== cardNow.dueDay
     const closeDiffers = !!fileClosingDay && !!cardNow && fileClosingDay !== cardNow.closingDay
-    if (res.success && cardNow && (dueDiffers || closeDiffers)) {
+    if (cardNow && (dueDiffers || closeDiffers)) {
       const newClosing = fileClosingDay || cardNow.closingDay
       const newDue = fileDueDay || cardNow.dueDay
       if (confirm(`Este arquivo indica fechamento dia ${newClosing} e vencimento dia ${newDue}, mas o cartão "${cardNow.name}" está com fechamento ${cardNow.closingDay} e vencimento ${cardNow.dueDay}. Atualizar o cartão?`)) {
-        await updateCreditCard(cardNow.id, { name: cardNow.name, closingDay: newClosing, dueDay: newDue, ownerId: cardNow.ownerId || null })
+        const up = await updateCreditCard(cardNow.id, { name: cardNow.name, closingDay: newClosing, dueDay: newDue, ownerId: cardNow.ownerId || null })
+        if (!up.success) { alert(up.message || 'Não consegui atualizar o cartão.'); setIsSaving(false); return }
       }
     }
+    const res = await saveBulkCardInvoiceTransactions(finalTransactions, selectedCardId, dueMonth || undefined)
     setIsSaving(false)
 
     if (res.success) {

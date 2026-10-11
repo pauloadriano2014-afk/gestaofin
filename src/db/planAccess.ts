@@ -37,12 +37,23 @@ type ClerkEmailLike = { emailAddress: string; verification?: { status?: string }
 const hasVerifiedMasterEmail = (emails: ClerkEmailLike[]) =>
   emails.some((e) => e.verification?.status === "verified" && isMasterEmail(e.emailAddress));
 
+// A checagem por e-mail é uma chamada de rede ao Clerk; guardamos o resultado
+// por alguns minutos pra não repetir a cada carregamento de tela.
+const MASTER_CACHE_TTL_MS = 10 * 60 * 1000;
+const masterCache = new Map<string, { value: boolean; at: number }>();
+
 export async function isMasterUser(userId: string): Promise<boolean> {
   if (MASTER_USER_IDS.includes(userId)) return true;
+
+  const cached = masterCache.get(userId);
+  if (cached && Date.now() - cached.at < MASTER_CACHE_TTL_MS) return cached.value;
+
   try {
     const user = await currentUser();
     if (!user || user.id !== userId) return false;
-    return hasVerifiedMasterEmail(user.emailAddresses);
+    const value = hasVerifiedMasterEmail(user.emailAddresses);
+    masterCache.set(userId, { value, at: Date.now() });
+    return value;
   } catch (error) {
     // Se o Clerk falhar, não derruba ninguém: cai pro que está gravado no banco
     // (contas master ficam gravadas como PRO ativo, ver ensureMasterRow).
@@ -68,13 +79,25 @@ async function ensureMasterRow(userId: string) {
 }
 
 // true = tem acesso PRO (master, ou assinatura ativa).
+// Ordem pensada pra ser rápida: assinatura ativa no banco resolve com UMA
+// consulta, sem chamar o Clerk. Só quando o banco diz "não é PRO" é que se
+// confere se é conta master (e, sendo, o registro é consertado).
+const ensuredMasters = new Set<string>();
+
 export async function resolveIsPro(userId: string): Promise<boolean> {
+  if (MASTER_USER_IDS.includes(userId)) {
+    if (!ensuredMasters.has(userId)) { await ensureMasterRow(userId); ensuredMasters.add(userId); }
+    return true;
+  }
+
+  const row = (await db.select().from(userSettings).where(eq(userSettings.userId, userId)))[0];
+  if (isPlanPro(row?.planType, row?.status)) return true;
+
   if (await isMasterUser(userId)) {
     await ensureMasterRow(userId);
     return true;
   }
-  const row = (await db.select().from(userSettings).where(eq(userSettings.userId, userId)))[0];
-  return isPlanPro(row?.planType, row?.status);
+  return false;
 }
 
 // Usado pelo webhook da Stripe, que roda sem usuário logado: descobre o dono do

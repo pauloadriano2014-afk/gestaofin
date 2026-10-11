@@ -40,51 +40,51 @@ export async function getDashboardData(startMonth: number, startYear: number, en
       };
     }
 
-    await syncEssentialCategories(userId);
-    // Donos (Paulo / Adri / Empresa) e contas. Na primeira vez cria os donos
-    // padrão e atribui os lançamentos antigos (PF -> Paulo, PJ -> Empresa).
-    const ownerList = await ensureOwners(userId);
-    const accountList = await db.select().from(accounts).where(and(eq(accounts.userId, userId), eq(accounts.archived, false)));
-    // 🔥 NOVO: garante que os moldes de "Minhas Contas Fixas" já tenham a
-    // cobrança gerada pro(s) mês(es) que você está olhando, sem precisar
-    // clicar em "Virar Mês" toda vez que cadastra uma conta nova. Só gera pra
-    // mês atual/futuro — nunca inventa uma pendência num mês que já passou.
-    await ensureFixedBillOccurrencesForRange(userId, startMonth, startYear, endMonth, endYear);
-
-    // --- PLANO: regra única em db/planAccess (contas master nunca perdem o PRO) ---
-    const planType = (await resolveIsPro(userId)) ? 'pro' : 'free';
-    // --------------------------------------
-
-    const allCategories = await db.select().from(categories).where(eq(categories.userId, userId));
-    
-    // 1. Definindo o Início e o Fim do Período
+    // Datas do período (usadas pelas consultas abaixo).
     const startDateStr = `${startYear}-${String(startMonth).padStart(2, '0')}-01`;
     const lastDayOfEndMonth = new Date(endYear, endMonth, 0).getDate();
     const endDateStr = `${endYear}-${String(endMonth).padStart(2, '0')}-${String(lastDayOfEndMonth).padStart(2, '0')}`;
 
-    // 2. Buscando transações DENTRO do período
-    const currentTransactions = await db
-      .select()
-      .from(transactions)
-      .where(
-        and(
-          eq(transactions.userId, userId),
-          gte(transactions.date, startDateStr),
-          lte(transactions.date, endDateStr)
-        )
-      )
-      .orderBy(desc(transactions.date));
+    // Donos (Paulo / Adri / Empresa) primeiro: na primeira vez cria os donos
+    // padrão e atribui os lançamentos/contas fixas antigos (PF -> Paulo, PJ ->
+    // Empresa). Precisa terminar ANTES de gerar as contas fixas do mês, que
+    // herdam o dono do molde.
+    const ownerList = await ensureOwners(userId);
 
-    // 3. Lógica das Carteiras de Saldo (Global, PF, PJ e por dono)
-    // Saldo = entradas - saídas (transferência fica de fora). Com "isolatePeriod"
-    // só conta a janela selecionada; senão, a vida toda até o fim do período.
+    // DESEMPENHO: antes estas etapas rodavam uma depois da outra (cada uma é
+    // uma ida e volta ao banco). Elas não dependem entre si, então rodam juntas:
+    //  - categorias essenciais;
+    //  - contas fixas do(s) mês(es) olhado(s): gera a cobrança dos moldes sem
+    //    precisar clicar em "Virar Mês" (só mês atual/futuro, nunca passado);
+    //  - contas cadastradas;
+    //  - plano: regra única em db/planAccess (contas master nunca perdem o PRO).
+    const [accountList, isPro] = await Promise.all([
+      db.select().from(accounts).where(and(eq(accounts.userId, userId), eq(accounts.archived, false))),
+      resolveIsPro(userId),
+      syncEssentialCategories(userId),
+      ensureFixedBillOccurrencesForRange(userId, startMonth, startYear, endMonth, endYear),
+    ]);
+    const planType = isPro ? 'pro' : 'free';
+
+    // Com as etapas acima prontas, as leituras também são independentes:
+    // categorias, transações do período e (no modo acumulado) o saldo da vida toda.
     type BalanceRow = { type: string; amount: string; entityType: string | null; ownerId: string | null; categoryId: string | null };
-    const balanceRows: BalanceRow[] = isolatePeriod
-      ? currentTransactions
-      : await db
-          .select({ type: transactions.type, amount: transactions.amount, entityType: transactions.entityType, ownerId: transactions.ownerId, categoryId: transactions.categoryId })
-          .from(transactions)
-          .where(and(eq(transactions.userId, userId), lte(transactions.date, endDateStr)));
+    const [allCategories, currentTransactions, lifetimeRows] = await Promise.all([
+      db.select().from(categories).where(eq(categories.userId, userId)),
+      db.select().from(transactions)
+        .where(and(eq(transactions.userId, userId), gte(transactions.date, startDateStr), lte(transactions.date, endDateStr)))
+        .orderBy(desc(transactions.date)),
+      isolatePeriod
+        ? Promise.resolve(null)
+        : db.select({ type: transactions.type, amount: transactions.amount, entityType: transactions.entityType, ownerId: transactions.ownerId, categoryId: transactions.categoryId })
+            .from(transactions)
+            .where(and(eq(transactions.userId, userId), lte(transactions.date, endDateStr))),
+    ]);
+
+    // Saldo = entradas - saídas (transferência e pagamento de fatura ficam de
+    // fora, ver utils/balance.ts). Com "isolatePeriod" só conta a janela
+    // selecionada; senão, a vida toda até o fim do período.
+    const balanceRows: BalanceRow[] = lifetimeRows ?? currentTransactions;
 
     const kindSets = buildKindSets(allCategories);
     const sumRows = (rows: BalanceRow[]) => sumBalance(rows, kindSets);

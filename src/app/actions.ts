@@ -9,6 +9,7 @@ import { sumBalance } from "@/utils/balance";
 import { cycleKeyForDueMonth, withInvoiceTag } from "@/utils/creditCard";
 import { settleInvoice } from "@/db/invoices";
 import { dedupeAgainstExisting } from "@/utils/invoiceLines";
+import { bestExistingMatch, daysApart } from "@/utils/transfers";
 import { desc, asc, and, sql, eq, lte, gte, inArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { auth } from "@clerk/nextjs/server";
@@ -1037,6 +1038,39 @@ export async function processCSVWithAI(batch: { date: string, amount: number, de
 }
 
 // --- 2. SALVAR LOTE REVISADO ---
+// Para cada linha de um extrato em revisão, procura entre os lançamentos JÁ SALVOS
+// a "outra ponta" da mesma movimentação (tipo oposto, mesmo valor, até 3 dias,
+// e que pareça transferência). Serve para o app perguntar: "isso é a mesma
+// movimentação entre suas contas?". Só lê; nada é alterado aqui.
+export async function findTransferMatches(rows: { date: string; amount: string | number; type: string; description: string }[]) {
+  try {
+    const userId = await getUser();
+    if (!userId || !Array.isArray(rows) || rows.length === 0) return {};
+    const dates = rows.map((r) => r.date).filter(Boolean).sort();
+    if (dates.length === 0) return {};
+    const lo = new Date(new Date(dates[0] + "T00:00:00Z").getTime() - 3 * 86400000).toISOString().slice(0, 10);
+    const hi = new Date(new Date(dates[dates.length - 1] + "T00:00:00Z").getTime() + 3 * 86400000).toISOString().slice(0, 10);
+
+    const [cats, existing] = await Promise.all([
+      db.select().from(categories).where(eq(categories.userId, userId)),
+      db.select().from(transactions).where(and(eq(transactions.userId, userId), gte(transactions.date, lo), lte(transactions.date, hi))),
+    ]);
+    const kinds = buildKindSets(cats);
+    // Já tratadas como neutras (reembolso/empréstimo, pagamento de fatura, investimento) não precisam de pergunta.
+    const open = existing.filter((t) => !(t.categoryId && (kinds.refund.has(t.categoryId) || kinds.card_payment.has(t.categoryId) || kinds.investment.has(t.categoryId))));
+
+    const out: Record<number, { id: string; description: string; date: string; amount: string; type: string; ownerId: string | null }> = {};
+    rows.forEach((r, i) => {
+      const m = bestExistingMatch(r, open);
+      if (m && daysApart(m.date, r.date) <= 3) out[i] = { id: m.id, description: m.description, date: m.date, amount: m.amount, type: m.type, ownerId: m.ownerId };
+    });
+    return out;
+  } catch (error) {
+    console.error("Erro ao procurar a outra ponta das transferências:", error);
+    return {};
+  }
+}
+
 // id da primeira categoria do tipo "pagamento de fatura" (ou null).
 function buildKindSetsFirst(cats: { id: string; name: string; kind: string | null }[]): string | null {
     const sets = buildKindSets(cats);
@@ -1053,6 +1087,12 @@ export async function saveBulkTransactions(transactionsList: any[]) {
         // de Despesas e do Saldo, porque as compras já contam) e a fatura recebe baixa
         // na data real do pagamento.
         const anyInvoiceLink = transactionsList.some((t) => t.linkedInvoice);
+        // A outra ponta de uma movimentação entre contas já estava salva (de outro
+        // extrato): ao confirmar, ela passa a ser "Reembolsos / Empréstimos" também.
+        const anyPaired = transactionsList.some((t) => t.pairedExistingId);
+        const refundCategoryId = anyPaired
+            ? (Array.from(buildKindSets(await db.select().from(categories).where(eq(categories.userId, userId))).refund)[0] ?? null)
+            : null;
         const cardPaymentCategoryId = anyInvoiceLink
             ? buildKindSetsFirst(await db.select().from(categories).where(eq(categories.userId, userId)))
             : null;
@@ -1060,6 +1100,10 @@ export async function saveBulkTransactions(transactionsList: any[]) {
 
         for (const tx of transactionsList) {
             const ownership = await resolveOwnership(userId, { ownerId: tx.ownerId, entityType: tx.entityType });
+            if (tx.pairedExistingId && refundCategoryId) {
+                await db.update(transactions).set({ categoryId: refundCategoryId })
+                    .where(and(eq(transactions.id, tx.pairedExistingId), eq(transactions.userId, userId)));
+            }
             const linked = typeof tx.linkedInvoice === "string" ? tx.linkedInvoice.split("|") : null;
             const categoryForRow = linked && cardPaymentCategoryId ? cardPaymentCategoryId : tx.categoryId;
             // 🔥 NOVO: se na revisão o usuário vinculou esse item importado a uma

@@ -1,17 +1,25 @@
 import { useState, useEffect } from "react";
 import { looksLikeInvoicePayment, looksLikeBankInvoicePayment, matchInvoiceByAmount } from "@/utils/invoiceLines";
-import { X, CheckCircle2, ArrowUpRight, ArrowDownRight, Briefcase, User, Loader2, Trash2 } from "lucide-react";
+import { X, CheckCircle2, ArrowUpRight, ArrowDownRight, Briefcase, User, Loader2, Trash2, Scissors } from "lucide-react";
+import { looksLikeTransfer, pairWithinList, rankFixedBills } from "@/utils/transfers";
+import { resolveCategoryKind } from "@/utils/categoryKinds";
+import { findTransferMatches } from "@/app/actions";
 
-export function ImportReviewModal({ isOpen, onClose, initialTransactions, categories, onConfirm, isSaving, pendingFixedBills = [], owners = [], defaultOwnerId, flagInvoicePayments = false, headerExtra = null, invoices = [] }: any) {
+export function ImportReviewModal({ isOpen, onClose, initialTransactions, categories, onConfirm, isSaving, pendingFixedBills = [], owners = [], defaultOwnerId, flagInvoicePayments = false, headerExtra = null, invoices = [], accounts = [] }: any) {
   const [transactions, setTransactions] = useState<any[]>([]);
+  // "Outra ponta" já salva (de outro extrato), por chave da linha; e sugestões dispensadas.
+  const [matches, setMatches] = useState<Record<string, any>>({});
+  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+  const [importAccountId, setImportAccountId] = useState('');
 
   // Quando o modal abre, ele carrega os dados que vieram da IA
   useEffect(() => {
     if (isOpen && initialTransactions) {
       // Cada linha já nasce com um dono: o padrão da tela (visão atual, ou dono
       // do cartão na fatura) ou o primeiro dono do tipo PF/PJ que a IA sugeriu.
-      setTransactions(initialTransactions.map((t: any) => ({
+      const mapped = initialTransactions.map((t: any, i: number) => ({
         ...t,
+        _k: t._k || `r${i}`,
         ownerId: t.ownerId || defaultOwnerId || owners.find((o: any) => o.kind === (t.entityType || 'pf'))?.id || owners[0]?.id || null,
         // Pagamento de fatura no extrato: já vem ligado à fatura quando o valor
         // bate com uma só fatura em aberto.
@@ -20,7 +28,21 @@ export function ImportReviewModal({ isOpen, onClose, initialTransactions, catego
             ? (() => { const m: any = matchInvoiceByAmount(Number(t.amount), invoices as { total: number }[]); return m ? `${m.cardId}|${m.cycleKey}` : ''; })()
             : ''
         ),
-      })));
+      }));
+      setTransactions(mapped);
+      setMatches({});
+      setDismissed(new Set());
+      setImportAccountId('');
+      // Extrato do banco: procura, entre o que já foi salvo, a outra ponta de
+      // transferências entre contas (para perguntar em vez de contar em dobro).
+      if (!flagInvoicePayments && mapped.some((t: any) => looksLikeTransfer(t.description))) {
+        findTransferMatches(mapped.map((t: any) => ({ date: t.date, amount: t.amount, type: t.type, description: t.description })))
+          .then((res: any) => {
+            const byKey: Record<string, any> = {};
+            Object.entries(res || {}).forEach(([i, m]) => { const row = mapped[Number(i)]; if (row) byKey[row._k] = m; });
+            setMatches(byKey);
+          });
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, initialTransactions]);
@@ -40,6 +62,52 @@ export function ImportReviewModal({ isOpen, onClose, initialTransactions, catego
   // a quitação desse saldo, não uma despesa/receita nova).
   const handleRemove = (index: number) => {
     setTransactions((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const refundCategoryId: string | null = (categories || []).find((c: any) => resolveCategoryKind(c) === 'refund')?.id || null;
+  const pairs = pairWithinList(transactions as any);
+  const shortDate = (d: string) => d.split('-').reverse().slice(0, 2).join('/');
+
+  // Confirma que a linha é movimentação entre contas/pessoas (ou empréstimo): vira
+  // "Reembolsos / Empréstimos", que não conta como receita nem gasto. Se a outra
+  // ponta está nesta mesma lista, as duas viram; se já estava salva, ela é
+  // atualizada junto ao confirmar.
+  const applyTransfer = (idx: number, partnerIdx?: number, existingId?: string) => {
+    if (!refundCategoryId) { alert('Não encontrei a categoria "Reembolsos / Empréstimos". Crie uma em Cadastros > Categorias com o tipo "Reembolso / empréstimo".'); return; }
+    setTransactions((prev) => prev.map((t, i) => (
+      i === idx ? { ...t, categoryId: refundCategoryId, ...(existingId ? { pairedExistingId: existingId } : {}) }
+      : i === partnerIdx ? { ...t, categoryId: refundCategoryId } : t
+    )));
+  };
+  const dismissSuggestion = (key: string) => setDismissed((prev) => new Set(prev).add(key));
+
+  // Divide uma linha em duas (ex: pagamento de 520 = 500 do empréstimo + 20 de juros).
+  const handleSplit = (idx: number) => {
+    const row = transactions[idx];
+    const total = Math.abs(Number(row.amount));
+    const raw = window.prompt(`Dividir ${formatCurrency(total)} em duas partes.\nQuanto vai para a 2ª parte (por exemplo, os juros)?`);
+    if (!raw) return;
+    const part = Number(raw.replace(/\./g, '').replace(',', '.'));
+    if (!Number.isFinite(part) || part <= 0 || part >= total) { alert('Valor inválido: precisa ser maior que zero e menor que o total.'); return; }
+    const first = Math.round((total - part) * 100) / 100;
+    setTransactions((prev) => {
+      const next = [...prev];
+      next[idx] = { ...row, amount: first.toFixed(2) };
+      next.splice(idx + 1, 0, {
+        ...row, _k: `${row._k}-s${Date.now()}`, amount: part.toFixed(2), description: `${row.description} (parte 2)`,
+        categoryId: '', linkedFixedBillTxId: '', linkedInvoice: '', pairedExistingId: undefined,
+      });
+      return next;
+    });
+  };
+
+  // Extrato inteiro de uma conta cadastrada: define dono e conta de todas as linhas de uma vez.
+  const applyAccount = (accountId: string) => {
+    setImportAccountId(accountId);
+    const acc = accounts.find((a: any) => a.id === accountId);
+    if (!acc) return;
+    const owner = owners.find((o: any) => o.id === acc.ownerId);
+    setTransactions((prev) => prev.map((t) => ({ ...t, accountId: acc.id, ...(owner ? { ownerId: owner.id, entityType: owner.kind } : {}) })));
   };
 
   const formatCurrency = (val: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
@@ -63,6 +131,21 @@ export function ImportReviewModal({ isOpen, onClose, initialTransactions, catego
               {pendingFixedBills.length > 0 && ' Se algum item já é uma conta fixa cadastrada, vincule pra dar baixa nela em vez de duplicar.'}
             </p>
             {headerExtra}
+            {!flagInvoicePayments && accounts.length > 0 && (
+              <div className="mt-3 flex items-center gap-2 flex-wrap">
+                <label className="text-sm font-bold text-gray-700 dark:text-zinc-200" htmlFor="import-account">Este extrato é da conta</label>
+                <select
+                  id="import-account"
+                  value={importAccountId}
+                  onChange={(e) => applyAccount(e.target.value)}
+                  className="bg-gray-50 dark:bg-zinc-950 border border-gray-200 dark:border-zinc-800 text-gray-900 dark:text-zinc-50 text-sm rounded-lg px-2 py-1.5 outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Escolha…</option>
+                  {accounts.map((a: any) => <option key={a.id} value={a.id}>{a.name}{owners.find((o: any) => o.id === a.ownerId) ? ` (${owners.find((o: any) => o.id === a.ownerId).name})` : ''}</option>)}
+                </select>
+                <span className="text-xs text-gray-500 dark:text-zinc-400">Define o dono e a conta de todos os itens de uma vez.</span>
+              </div>
+            )}
           </div>
           <button onClick={onClose} disabled={isSaving} className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-zinc-300 rounded-full hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors">
             <X className="w-5 h-5" />
@@ -134,9 +217,9 @@ export function ImportReviewModal({ isOpen, onClose, initialTransactions, catego
                         className={`flex-1 md:w-48 border text-xs rounded-lg px-2 py-2.5 outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer ${isLinked ? 'bg-emerald-100 dark:bg-emerald-500/10 border-emerald-300 dark:border-emerald-500/40 text-emerald-800 dark:text-emerald-300 font-bold' : 'bg-gray-50 dark:bg-zinc-950 border-gray-200 dark:border-zinc-800 text-gray-900 dark:text-zinc-50'}`}
                       >
                         <option value="">Novo lançamento</option>
-                        {availableFixedBills.map((fb: any) => (
+                        {rankFixedBills(tx.amount, availableFixedBills).map((fb: any) => (
                           <option key={fb.id} value={fb.id}>
-                            Dar baixa: {fb.description} ({formatCurrency(Number(fb.amount))})
+                            {fb.suggested ? '★ ' : ''}Dar baixa: {fb.description} · vence {shortDate(fb.date)} ({formatCurrency(Number(fb.amount))})
                           </option>
                         ))}
                       </select>
@@ -182,13 +265,22 @@ export function ImportReviewModal({ isOpen, onClose, initialTransactions, catego
                               handleUpdate(idx, 'ownerId', e.target.value);
                               if (o) handleUpdate(idx, 'entityType', o.kind);
                             }}
-                            className="bg-gray-100 dark:bg-zinc-800 text-xs font-bold rounded-lg px-2 py-2 shrink-0 outline-none"
+                            className="bg-gray-50 dark:bg-zinc-950 border border-gray-200 dark:border-zinc-800 text-gray-900 dark:text-zinc-50 text-xs font-bold rounded-lg px-2 py-2.5 shrink-0 outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
                           >
                             {owners.map((o: any) => <option key={o.id} value={o.id}>{o.name}</option>)}
                           </select>
                         )}
                       </>
                     )}
+
+                    <button
+                      type="button"
+                      onClick={() => handleSplit(idx)}
+                      title="Dividir esta linha em duas (ex: principal + juros)"
+                      className="p-2 text-gray-400 hover:text-blue-500 hover:bg-blue-500/10 rounded-lg transition-colors shrink-0"
+                    >
+                      <Scissors className="w-4 h-4" />
+                    </button>
 
                     <button
                       type="button"
@@ -206,6 +298,35 @@ export function ImportReviewModal({ isOpen, onClose, initialTransactions, catego
                       Essa conta fixa será marcada como PAGA com esse valor — categoria e PF/PJ dela não mudam.
                     </p>
                   )}
+
+                  {/* Transferência / mesma movimentação entre contas: perguntar em vez de contar como receita ou gasto */}
+                  {(() => {
+                    if (flagInvoicePayments || isLinked || tx.linkedInvoice || !refundCategoryId) return null;
+                    if (tx.categoryId === refundCategoryId || dismissed.has(tx._k)) return null;
+                    const partnerIdx = pairs.get(idx);
+                    const partner = partnerIdx !== undefined ? transactions[partnerIdx] : null;
+                    const existing = matches[tx._k];
+                    if (!partner && !existing && !looksLikeTransfer(tx.description)) return null;
+                    return (
+                      <div className="mt-1 p-2 rounded-lg border border-amber-400/50 bg-amber-50 dark:bg-amber-500/10 text-[11px] text-amber-900 dark:text-amber-200 flex flex-col gap-1.5 md:max-w-md">
+                        <p>
+                          {partner
+                            ? <>Parece a outra ponta de <b>{partner.description}</b> ({shortDate(partner.date)}) neste mesmo extrato. Se for a mesma movimentação entre suas contas, não é receita nem gasto.</>
+                            : existing
+                              ? <>Parece a outra ponta de <b>{existing.description}</b> ({shortDate(existing.date)}, {formatCurrency(Math.abs(Number(existing.amount)))}), que já está salvo. Se for a mesma movimentação, não é receita nem gasto.</>
+                              : <>Transferência: se foi entre você, a Adri, a empresa, ou um empréstimo, não é receita nem gasto.</>}
+                        </p>
+                        <div className="flex gap-2 flex-wrap">
+                          <button onClick={() => applyTransfer(idx, partnerIdx, existing?.id)} className="font-bold px-2.5 py-1 rounded-md bg-amber-500 hover:bg-amber-600 text-white">
+                            {partner || existing ? 'É a mesma movimentação' : 'Marcar como Reembolso / Empréstimo'}
+                          </button>
+                          <button onClick={() => dismissSuggestion(tx._k)} className="font-bold px-2.5 py-1 rounded-md bg-black/5 dark:bg-white/10 hover:bg-black/10">
+                            {partner || existing ? 'Não é' : 'É receita/gasto de verdade'}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
               );

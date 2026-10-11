@@ -74,6 +74,20 @@ export const HELP_ENTRIES: HelpEntry[] = [
     keywords: "fatura dividida errada item caiu outra fatura internacional iof fechamento mover vence",
   },
   {
+    id: "transferencias-emprestimos",
+    question: "Como categorizo dinheiro que mando ou recebo da Adri, da minha empresa ou de um empréstimo?",
+    answer:
+      "Movimentação entre você, outra pessoa da casa, a empresa ou um empréstimo não é receita nem gasto: use a categoria \"Reembolsos / Empréstimos\" (tipo Reembolso/empréstimo). Ela some de Receita e Despesas, mas continua mexendo no saldo de cada nome, então o saldo do casal não muda e o de cada um acompanha. Na importação, o app procura a outra ponta (saída aqui, entrada lá, mesmo valor, até 3 dias) e pergunta \"É a mesma movimentação?\". Se for dinheiro de cliente ou venda, escolha \"É receita/gasto de verdade\".",
+    keywords: "transferencia pix adri empresa pj emprestimo reembolso categorizar mandar receber entre contas mesma movimentacao",
+  },
+  {
+    id: "emprestimo-juros",
+    question: "Emprestei R$ 500 e o banco cobrou R$ 520. Como lanço os juros?",
+    answer:
+      "O principal (R$ 500) é \"Reembolsos / Empréstimos\" em todas as pontas: quando saiu, quando voltou e a parte do pagamento ao banco. Só os R$ 20 a mais (juros, IOF, taxa) são um gasto de verdade, a menos que a pessoa tenha devolvido os R$ 520. Na revisão da importação, use a tesoura (Dividir) no pagamento de R$ 520: R$ 500 fica como empréstimo e os R$ 20 vão para \"Impostos e Taxas\" (ou Financiamentos). O saldo continua certo, porque as duas partes somam os mesmos R$ 520.",
+    keywords: "emprestimo juros iof taxa dividir 500 520 mae banco cobrou principal",
+  },
+  {
     id: "mes-isolado",
     question: "O que é Mês isolado e o que é Período?",
     answer:

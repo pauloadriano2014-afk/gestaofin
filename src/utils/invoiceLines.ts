@@ -29,7 +29,9 @@ export function looksLikeInvoicePayment(description: string): boolean {
 // "PAGAMENTO FATURA NUBANK"...). Aqui a linha é legítima: o que o app faz é
 // oferecer dar baixa na fatura correspondente.
 export function looksLikeBankInvoicePayment(description: string): boolean {
-  return norm(description).includes("fatura");
+  const d = norm(description);
+  // "fatura" ou pagamento do "cartão" (nem todo banco escreve "fatura" no extrato)
+  return d.includes("fatura") || (d.includes("cartao") && /pagamento|pagto|pgto|boleto/.test(d));
 }
 
 // Se o valor do pagamento bate com o total de UMA única fatura em aberto

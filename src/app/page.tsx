@@ -539,6 +539,7 @@ export default function Dashboard() {
         isSaving={isSavingBulk}
         pendingFixedBills={pendingFixedBills}
         invoices={openInvoices}
+        accounts={rawData.accounts || []}
         owners={owners}
         defaultOwnerId={owners.some((o) => o.id === viewMode) ? viewMode : undefined}
       />

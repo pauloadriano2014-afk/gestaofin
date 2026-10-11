@@ -459,3 +459,60 @@ test("importar a fatura de novo: só entra o que falta, contando repetidos legí
   // nada existente: tudo entra
   assert.equal(dedupeAgainstExisting([], incoming).fresh.length, 5);
 });
+
+import { looksLikeTransfer, pairWithinList, bestExistingMatch, rankFixedBills } from "./transfers";
+
+test("transferências: reconhece o que costuma ser dinheiro trocando de mãos", () => {
+  assert.equal(looksLikeTransfer("Transferência enviada pelo Pix - ADRIELLE"), true);
+  assert.equal(looksLikeTransfer("Reembolso recebido pelo Pix"), true);
+  assert.equal(looksLikeTransfer("Compra no débito via NuPay - Uber"), false);
+});
+
+test("transferências: acha a outra ponta dentro da própria importação", () => {
+  const rows = [
+    { date: "2026-10-07", amount: "104.13", type: "expense", description: "Transferência enviada pelo Pix" },
+    { date: "2026-10-07", amount: "104.13", type: "income", description: "Reembolso recebido pelo Pix" },
+    { date: "2026-10-08", amount: "89.75", type: "expense", description: "Transferência enviada pelo Pix" },
+    { date: "2026-10-09", amount: "17.94", type: "expense", description: "Compra no débito" },
+  ];
+  const pairs = pairWithinList(rows);
+  assert.equal(pairs.get(0), 1);
+  assert.equal(pairs.get(1), 0);
+  assert.equal(pairs.has(2), false);   // sem par
+  assert.equal(pairs.has(3), false);
+  // valores iguais, mas nenhum parece transferência: não é par
+  assert.equal(pairWithinList([
+    { date: "2026-10-01", amount: "50", type: "expense", description: "Mercado" },
+    { date: "2026-10-01", amount: "50", type: "income", description: "Venda loja" },
+  ]).size, 0);
+});
+
+test("transferências: acha a ponta já salva de outro extrato (valor igual, até 3 dias)", () => {
+  const existing = [
+    { id: "a", date: "2026-10-01", amount: "1200.00", type: "income", description: "Transferência recebida" },
+    { id: "b", date: "2026-09-20", amount: "1200.00", type: "income", description: "Transferência recebida" },
+    { id: "c", date: "2026-10-02", amount: "1200.00", type: "expense", description: "Transferência enviada" },
+  ];
+  const row = { date: "2026-10-02", amount: "1200", type: "expense", description: "Transferência enviada pelo Pix" };
+  assert.equal(bestExistingMatch(row, existing)?.id, "a");
+  assert.equal(bestExistingMatch({ ...row, amount: "999" }, existing), null);
+});
+
+test("contas fixas: sugere as de valor parecido primeiro e ordena o resto por data", () => {
+  const bills = [
+    { id: "1", date: "2026-11-10", amount: "500" },
+    { id: "2", date: "2026-10-10", amount: "65" },
+    { id: "3", date: "2026-09-10", amount: "65" },
+    { id: "4", date: "2026-10-05", amount: "1827.95" },
+  ];
+  const r = rankFixedBills("65.78", bills);
+  assert.deepEqual(r.map((b: any) => [b.id, b.suggested]), [["3", true], ["2", true], ["4", false], ["1", false]]);
+});
+
+test("extrato: pagamento de cartão sem a palavra 'fatura' também é reconhecido", () => {
+  assert.equal(looksLikeBankInvoicePayment("Pagamento cartão de crédito Itaú"), true);
+  assert.equal(looksLikeBankInvoicePayment("PGTO CARTAO ADRI"), true);
+  assert.equal(looksLikeBankInvoicePayment("Compra no débito - Uber"), false);
+  assert.equal(_searchHelp("emprestei 500 e o banco cobrou 520 de juros")[0].id, "emprestimo-juros");
+  assert.equal(_searchHelp("mandei dinheiro pra adri como categorizo")[0].id, "transferencias-emprestimos");
+});

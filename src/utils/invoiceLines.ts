@@ -73,3 +73,11 @@ export function dedupeAgainstExisting<T extends KeyedItem>(existing: KeyedItem[]
   }
   return { fresh, skipped };
 }
+
+// "cartão|AAAA-MM" -> [cartão, ciclo]; qualquer outra coisa (vazio, incompleto) -> null.
+// Cuidado clássico: "".split("|") dá [""], que é "verdadeiro" e já causou bug.
+export function parseLinkedInvoice(value: unknown): [string, string] | null {
+  if (typeof value !== "string") return null;
+  const parts = value.split("|");
+  return parts.length === 2 && parts[0] && parts[1] ? [parts[0], parts[1]] : null;
+}

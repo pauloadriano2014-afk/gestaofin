@@ -4,13 +4,14 @@ import { db } from "@/db";
 import { categories, transactions, userSettings, categoryRules, fixedBills, accounts, creditCards } from "@/db/schema";
 import { getOwners, resolveOwnership, ownerSetupNeeded } from "@/db/owners";
 import { matchesView } from "@/utils/owners";
-import { inferKindFromName, buildKindSets, type CategoryKind } from "@/utils/categoryKinds";
+import { inferKindFromName, buildKindSets, resolveCategoryKind, type CategoryKind } from "@/utils/categoryKinds";
 import { balanceForPeriod, classifyForPeriod, adjustmentFor, FOREVER_START } from "@/utils/balance";
 import { cycleKeyForDueMonth, withInvoiceTag } from "@/utils/creditCard";
 import { paidByFromTags, withPaidBy, toCashRow } from "@/utils/paidBy";
 import { settleInvoice } from "@/db/invoices";
 import { loadUserRules } from "@/db/rules";
-import { dedupeAgainstExisting } from "@/utils/invoiceLines";
+import { mentionsOwner } from "@/utils/transfers";
+import { dedupeAgainstExisting, parseLinkedInvoice, looksLikeBankInvoicePayment } from "@/utils/invoiceLines";
 import { bestExistingMatch, daysApart } from "@/utils/transfers";
 import { desc, asc, and, or, sql, eq, lte, gte, inArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
@@ -865,6 +866,66 @@ export async function deleteTransactions(ids: string[]) {
   }
 }
 
+// Sugere categoria para lançamentos já salvos (em massa), sem aprender nada com o
+// palpite. Ordem: transferência com o nome de um dos donos -> Reembolso/Empréstimo;
+// regra aprendida (ignorando as genéricas/erradas); e, no que sobrar, a IA.
+export async function suggestCategoriesForTransactions(ids: string[]) {
+  try {
+    const userId = await getUser();
+    if (!userId) return { success: false, message: "Login necessário." };
+    if (!Array.isArray(ids) || ids.length === 0) return { success: false, message: "Selecione pelo menos um item." };
+
+    const [rows, cats, ownerList, rules] = await Promise.all([
+      db.select().from(transactions).where(and(eq(transactions.userId, userId), inArray(transactions.id, ids.slice(0, 200)))),
+      db.select().from(categories).where(eq(categories.userId, userId)),
+      getOwners(userId),
+      loadUserRules(userId),
+    ]);
+    const refundId = Array.from(buildKindSets(cats).refund)[0] ?? null;
+    const offered = cats.filter((c) => { const k = resolveCategoryKind(c); return k !== "card_payment" && c.name.trim().toLowerCase() !== "ajuste de saldo"; });
+
+    const decided = new Map<string, string>();
+    const needAi: typeof rows = [];
+    for (const t of rows) {
+      if (t.type !== "income" && t.type !== "expense") continue;
+      if (looksLikeBankInvoicePayment(t.description)) continue; // pagamento de fatura fica como está
+      if (refundId && mentionsOwner(t.description, ownerList)) { decided.set(t.id, refundId); continue; }
+      const byRule = findMatchingRuleCategoryId(t.description, rules);
+      if (byRule && offered.some((c) => c.id === byRule)) { decided.set(t.id, byRule); continue; }
+      needAi.push(t);
+    }
+
+    const list = offered.map((c) => `{ id: '${c.id}', name: '${c.name}' }`).join(", ");
+    for (let i = 0; i < needAi.length; i += 15) {
+      const chunk = needAi.slice(i, i + 15);
+      const payload = chunk.map((t, n) => ({ n, description: t.description, amount: t.amount, type: t.type }));
+      const prompt = `Categorize as transações. Categorias: ${list}\nDevolva SÓ um array JSON com { "n": número, "categoryId": id da lista } para cada uma, usando apenas ids da lista.\nTransações: ${JSON.stringify(payload)}`;
+      try {
+        const response = await fetch("https://api.openai.com/v1/chat/completions", {
+          method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${process.env.OPENAI_API_KEY}` },
+          body: JSON.stringify({ model: "gpt-4o-mini", messages: [{ role: "system", content: "Responda APENAS com um Array JSON." }, { role: "user", content: prompt }], temperature: 0.1 }),
+        });
+        if (!response.ok) continue;
+        const data = await response.json();
+        const parsed = JSON.parse(String(data.choices[0].message.content).replace(/```json/g, "").replace(/```/g, "").trim());
+        for (const r of parsed) {
+          const t = chunk[Number(r?.n)];
+          if (t && offered.some((c) => c.id === r.categoryId)) decided.set(t.id, r.categoryId);
+        }
+      } catch { /* esse lote fica sem sugestão */ }
+    }
+
+    for (const [id, categoryId] of decided) {
+      await db.update(transactions).set({ categoryId }).where(and(eq(transactions.id, id), eq(transactions.userId, userId)));
+    }
+    revalidatePath("/");
+    return { success: true, updated: decided.size, skipped: rows.length - decided.size };
+  } catch (error) {
+    console.error("Erro ao sugerir categorias:", error);
+    return { success: false, message: "Erro ao sugerir categorias." };
+  }
+}
+
 export async function setTransactionsCategory(ids: string[], categoryId: string | null) {
   try {
     const userId = await getUser();
@@ -1266,7 +1327,8 @@ export async function saveBulkTransactions(transactionsList: any[]) {
                 await db.update(transactions).set({ categoryId: refundCategoryId })
                     .where(and(eq(transactions.id, tx.pairedExistingId), eq(transactions.userId, userId)));
             }
-            const linked = typeof tx.linkedInvoice === "string" ? tx.linkedInvoice.split("|") : null;
+            // só é "vinculada a fatura" com o formato completo "cartão|AAAA-MM"
+            const linked = parseLinkedInvoice(tx.linkedInvoice);
             const categoryForRow = linked && cardPaymentCategoryId ? cardPaymentCategoryId : tx.categoryId;
             // 🔥 NOVO: se na revisão o usuário vinculou esse item importado a uma
             // ocorrência de conta fixa pendente, dá baixa nela (usando o valor

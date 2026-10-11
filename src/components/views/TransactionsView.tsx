@@ -7,7 +7,7 @@ import { TransactionRow } from '@/components/TransactionRow'
 import { filterTransactions, summarizeTxs, hasActiveFilters, EMPTY_FILTERS, type TxFilters, type QuickFilter } from '@/utils/txFilters'
 import { groupCardItems, type ListEntry } from '@/utils/cardGroups'
 import { reassignTransactions } from '@/app/creditCardActions'
-import { setTransactionsCategory, deleteTransactions } from '@/app/actions'
+import { setTransactionsCategory, deleteTransactions, suggestCategoriesForTransactions } from '@/app/actions'
 
 const PAGE = 150
 
@@ -148,6 +148,9 @@ export function TransactionsView({
             </select>
             <button disabled={!bulkCategory || busy} onClick={() => run(() => setTransactionsCategory(selectedIds, bulkCategory))} className={`flex items-center gap-1.5 text-xs font-bold px-3 py-2 rounded-lg ${theme.button} disabled:opacity-40`}>
               <Tag className="w-3.5 h-3.5" /> Aplicar
+            </button>
+            <button disabled={busy} onClick={() => { if (confirm(`Sugerir a categoria de ${selectedIds.length} lançamento(s)? O app usa suas regras e a IA; transferências com o nome de vocês viram Reembolso/Empréstimo. Pagamentos de fatura de cartão devem ficar de fora da seleção.`)) run(async () => { const r: any = await suggestCategoriesForTransactions(selectedIds); if (r?.success) alert(`${r.updated} categorizado(s)${r.skipped ? `, ${r.skipped} ficaram como estavam` : ''}.`); return r }) }} className={`flex items-center gap-1.5 text-xs font-bold px-3 py-2 rounded-lg border ${theme.buttonSecondary} disabled:opacity-40`}>
+              <Tag className="w-3.5 h-3.5" /> Sugerir categorias
             </button>
             <button disabled={busy} onClick={() => { if (confirm(`Excluir ${selectedIds.length} lançamento(s)? Isso não pode ser desfeito.`)) run(() => deleteTransactions(selectedIds)) }} className="flex items-center gap-1.5 text-xs font-bold px-3 py-2 rounded-lg bg-red-500/10 text-red-500 hover:bg-red-500/20 disabled:opacity-40 ml-auto">
               <Trash2 className="w-3.5 h-3.5" /> Excluir

@@ -733,3 +733,11 @@ test("custos fixos agrupados por categoria com total e atrasadas", () => {
   const g = groupFixedByCategory(items, [{ id: "e", name: "Estudos" }, { id: "c", name: "Carro" }], "2026-10-11");
   assert.deepEqual(g.map((x) => [x.name, x.total, x.pendingCount, x.lateCount]), [["Carro", 1827.95, 1, 0], ["Estudos", 829, 2, 2], ["Sem categoria", 10, 0, 0]]);
 });
+
+import { parseLinkedInvoice } from "./invoiceLines";
+test("vínculo de fatura: vazio ou incompleto não conta (bug do ''.split)", () => {
+  assert.equal(parseLinkedInvoice(""), null);
+  assert.equal(parseLinkedInvoice("abc|"), null);
+  assert.equal(parseLinkedInvoice(undefined), null);
+  assert.deepEqual(parseLinkedInvoice("k1|2026-09"), ["k1", "2026-09"]);
+});

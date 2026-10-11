@@ -2,6 +2,7 @@
 
 import { db } from "@/db";
 import { invoiceAmount } from "@/utils/invoice";
+import { withPaidBy } from "@/utils/paidBy";
 import { creditCards, transactions, creditCardInvoiceOverrides } from "@/db/schema";
 import { and, eq, inArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
@@ -300,13 +301,36 @@ export async function reassignTransactions(ids: string[], target: { ownerId?: st
       changes.creditCardId = card.id;
     }
 
+    // Mudar o DONO de compras de cartão não muda de onde o dinheiro sai: ele sai da conta do dono do
+    // cartão (conta usada), até a fatura ser paga por quem pagou de verdade. Ex: o Uber do cartão
+    // da Adri passa a ser da Empresa, mas o saldo que cai continua o dela.
+    const rows = await db.select().from(transactions).where(and(eq(transactions.userId, userId), inArray(transactions.id, ids)));
+    const cardIds = Array.from(new Set(rows.map((r) => changes.creditCardId || r.creditCardId).filter(Boolean) as string[]));
+    const cardList = cardIds.length > 0 ? await db.select().from(creditCards).where(and(eq(creditCards.userId, userId), inArray(creditCards.id, cardIds))) : [];
+    const retagIds = new Set<string>();
+    if (changes.ownerId) {
+      for (const r of rows) {
+        const cardId = changes.creditCardId || r.creditCardId;
+        if (!cardId) continue;
+        const cardOwner = cardList.find((c) => c.id === cardId)?.ownerId || null;
+        const payer = cardOwner && cardOwner !== changes.ownerId ? cardOwner : null;
+        retagIds.add(r.id);
+        await db.update(transactions).set({ ...changes, aiTags: withPaidBy(r.aiTags, payer) })
+          .where(and(eq(transactions.userId, userId), eq(transactions.id, r.id)));
+      }
+    }
     // O filtro por userId garante que só itens do próprio usuário são alterados.
-    const updated = await db.update(transactions).set(changes)
-      .where(and(eq(transactions.userId, userId), inArray(transactions.id, ids)))
-      .returning({ id: transactions.id });
+    const rest = ids.filter((id) => !retagIds.has(id));
+    let updatedCount = retagIds.size;
+    if (rest.length > 0) {
+      const updated = await db.update(transactions).set(changes)
+        .where(and(eq(transactions.userId, userId), inArray(transactions.id, rest)))
+        .returning({ id: transactions.id });
+      updatedCount += updated.length;
+    }
 
     revalidatePath("/");
-    return { success: true, updated: updated.length };
+    return { success: true, updated: updatedCount };
   } catch (error) {
     console.error("Erro ao mover itens:", error);
     return { success: false, message: "Erro ao mover os itens." };

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { UpdateBanner } from './UpdateBanner'
 import { Home, ListOrdered, Wallet, PieChart, FileText, Menu, X } from 'lucide-react'
 
 export type Section = 'inicio' | 'lancamentos' | 'contas' | 'categorias' | 'relatorios'
@@ -80,7 +81,7 @@ export function AppShell({
       {/* CONTEÚDO */}
       <div className="md:pl-60 pb-24 md:pb-8">
         <div className={`h-1 w-full ${accent.bar} transition-colors`} />
-        <div className="max-w-6xl mx-auto px-4 md:px-8">{children}</div>
+        <div className="max-w-6xl mx-auto px-4 md:px-8"><UpdateBanner />{children}</div>
       </div>
 
       {/* BARRA INFERIOR (celular) */}

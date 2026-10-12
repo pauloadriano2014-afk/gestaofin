@@ -66,7 +66,7 @@ export function DashboardCards({
             {onHelp && <button type="button" onClick={(e) => { e.stopPropagation(); onHelp('card-receita'); }} className={`p-1 rounded-full hover:bg-black/5 ${theme.textMuted}`} title="Como esse número é calculado?" aria-label="Ajuda sobre este card"><HelpCircle className="w-4 h-4" /></button>}
           </div>
           <p className={`text-lg md:text-3xl font-bold font-mono tracking-tight text-emerald-500`}>{formatCurrency(summary.income)}</p>
-          <p className={`text-[10px] md:text-xs mt-2 ${theme.textMuted}`}>Excl. cartão e investimentos</p>
+          <p className={`text-[10px] md:text-xs mt-2 ${theme.textMuted}`}>Tudo que entra no período, pago ou não · sem investimentos, reembolsos e transferências</p>
         </div>
 
         {/* Card 3: Despesas de Fato */}
@@ -82,7 +82,7 @@ export function DashboardCards({
             {onHelp && <button type="button" onClick={(e) => { e.stopPropagation(); onHelp('card-despesas'); }} className={`p-1 rounded-full hover:bg-black/5 ${theme.textMuted}`} title="Como esse número é calculado?" aria-label="Ajuda sobre este card"><HelpCircle className="w-4 h-4" /></button>}
           </div>
           <p className={`text-lg md:text-3xl font-bold font-mono tracking-tight text-red-500`}>{formatCurrency(summary.expense)}</p>
-          <p className={`text-[10px] md:text-xs mt-2 ${theme.textMuted}`}>Excl. cartão e investimentos</p>
+          <p className={`text-[10px] md:text-xs mt-2 ${theme.textMuted}`}>Tudo que sai no período, pago ou não · sem aportes, reembolsos, transferências e pagamento de fatura</p>
         </div>
 
         {/* Card 4: Aportes / Investido */}
@@ -98,7 +98,7 @@ export function DashboardCards({
             {onHelp && <button type="button" onClick={(e) => { e.stopPropagation(); onHelp('card-investido'); }} className={`p-1 rounded-full hover:bg-black/5 ${theme.textMuted}`} title="Como esse número é calculado?" aria-label="Ajuda sobre este card"><HelpCircle className="w-4 h-4" /></button>}
           </div>
           <p className={`text-lg md:text-3xl font-bold font-mono tracking-tight text-purple-500`}>{formatCurrency(summary.invested)}</p>
-          <p className={`text-[10px] md:text-xs mt-2 ${theme.textMuted}`}>Patrimônio alocado</p>
+          <p className={`text-[10px] md:text-xs mt-2 ${theme.textMuted}`}>Dinheiro guardado no período (aportes − resgates)</p>
         </div>
 
       </div>

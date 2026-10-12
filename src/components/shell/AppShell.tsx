@@ -14,6 +14,18 @@ export const NAV_ITEMS: { id: Section; label: string; icon: any }[] = [
   { id: 'relatorios', label: 'Relatórios', icon: FileText },
 ]
 
+// O arquivo /logo.png é um quadrado de 1080x1080 com o desenho ocupando só uma faixa no meio
+// (x 161–921, y 402–677). Antes a logo era mostrada inteira e ficava minúscula. Aqui cortamos
+// essa faixa por CSS, sem mexer no arquivo (ele também é o ícone do site).
+// Se um dia trocar o logo.png por outro, ajuste ou remova estes números.
+function Logo({ src, className = '', widthClass }: { src: string; className?: string; widthClass: string }) {
+  return (
+    <span className={`relative block shrink-0 overflow-hidden ${widthClass}`} style={{ aspectRatio: '760 / 275' }}>
+      <img src={src} alt="KORE" className={`absolute max-w-none ${className}`} style={{ width: '142.105%', left: '-21.184%', top: '-146.182%' }} />
+    </span>
+  )
+}
+
 export interface ShellMenuItem { label: string; hint: string; icon: any; run: () => void }
 
 // Estrutura da tela: menu lateral no computador, barra inferior no celular.
@@ -50,7 +62,7 @@ export function AppShell({
     <div className="min-h-screen w-full">
       {/* MENU LATERAL (computador) */}
       <aside className={`hidden md:flex fixed inset-y-0 left-0 w-60 flex-col gap-4 p-4 border-r ${theme.card} rounded-none`}>
-        <img src={logoSrc} alt="KORE" className={`h-14 w-auto object-contain self-start ${logoClass}`} />
+        <Logo src={logoSrc} className={logoClass} widthClass="w-44 self-start" />
         <nav className="space-y-1">{NAV_ITEMS.map((i) => navButton(i, 'side'))}</nav>
 
         <div className="space-y-1 pt-3 border-t border-black/5">
@@ -74,7 +86,7 @@ export function AppShell({
 
       {/* TOPO (celular) */}
       <header className={`md:hidden flex items-center justify-between px-4 py-2 border-b ${theme.card} rounded-none`}>
-        <img src={logoSrc} alt="KORE" className={`h-9 w-auto object-contain ${logoClass}`} />
+        <Logo src={logoSrc} className={logoClass} widthClass="w-28" />
         <div className="flex items-center gap-2">{proSlot}{userSlot}</div>
       </header>
 

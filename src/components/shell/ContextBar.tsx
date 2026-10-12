@@ -40,9 +40,9 @@ export function ContextBar({
   }
 
   return (
-    <div className="md:sticky md:top-0 z-30 -mx-4 md:-mx-8 px-4 md:px-8 py-3 space-y-3 backdrop-blur" style={{ backgroundColor: `${theme.hex}f2` }}>
+    <div className="md:sticky md:top-0 z-30 -mx-4 md:-mx-8 px-4 md:px-8 py-3 flex flex-col gap-3 backdrop-blur" style={{ backgroundColor: `${theme.hex}f2` }}>
       {/* QUEM */}
-      <div className="flex gap-2 overflow-x-auto pb-1 -mb-1">
+      <div className="flex gap-2 overflow-x-auto py-1 px-1 -mx-1">
         {viewOptions.map((opt: any) => {
           const active = viewMode === opt.id
           const accent = accentOf(opt.id)
